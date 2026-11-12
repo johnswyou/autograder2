@@ -116,10 +116,10 @@
         "part_id": "Q5.a",
         "page": 3,
         "box": [
-          0.1524,
-          0.0752,
-          0.3715,
-          0.1215
+          0.1683,
+          0.0832,
+          0.3924,
+          0.13
         ],
         "basis": "student_label",
         "role": "work",
@@ -129,10 +129,10 @@
         "part_id": "Q5.b",
         "page": 3,
         "box": [
-          0.1504,
-          0.1539,
-          0.3406,
-          0.1838
+          0.1673,
+          0.1643,
+          0.3616,
+          0.1942
         ],
         "basis": "student_label",
         "role": "work",
@@ -142,10 +142,10 @@
         "part_id": "Q5.c",
         "page": 3,
         "box": [
-          0.1494,
-          0.2161,
-          0.4552,
-          0.3974
+          0.1673,
+          0.2291,
+          0.4811,
+          0.4114
         ],
         "basis": "student_label",
         "role": "work",
@@ -345,7 +345,19 @@
           "label": "vertex",
           "kind": "point",
           "direction": null,
-          "position": "(3, 4)"
+          "position": "(3, -4)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(1, 0)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(5, 0)"
         }
       ],
       "uncertain": [],
@@ -511,25 +523,25 @@
       ],
       "transcript_dispute": null,
       "belongs_elsewhere": null,
-      "code_overruled": null
+      "code_overruled": "The answer check finds 4, not -4, but 4 is the minimum of the student's own (x - 3)^2 + 4 from 5(a): carry-forward credit."
     },
     {
       "part_id": "Q5.c",
       "criteria": [
         {
           "id": "Q5.c.c1",
-          "awarded": "0",
+          "awarded": "1",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Vertex drawn at (3, 4), not (3, -4), and no x-intercepts marked. The graph criteria do not carry forward.",
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
           "feedback": ""
         },
         {
           "id": "Q5.c.c2",
-          "awarded": "0",
+          "awarded": "1",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Vertex drawn at (3, 4), not (3, -4), and no x-intercepts marked. The graph criteria do not carry forward.",
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
           "feedback": ""
         }
       ],
@@ -538,5 +550,7 @@
       "code_overruled": null
     }
   ],
-  "flags": []
+  "flags": [
+    "code_overruled"
+  ]
 }

@@ -780,22 +780,47 @@ def point(position: str) -> tuple[float, float]:
 
 
 def parabola(sheet, mask, ox, oy, unit, elements, pen, rng, axes=False) -> None:
-    """y = (x - h)^2 + k on axes with x from -1 to 7 and y from -5 to 6."""
+    """y = (x - h)^2 + k on axes with x from -1 to 7 and y from -5 to 6.
+
+    Axes drawn by hand (`axes=True`) get ticks, every second one numbered, and the
+    x-intercepts are labelled beside their dots; printed axes carry their own numbers.
+    """
+
+    def at(x: float, y: float) -> tuple[float, float]:
+        return ox + x * unit, oy - y * unit
+
+    def minus(text: str) -> str:
+        return text.replace("-", "−")
+
     if axes:
-        ink_arrow(sheet, mask, ox - unit, oy, ox + 7.3 * unit, oy, pen)
-        ink_arrow(sheet, mask, ox, oy + 5 * unit, ox, oy - 6.3 * unit, pen)
+        ink_arrow(sheet, mask, *at(-1, 0), *at(7.3, 0), pen)
+        ink_arrow(sheet, mask, *at(0, -5), *at(0, 6.3), pen)
+        for i in (-1, 1, 2, 3, 4, 5, 6, 7):
+            stroke(sheet, mask, [at(i, 0.15), at(i, -0.15)], pen)
+        for j in (-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6):
+            stroke(sheet, mask, [at(-0.15, j), at(0.15, j)], pen)
+        for i in (2, 4, 6):  # below the axis, where the curve is far below or above
+            write(sheet, mask, *at(i - 0.2, -0.3), str(i), pen, rng)
+        for j in (-4, -2, 2, 4, 6):
+            width = 0.55 * pen.size * len(minus(str(j))) / unit
+            write(sheet, mask, *at(-0.35 - width, j + 0.45), minus(str(j)), pen, rng)
     points = {e.label: e.position for e in elements if e.position}
     h, k = point(points["vertex"])
     reach = (6 - k) ** 0.5
     xs = [h - reach + i * reach / 20 for i in range(41)]
-    curve = [(ox + x * unit, oy - ((x - h) ** 2 + k) * unit) for x in xs if x >= -0.9]
+    curve = [at(x, (x - h) ** 2 + k) for x in xs if x >= -0.9]
     stroke(sheet, mask, curve, pen)
     for e in elements:
         if e.kind == "point":
             x, y = point(e.position)
-            dot(sheet, mask, ox + x * unit, oy - y * unit, pen)
-    label = f"({h:g}, {k:g})".replace("-", "−")
-    write(sheet, mask, ox + (h + 0.6) * unit, oy - (k - 0.2) * unit, label, pen, rng)
+            dot(sheet, mask, *at(x, y), pen)
+            if axes and e.label == "x-intercept":
+                # left root: just inside the arms; right root: outside the right arm
+                text = minus(f"({x:g}, {y:g})")
+                write(
+                    sheet, mask, *at(x + 0.2 if x < h else x + 0.5, 1.1), text, pen, rng
+                )
+    write(sheet, mask, *at(h + 0.6, k - 0.2), minus(f"({h:g}, {k:g})"), pen, rng)
 
 
 def sign(sheet: Sheet, name: str, pen: Pen, rng) -> None:
@@ -952,9 +977,13 @@ def photograph(sheet: Sheet, rng, turned=False, low=165.0):
     def warp(image: Image.Image) -> Image.Image:
         if turned:
             image = image.transpose(Image.Transpose.ROTATE_90)
-        fill = (88, 82, 74) if image.mode == "RGB" else 0
+        desk = (88, 82, 74) if image.mode == "RGB" else 0
         return image.transform(
-            (w, h), Image.Transform.PERSPECTIVE, coeffs, Image.Resampling.BICUBIC, fill
+            (w, h),
+            Image.Transform.PERSPECTIVE,
+            coeffs,
+            Image.Resampling.BICUBIC,
+            fillcolor=desk,
         )
 
     photo = ImageChops.multiply(warp(sheet.image), light((w, h), rng, low))
@@ -996,6 +1025,7 @@ class Work(NamedTuple):
     why: str
     elements: list[DiagramElement] = []
     below: int = 0  # lines carried on below the printed page
+    overruled: str | None = None  # why the grader overrules the code's answer check
 
 
 def choice(pid: str, letter: str) -> Work:
@@ -1100,16 +1130,10 @@ def students() -> list[Student]:
             ["1", "1"],
             "Reads the minimum from the vertex of the 5(a) result. 4 follows from "
             "the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
+            overruled="The answer check finds 4, not -4, but 4 is the minimum of the "
+            "student's own (x - 3)^2 + 4 from 5(a): carry-forward credit.",
         ),
-        "Q5.c": Work(
-            [],
-            {},
-            ["0", "0"],
-            "Vertex drawn at (3, 4), not (3, -4), and no x-intercepts marked. The "
-            "graph criteria do not carry forward.",
-            [PARABOLA[0], element("vertex", "point", None, "(3, 4)")],
-        ),
-    }
+    }  # 5(c) is drawn correctly from the given f(x), independent of the wrong 5(a)
     derivative = Work(
         ["f'(x) = 2x − 6 = 0", "x = 3", "f(3) = 9 − 18 + 5 = −4"],
         {"value": -4.0},
@@ -1285,6 +1309,7 @@ def fraction(box: tuple[int, int, int, int], size: tuple[int, int]) -> list[floa
 def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> dict:
     classkick = student.layout != "not-classkick"
     size = (SLIDE_W, SLIDE_H) if classkick else (1700, 2200)
+    unreadable = student.layout == "low-resolution"
     entries, set_aside = [], []
     for k, (_, placed) in enumerate(pages, 1):
         for part, role, basis, box in placed:
@@ -1294,17 +1319,19 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
                     SetAside(page=k, box=fraction(box, size), reason=reason)
                 )
             else:
+                # On the unreadable sheet the map records where the work physically
+                # is. Its part labels cannot be read, so this attribution is not
+                # something a correct mapper can be expected to reproduce.
                 entry = MapEntry(
                     part_id=part,
                     page=k,
                     box=fraction(box, size),
-                    basis=basis,
+                    basis="content" if unreadable else basis,
                     role=role,
-                    confidence="high",
+                    confidence="low" if unreadable else "high",
                 )
                 entries.append(entry)
     unanswered = [p.id for p in KEY.parts if p.id not in student.works]
-    unreadable = student.layout == "low-resolution"
     readings, grades = [], []
     for part in KEY.parts:
         work = student.works.get(part.id)
@@ -1362,9 +1389,12 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
                 criteria=criteria,
                 transcript_dispute=None,
                 belongs_elsewhere=None,
-                code_overruled=None,
+                code_overruled=work.overruled if work else None,
             )
         )
+    flags = ["low_resolution", "unreadable"] if unreadable else []
+    if any(g.code_overruled for g in grades):
+        flags.append("code_overruled")
     ingest = [
         IngestPage(
             number=k,
@@ -1384,7 +1414,7 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
         "map": found.model_dump(mode="json"),
         "readings": [r.model_dump(mode="json") for r in readings],
         "grades": [g.model_dump(mode="json") for g in grades],
-        "flags": ["low_resolution"] if unreadable else [],
+        "flags": flags,
     }
 
 

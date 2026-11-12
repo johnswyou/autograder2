@@ -135,6 +135,10 @@ def test_truth_names_key_ids_and_awards_within_points(path: Path) -> None:
     blank = {r.part_id for r in truth.readings if r.status == "blank"}
     assert set(truth.map.unanswered) == blank
     assert all(e.page <= len(truth.pages) for e in truth.map.entries)
+    if any(r.status == "unreadable" for r in truth.readings):
+        assert FlagCode.UNREADABLE in truth.flags
+    if any(g.code_overruled for g in truth.grades):
+        assert FlagCode.CODE_OVERRULED in truth.flags
     for grade in truth.grades:
         points = {c.id: c.points for c in parts[grade.part_id].criteria}
         assert [c.id for c in grade.criteria] == list(points)
