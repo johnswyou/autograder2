@@ -5,6 +5,8 @@ description = "Grade student work on an assignment from the blank assignment PDF
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.1",
+    "pillow>=13.0.0",
     "pydantic>=2.14.3",
     "rich>=15.0.0",
     "typer>=0.29.1",
@@ -26,7 +28,8 @@ strict = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib"]
+addopts = ["--import-mode=importlib", "-m", "not live"]
+markers = ["live: makes a paid OpenRouter call; run only with -m live"]
 filterwarnings = ["error"]
 
 [dependency-groups]
