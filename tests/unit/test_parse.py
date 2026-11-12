@@ -19,6 +19,7 @@ from redpen.prepare.parse import (
     PageParse,
     SpecError,
     check,
+    missing_numbers,
     parse,
     with_text_bands,
 )
@@ -78,23 +79,49 @@ def part(id: str, label: str, home_page: int = 1, **fields: Any) -> Part:
             [part("Q1", "1", depends_on=["Q2"])],
             ["Q1 depends on Q2, which does not exist"],
         ),
-        ([part("Q1.a", "1(a)"), part("Q3", "3", 2)], ["problem 2 is missing"]),
-        # Problems numbered in order by the ids, not as printed, have no gap check.
-        ([part("Q1", "A"), part("Q3", "C")], []),
+        # A gap is a warning, not a failure: an assignment may skip a number.
+        ([part("Q1.a", "1(a)"), part("Q3", "3", 2)], []),
     ],
 )
 def test_each_check_catches_its_failure(parts: list[Part], failures: list[str]) -> None:
     assert check(Spec(parts=parts), 2) == failures
 
 
-def blank_page(spans: list[tuple[str, float]]) -> render.Page:
+def numbered(*labels: str) -> list[Part]:
+    """Parts with these labels, numbered by their ids in order of appearance."""
+    return [part(f"Q{n}", label) for n, label in enumerate(labels, 1)]
+
+
+@pytest.mark.parametrize(
+    ("parts", "missing"),
+    [
+        ([part("Q1.a", "1(a)"), part("Q1.b", "1(b)"), part("Q3", "3")], [2]),
+        ([part(f"Q{n}", str(n)) for n in (4, 5, 7, 9)], [6, 8]),  # starts past 1
+        (numbered("1", "2", "3"), []),
+        # Numbering that restarts (two sections from 1) is numbered in order.
+        (numbered("1", "2", "3", "1", "2"), []),
+        (numbered("A", "C"), []),  # no printed numbers
+    ],
+)
+def test_a_gap_is_found_only_in_numbers_as_printed(
+    parts: list[Part], missing: list[int]
+) -> None:
+    spec = Spec(parts=parts)
+
+    assert check(spec, 2) == []
+    assert missing_numbers(spec) == missing
+
+
+def blank_page(spans: list[tuple[str, float, float]]) -> render.Page:
+    """A page with no ink and these (text, top, left edge) spans."""
     return render.Page(
         image=Image.new("RGB", (100, 1000), "white"),
         dpi=200,
         native_ppi=None,
         sidebar=None,
         text=[
-            render.TextSpan(text, [0.1, top, 0.2, top + 0.01]) for text, top in spans
+            render.TextSpan(text, [left, top, left + 0.1, top + 0.01])
+            for text, top, left in spans
         ],
     )
 
@@ -102,24 +129,24 @@ def blank_page(spans: list[tuple[str, float]]) -> render.Page:
 def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
     page = blank_page(
         [
-            ("12 apples", 0.05),
-            ("1.5 m", 0.07),
-            ("1.", 0.10),
-            ("2.", 0.30),
-            ("(a)", 0.35),
-            ("(b)", 0.45),
-            ("3.", 0.55),
-            ("(a)", 0.60),
-            ("5.", 0.85),
-            ("A crate rests on the floor.", 0.87),
-            ("A.", 0.90),
+            ("12 apples", 0.05, 0.1),
+            ("1.5 m", 0.07, 0.1),
+            ("1.", 0.10, 0.1),
+            ("2.", 0.30, 0.1),
+            ("(a)", 0.35, 0.12),
+            ("(b)", 0.45, 0.12),
+            ("3.", 0.55, 0.1),
+            ("(a)", 0.60, 0.12),
+            ("5.", 0.85, 0.1),
+            ("A crate rests on the floor.", 0.87, 0.15),
+            ("A.", 0.90, 0.12),
         ]
     )
     spec = Spec(
         parts=[
             part("Q1", "1", band=[0.0, 0.2]),
-            part("Q2.a", "2(a)", band=[0.38, 0.4]),
-            part("Q2.b", "2(b)", band=[0.47, 0.5]),
+            part("Q2.a", "2(a)", band=[0.36, 0.44]),
+            part("Q2.b", "2(b)", band=[0.46, 0.54]),
             part("Q3.a", "3(a)", band=[0.58, 0.7]),
             part("Q4", "4", band=[0.8, 0.9]),  # not in the text layer
             part("Q5.a", "5A", band=[0.87, 0.95]),
@@ -141,6 +168,39 @@ def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
         [0.8, 0.9],
         [0.90, 1.0],  # to the bottom of a page with no ink
     ]
+
+
+def test_only_a_label_in_the_same_column_ends_a_band() -> None:
+    page = blank_page(
+        [("1.", 0.10, 0.05), ("2.", 0.50, 0.05), ("3.", 0.12, 0.55), ("4.", 0.52, 0.55)]
+    )
+    spec = Spec(
+        parts=[
+            part("Q1", "1", band=[0.1, 0.45]),
+            part("Q2", "2", band=[0.5, 0.9]),
+            part("Q3", "3", band=[0.12, 0.45]),
+            part("Q4", "4", band=[0.52, 0.9]),
+        ]
+    )
+
+    banded = with_text_bands(spec, [page], [PageParse(items=[], shared_stems=[])])
+
+    assert [p.band for p in banded.parts] == [
+        [0.10, 0.50],
+        [0.50, 1.0],
+        [0.12, 0.52],
+        [0.52, 1.0],
+    ]
+
+
+def test_a_label_outside_the_estimated_band_is_not_taken() -> None:
+    # The question's own label is not in the text layer, the page number is.
+    page = blank_page([("A cart rolls down a ramp.", 0.10, 0.15), ("1", 0.97, 0.5)])
+    spec = Spec(parts=[part("Q1", "1", band=[0.08, 0.3])])
+
+    banded = with_text_bands(spec, [page], [PageParse(items=[], shared_stems=[])])
+
+    assert banded.parts[0].band == [0.08, 0.3]
 
 
 # The labels printed on each page of the fixture, top to bottom, and the label of
@@ -191,11 +251,18 @@ def test_each_band_of_the_vector_blank_starts_at_its_printed_label() -> None:
 
 
 class Server:
-    """OpenRouter for a three-page blank that prints problems 1 and 3. Problem 2 is
-    on page 2, and the first reading of page 2 misses it."""
+    """OpenRouter for a three-page blank whose page n prints `PAGE n` and the
+    problems `first[n]` on a first reading and `again[n]` on a re-read (the same
+    as the first unless given). The stitch makes one part per item, with its home
+    page moved down by `shift`."""
 
-    def __init__(self, found_on_second_reading: bool) -> None:
-        self.found = found_on_second_reading
+    def __init__(
+        self,
+        first: dict[int, list[str]],
+        again: dict[int, list[str]] | None = None,
+        shift: int = 0,
+    ) -> None:
+        self.first, self.again, self.shift = first, again or {}, shift
         self.page_reads: list[tuple[int, list[str]]] = []
         self.stitches = 0
 
@@ -205,17 +272,18 @@ class Server:
         if body["response_format"]["json_schema"]["name"] == "PageParse":
             page = int(re.findall(r"PAGE (\d)", texts[0])[0])
             self.page_reads.append((page, texts[1:]))
-            again = len([n for n, _ in self.page_reads if n == page]) > 1
-            printed = {1: ["1."], 2: ["2."] if again and self.found else [], 3: ["3."]}
+            printed = self.again.get(page, self.first[page])
+            if len(texts) == 1:
+                printed = self.first[page]
             return self.reply(
-                PageParse(items=[item(x) for x in printed[page]], shared_stems=[])
+                PageParse(items=[item(x) for x in printed], shared_stems=[])
             )
         self.stitches += 1
         read = json.loads(texts[0])["results"]
         return self.reply(
             Spec(
                 parts=[
-                    part(f"Q{i['label'][0]}", i["label"][0], r["page"])
+                    part(f"Q{i['label'][0]}", i["label"][0], r["page"] + self.shift)
                     for r in read
                     for i in r["items"]
                 ]
@@ -279,19 +347,17 @@ def run_parse(tmp_path: Path, server: Server) -> Spec:
     return asyncio.run(main())
 
 
+MISSING_2 = '{"missing_problem_numbers": [2]}'
+
+
 def test_a_gap_is_read_again_on_its_page_once_and_stitched_again(
     tmp_path: Path,
 ) -> None:
-    server = Server(found_on_second_reading=True)
+    server = Server({1: ["1."], 2: [], 3: ["3."]}, again={2: ["2."]})
 
     spec = run_parse(tmp_path, server)
 
-    assert sorted(server.page_reads) == [
-        (1, []),
-        (2, []),
-        (2, ['{"missing_problem_numbers": [2]}']),
-        (3, []),
-    ]
+    assert sorted(server.page_reads) == [(1, []), (2, []), (2, [MISSING_2]), (3, [])]
     assert server.stitches == 2
     assert [(p.id, p.home_page) for p in spec.parts] == [
         ("Q1", 1),
@@ -305,13 +371,55 @@ def test_a_gap_is_read_again_on_its_page_once_and_stitched_again(
     assert Spec.model_validate_json(workspace.spec_json.read_bytes()) == spec
 
 
-def test_a_spec_that_still_fails_raises_and_is_not_written(tmp_path: Path) -> None:
-    server = Server(found_on_second_reading=False)
+def test_a_gap_that_remains_after_the_re_read_is_left_for_a_warning(
+    tmp_path: Path,
+) -> None:
+    server = Server({1: ["1."], 2: [], 3: ["3."]})
 
-    with pytest.raises(SpecError, match="problem 2 is missing"):
-        run_parse(tmp_path, server)
+    spec = run_parse(tmp_path, server)
 
     assert [n for n, _ in server.page_reads].count(2) == 2
     # The second stitch has the same input as the first, so the cache answers it.
     assert server.stitches == 1
-    assert not Workspace(tmp_path / "ws").spec_json.exists()
+    assert [p.id for p in spec.parts] == ["Q1", "Q3"]
+    assert missing_numbers(spec) == [2]
+    assert Workspace(tmp_path / "ws").spec_json.exists()
+
+
+@pytest.mark.parametrize(
+    ("reread", "ids", "kept"),
+    [
+        (["2.", "3."], ["Q1", "Q2", "Q3", "Q4"], ["2.", "3."]),
+        # It drops 3., so the first reading of the page stands.
+        (["2."], ["Q1", "Q3", "Q4"], ["3."]),
+    ],
+    ids=["whole page", "drops an item"],
+)
+def test_a_re_read_that_drops_an_item_is_not_used(
+    tmp_path: Path, reread: list[str], ids: list[str], kept: list[str]
+) -> None:
+    server = Server({1: ["1."], 2: ["3."], 3: ["4."]}, again={2: reread})
+
+    spec = run_parse(tmp_path, server)
+
+    assert (2, [MISSING_2]) in server.page_reads
+    assert [p.id for p in spec.parts] == ids
+    page_2 = PageParse.model_validate_json(
+        Workspace(tmp_path / "ws").key_page_json(2).read_bytes()
+    )
+    assert [i.label for i in page_2.items] == kept
+
+
+def test_a_spec_that_fails_is_saved_for_correction_and_raises(tmp_path: Path) -> None:
+    # Home pages past the last page, with a gap: the re-read stays on the blank.
+    server = Server({1: ["1."], 2: [], 3: ["3."]}, shift=6)
+
+    with pytest.raises(SpecError, match="Q1 has home page 7 of 3") as raised:
+        run_parse(tmp_path, server)
+
+    workspace = Workspace(tmp_path / "ws")
+    assert (3, [MISSING_2]) in server.page_reads
+    assert "correct it by hand" in str(raised.value)
+    assert not workspace.spec_json.exists()
+    rejected = Spec.model_validate_json(workspace.spec_rejected_json.read_bytes())
+    assert [(p.id, p.home_page) for p in rejected.parts] == [("Q1", 7), ("Q3", 9)]

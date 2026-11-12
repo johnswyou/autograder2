@@ -54,6 +54,11 @@ class Workspace:
         return self.root / "key" / "spec.json"
 
     @property
+    def spec_rejected_json(self) -> Path:
+        """A spec that failed its checks, kept for correction by hand."""
+        return self.root / "key" / "spec.rejected.json"
+
+    @property
     def key_yaml(self) -> Path:
         return self.root / "key" / "key.yaml"
 

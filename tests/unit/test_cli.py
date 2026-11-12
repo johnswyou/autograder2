@@ -1,17 +1,22 @@
 import functools
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
 import httpx
+import pypdfium2 as pdfium
 import pytest
+from reportlab.pdfgen import canvas
 from rich.text import Text
 from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Models
 from redpen.llm.models import Catalog, recheck_providers
-from redpen.workspace import Workspace
+from redpen.schemas.spec import Part, Spec
+from redpen.workspace import Workspace, write_model
+from tests.fixture_truth import FIXTURES
 
 runner = CliRunner()
 
@@ -102,14 +107,91 @@ def test_prepare_refuses_a_workspace_prepared_from_another_blank(
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     workspace = Workspace(tmp_path / "ws")
     workspace.blank_pdf.parent.mkdir(parents=True)
-    workspace.blank_pdf.write_bytes(b"%PDF the first blank")
-    Path("blank.pdf").write_bytes(b"%PDF another blank")
+    first = (FIXTURES / "blank_classkick.pdf").read_bytes()
+    workspace.blank_pdf.write_bytes(first)
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert result.exit_code == 1
     assert "holds the key of another blank" in result.stderr
-    assert workspace.blank_pdf.read_bytes() == b"%PDF the first blank"
+    assert workspace.blank_pdf.read_bytes() == first
+
+
+def write_unreadable(path: Path, kind: str) -> None:
+    if kind == "not a PDF":
+        path.write_bytes(b"Questions 1 to 5, typed in a text file.")
+    elif kind == "encrypted":
+        pdf = canvas.Canvas(str(path), encrypt="secret")
+        pdf.drawString(72, 720, "1. Find x.")
+        pdf.save()
+    else:
+        pdfium.PdfDocument.new().save(path)
+
+
+@pytest.mark.parametrize("kind", ["not a PDF", "encrypted", "no pages"])
+def test_prepare_refuses_a_file_it_cannot_open_and_leaves_no_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    write_unreadable(Path("blank.pdf"), kind)
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert result.stderr.startswith("blank.pdf ")
+    assert not Path("ws").exists()
+
+
+def reused_spec(home_of_q3: int) -> Spec:
+    return Spec(
+        parts=[
+            Part(
+                id=id,
+                label=id[1:],
+                prompt="Find x.",
+                response_type="numeric",
+                home_page=home,
+                band=[0.1, 0.2],
+                figures=[],
+                depends_on=[],
+                options=[],
+            )
+            for id, home in (("Q1", 1), ("Q3", home_of_q3))
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("home_of_q3", "exit_code", "message"),
+    [
+        (9, 1, "fails its checks: Q3 has home page 9 of 4"),
+        (2, 0, "Warning: no problem numbered 2 was found."),
+    ],
+    ids=["failing", "gap"],
+)
+def test_prepare_checks_a_spec_it_reuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    home_of_q3: int,
+    exit_code: int,
+    message: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copy("blank.pdf", workspace.blank_pdf)
+    workspace.config_lock_toml.write_text(LOCK)
+    write_model(workspace.spec_json, reused_spec(home_of_q3))
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == exit_code
+    assert message in result.stderr
 
 
 @pytest.mark.parametrize(

@@ -22,6 +22,8 @@ from redpen.workspace import Workspace, write_model
 ROLE = "parser"
 PARAMS = {"max_tokens": 32000}
 CHOICE_TYPES = ("multiple_choice", "multiple_select")
+MARGIN = 0.03  # of the page height, around the model's band, where a label may be
+COLUMN = 0.25  # of the page width: a label further left or right is another column
 
 
 class SpecError(Exception):
@@ -57,11 +59,13 @@ async def parse(
     workspace: Workspace, gateway: Gateway, model: ModelInfo, image_budget: int
 ) -> Spec:
     """Parse `workspace.blank_pdf`, write the page images, what was read on each
-    page and `spec.json`, and return the spec. Raises `SpecError` if the spec still
-    fails its checks after the one re-parse a gap in the numbering allows."""
-    pdf = render.open_pdf(workspace.blank_pdf)
-    kind = "classkick" if render.classkick_sidebars(pdf) else "other"
-    pages = [render.render_page(page, kind) for page in pdf]
+    page and `spec.json`, and return the spec. A gap in the numbering gets one
+    re-read of its page and one more stitch; a gap that remains is left for the
+    caller to warn about. A spec that fails any other check is written to
+    `spec.rejected.json` and raises `SpecError`."""
+    with render.open_pdf(workspace.blank_pdf) as pdf:
+        kind = "classkick" if render.classkick_sidebars(pdf) else "other"
+        pages = [render.render_page(page, kind) for page in pdf]
     for number, page in enumerate(pages, 1):
         workspace.key_page(number).parent.mkdir(parents=True, exist_ok=True)
         page.image.save(workspace.key_page(number), compress_level=1)
@@ -90,9 +94,7 @@ async def parse(
         page = pages[number - 1]
         text = ["\n".join(span.text for span in page.text)] if page.text else []
         items = [_png(page.image, image_budget), *text, *extra]
-        found = await ask(page_prompt, items, PageParse)
-        write_model(workspace.key_page_json(number), found)
-        return found
+        return await ask(page_prompt, items, PageParse)
 
     async def stitch(results: list[PageParse]) -> Spec:
         read_pages = [
@@ -107,7 +109,7 @@ async def parse(
     if missing := missing_numbers(spec):
         by_page: defaultdict[int, list[int]] = defaultdict(list)
         for number in missing:
-            by_page[page_for_missing(spec, number)].append(number)
+            by_page[page_for_missing(spec, number, len(pages))].append(number)
         again = await asyncio.gather(
             *(
                 read(page, json.dumps({"missing_problem_numbers": numbers}))
@@ -115,11 +117,17 @@ async def parse(
             )
         )
         for page, found in zip(by_page, again, strict=True):
-            results[page - 1] = found
+            if keeps_everything(results[page - 1], found):
+                results[page - 1] = found
         spec = await stitch(results)
+    for number, found in enumerate(results, 1):
+        write_model(workspace.key_page_json(number), found)
     if failures := check(spec, len(pages)):
+        write_model(workspace.spec_rejected_json, spec)
         raise SpecError(
-            f"the spec of {workspace.blank_pdf} fails its checks: {'; '.join(failures)}"
+            f"the spec fails its checks: {'; '.join(failures)}. It is saved as"
+            f" {workspace.spec_rejected_json}; correct it by hand and save it as"
+            f" {workspace.spec_json} to go on."
         )
     spec = with_text_bands(spec, pages, results)
     write_model(workspace.spec_json, spec)
@@ -127,7 +135,9 @@ async def parse(
 
 
 def check(spec: Spec, page_count: int) -> list[str]:
-    """Every way `spec` fails the checks of design 6.1, `[]` if it passes."""
+    """Every way `spec` fails the checks of design 6.1, `[]` if it passes. A gap in
+    the numbering is not a failure here: an assignment may skip a number, so it is
+    a warning (`missing_numbers`)."""
     ids = Counter(part.id for part in spec.parts)
     failures = [] if spec.parts else ["no part was found"]
     failures += [f"{id} is used {n} times" for id, n in ids.items() if n > 1]
@@ -148,14 +158,14 @@ def check(spec: Spec, page_count: int) -> list[str]:
                 failures.append(f"{part.id} depends on itself")
             elif other not in ids:
                 failures.append(f"{part.id} depends on {other}, which does not exist")
-    failures += [f"problem {n} is missing" for n in missing_numbers(spec)]
     return failures
 
 
 def missing_numbers(spec: Spec) -> list[int]:
     """The problem numbers missing between the lowest and the highest, when every
     part's label starts with its problem's number. `[]` when the labels are not
-    numbered that way, as when the ids number unnumbered problems in order."""
+    numbered that way, as when the ids number problems in order because they carry
+    no usable numbers or their numbers repeat."""
     numbers: set[int] = set()
     for part in spec.parts:
         printed = re.match(r"\D*(\d+)", part.label)
@@ -167,44 +177,65 @@ def missing_numbers(spec: Spec) -> list[int]:
     return sorted(set(range(min(numbers), max(numbers) + 1)) - numbers)
 
 
-def page_for_missing(spec: Spec, number: int) -> int:
+def page_for_missing(spec: Spec, number: int, page_count: int) -> int:
     """The page to read again for missing problem `number`: the page after the last
     one of the problem before it, but no later than the first one of the problem
-    after it."""
+    after it, nor than the last page."""
     below = max(_problem(p.id) for p in spec.parts if _problem(p.id) < number)
     above = min(_problem(p.id) for p in spec.parts if _problem(p.id) > number)
     last = max(p.home_page for p in spec.parts if _problem(p.id) == below)
     first = min(p.home_page for p in spec.parts if _problem(p.id) == above)
-    return min(last + 1, first)
+    return min(last + 1, first, page_count)
+
+
+def keeps_everything(first: PageParse, again: PageParse) -> bool:
+    """Whether a re-read of a page holds every item (by label and parent label) and
+    as many shared stems as the first reading. A re-read that drops anything is
+    not used, so that it cannot lose what the first reading found."""
+
+    def labels(found: PageParse) -> Counter[tuple[str, str]]:
+        return Counter((item.label, item.parent_label) for item in found.items)
+
+    return not labels(first) - labels(again) and len(again.shared_stems) >= len(
+        first.shared_stems
+    )
 
 
 def with_text_bands(
     spec: Spec, pages: Sequence[render.Page], results: Sequence[PageParse]
 ) -> Spec:
     """`spec` with the band of each part whose label is found in its home page's
-    text layer running from that label to the next label on the page, or to the
-    bottom of the printed content. The next label can be a part's or that of an
-    introduction read on the page. Other parts keep the model's estimate."""
+    text layer running from that label to the next label below it in the same
+    column, or to the bottom of the printed content. The next label can be a
+    part's or that of an introduction read on the page. A label is looked for only
+    inside the model's estimated band, widened by `MARGIN`. Other parts keep the
+    model's estimate."""
     parts = list(spec.parts)
     for number, (page, found) in enumerate(zip(pages, results, strict=True), 1):
         if not page.text:
             continue
         here = [i for i, part in enumerate(parts) if part.home_page == number]
-        tops = {
-            i: _label_top(parts[i].label, parts[i].band[0], page.text) for i in here
-        }
+        spans = {i: _label_span(parts[i].label, parts[i].band, page.text) for i in here}
+        # (top, left edge or None where only the model's estimate is known)
         starts = [
-            top if top is not None else parts[i].band[0] for i, top in tops.items()
+            (span.box[1], span.box[0]) if span else (parts[i].band[0], None)
+            for i, span in spans.items()
         ]
         for item in found.items:
             if item.response_type is None:
-                top = _label_top(item.label, item.band[0], page.text)
-                starts += [] if top is None else [top]
+                if span := _label_span(item.label, item.band, page.text):
+                    starts.append((span.box[1], span.box[0]))
         end = _content_bottom(page.image)
-        for i, top in tops.items():
-            if top is None:
+        for i, span in spans.items():
+            if span is None:
                 continue
-            bottom = min((s for s in starts if s > top), default=end)
+            top, left = span.box[1], span.box[0]
+            below = [
+                t
+                for t, x in starts
+                if t > top and (x is None or abs(x - left) <= COLUMN)
+            ]
+            bottom = min(below, default=end)
             if top < bottom:  # as a Band must be
                 parts[i] = parts[i].model_copy(update={"band": [top, bottom]})
     return Spec(parts=parts)
@@ -214,25 +245,29 @@ def _problem(part_id: str) -> int:
     return int(part_id.split(".")[0].removeprefix("Q"))
 
 
-def _label_top(
-    label: str, estimate: float, spans: Sequence[render.TextSpan]
-) -> float | None:
-    """The top of the span where `label` is printed: a span that starts with the
-    label, or with a whole trailing segment of it ("(b)" for "7(b)", "A" for
-    "12A"). The longest match wins, then one set off by punctuation ("A." over the
-    word "A" of "A ball"), then the one nearest the model's `estimate`."""
+def _label_span(
+    label: str, estimate: Sequence[float], spans: Sequence[render.TextSpan]
+) -> render.TextSpan | None:
+    """The span where `label` is printed, looked for only inside the `estimate`
+    band widened by `MARGIN`: a span that starts with the label, or with a whole
+    trailing segment of it ("(b)" for "7(b)", "A" for "12A"). The longest match
+    wins, then one set off by punctuation ("A." over the word "A" of "A ball"),
+    then the one nearest the top of `estimate`."""
     label = " ".join(label.split())
-    best: tuple[tuple[int, bool, float], float] | None = None
+    low, high = estimate[0] - MARGIN, estimate[1] + MARGIN
+    best: tuple[tuple[int, bool, float], render.TextSpan] | None = None
     for span in spans:
+        if not low <= span.box[1] <= high:
+            continue
         text = " ".join(span.text.split())
         for start in range(len(label)):
             marker = label[start:]
             if _whole(label, start) and _starts(text, marker):
                 after = text[len(marker) : len(marker) + 1]
                 bare = marker[-1].isalnum() and after in ("", " ")
-                rank = (-len(marker), bare, abs(span.box[1] - estimate))
+                rank = (-len(marker), bare, abs(span.box[1] - estimate[0]))
                 if best is None or rank < best[0]:
-                    best = (rank, span.box[1])
+                    best = (rank, span)
                 break
     return best[1] if best else None
 

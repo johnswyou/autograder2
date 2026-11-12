@@ -60,8 +60,9 @@ TRUTH: list[dict[str, Any]] = json.loads((FIXTURES / "key.json").read_text())["p
 def assert_matches_the_truth(spec: Spec) -> None:
     assert [p.id for p in spec.parts] == [t["id"] for t in TRUTH]
     for found, truth in zip(spec.parts, TRUTH, strict=True):
-        assert (found.id, found.response_type, found.home_page) == (
+        assert (found.id, found.label, found.response_type, found.home_page) == (
             truth["id"],
+            truth["label"],
             truth["response_type"],
             truth["home_page"],
         )
@@ -165,3 +166,25 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     assert again.exit_code == 0, again.output
     assert again.output.startswith(f"Reusing {workspace.spec_json}\n")
     assert read_model(workspace.spec_json, Spec) == spec
+
+
+def test_prepare_after_a_file_it_cannot_open_works_in_the_same_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fetch_catalog(api_key: str, **options: object) -> Catalog:
+        return catalog()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("redpen.cli.Gateway", recorded)
+    Path("blank.pdf").write_bytes(b"Questions 1 to 5, typed in a text file.")
+    runner = CliRunner()
+
+    refused = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert refused.exit_code == 1
+    assert result.exit_code == 0, result.output
+    assert_matches_the_truth(read_model(Workspace(Path("ws")).spec_json, Spec))

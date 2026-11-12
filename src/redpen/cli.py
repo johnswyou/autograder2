@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -30,7 +31,8 @@ from redpen.llm.client import (
     RetryableError,
 )
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
-from redpen.prepare.parse import SpecError, parse
+from redpen.prepare.parse import SpecError, missing_numbers, parse
+from redpen.prepare.parse import check as check_spec
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model
 
@@ -115,12 +117,20 @@ def prepare(
         if given is not None:
             _fail(f"{flag} is not supported yet")
     ws = Workspace.for_blank(blank, workspace)
+    # Opened before anything is copied, so a bad file leaves the workspace free.
+    try:
+        data = blank.read_bytes()
+        with render.open_pdf(data) as pdf:
+            pages = len(pdf)
+    except Exception as error:  # pdfium reports a file it cannot open as PdfiumError
+        _fail(f"{blank} cannot be opened as a PDF: {error}")
+    if not pages:
+        _fail(f"{blank} has no pages")
     try:
         config = load_config()
         if profile is not None:
             config = config.model_copy(update={"profile": profile})
         api_key = openrouter_api_key()
-        data = blank.read_bytes()
         if ws.blank_pdf.exists() and ws.blank_pdf.read_bytes() != data:
             _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
         ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +138,7 @@ def prepare(
         lock = asyncio.run(pin(ws, config, api_key))
         if ws.spec_json.exists():
             typer.echo(f"Reusing {ws.spec_json}")
-            spec = read_model(ws.spec_json, Spec)
+            spec = _checked(ws.spec_json, pages)
         else:
             spec = asyncio.run(_parse(ws, config, lock, api_key))
     except (
@@ -141,12 +151,27 @@ def prepare(
         RetryableError,
     ) as error:
         _fail(str(error))
+    if missing := missing_numbers(spec):
+        numbers = ", ".join(str(n) for n in missing)
+        typer.echo(f"Warning: no problem numbered {numbers} was found.", err=True)
     types = Counter(part.response_type for part in spec.parts)
-    typer.echo(f"Pages: {len(render.open_pdf(ws.blank_pdf))}")
+    typer.echo(f"Pages: {pages}")
     typer.echo(f"Problems: {len({part.id.split('.')[0] for part in spec.parts})}")
     typer.echo(f"Parts: {len(spec.parts)}")
     for response_type, count in sorted(types.items()):
         typer.echo(f"  {response_type}: {count}")
+
+
+def _checked(path: Path, pages: int) -> Spec:
+    """The spec at `path`, which may have been edited by hand, if it passes the
+    checks a parsed spec must pass."""
+    try:
+        spec = read_model(path, Spec)
+    except ValidationError as error:
+        raise SpecError(f"{path} is not a valid spec: {error}") from None
+    if failures := check_spec(spec, pages):
+        raise SpecError(f"{path} fails its checks: {'; '.join(failures)}")
+    return spec
 
 
 async def _parse(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Spec:
