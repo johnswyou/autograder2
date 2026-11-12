@@ -396,6 +396,7 @@ def key() -> Key:
                         "method",
                         "Locates the minimum at x = 3 (from the vertex form, x = -b/2a "
                         "or f'(x) = 0) and evaluates f there.",
+                        carry_forward=True,
                     ),
                     criterion(
                         "Q5.b.c2",

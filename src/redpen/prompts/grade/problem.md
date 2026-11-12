@@ -35,7 +35,7 @@ An award is one of: zero, the criterion's full `points`, or the `points` of one 
 
 The policies object has these keys, each applying to the whole assignment:
 
-- `carry_forward`: when true, a wrong result from an earlier part, used correctly in this part, earns the points of a criterion marked `carry_forward`. Judge such a criterion against what follows from the student's own earlier result instead of the key's value. Before you decide that a part's work is wrong, find the student's result in the reading of each part in its `depends_on`, whether that reading is a `context` item or a part you grade in this request, and check whether the work follows correctly from it. Using an earlier result correctly is not an error made in this part. So a method criterion is judged against the student's own earlier result, never against the key's: the method it names, applied correctly to the student's result, meets it, whatever value that leads to. A criterion that asks for a value accepts the value that follows from the student's earlier result only when it is marked `carry_forward`. An error made inside this part is not carried forward: a criterion this part's own error breaks is not earned, even when the work after the error follows from it correctly.
+- `carry_forward`: when true, a criterion marked `carry_forward` is judged against what follows from the student's own earlier results, in place of the key's values: a wrong result from an earlier part, used correctly in this part, earns its points. A criterion that is not marked is judged against the key. Before you decide that a part's work is wrong, find the student's own result in the reading of each part in its `depends_on`, whether that reading is a `context` item or a part you grade in this request, and check whether the work follows correctly from it. An error made inside this part is never carried forward: a criterion this part's own error breaks is not earned, even when the work after the error follows from it correctly. When false, every criterion is judged against the key.
 - `alternative_methods`: when true, any valid method earns method credit, not only the method in the solution.
 - `rel_tol`: a numeric answer is correct when it is within this relative difference of the key's `value` or of a value in `accept_also`. A part's own `answer.rel_tol` takes its place when it is set.
 - `require_units`: when true, a final-answer criterion about a quantity with a unit needs the correct unit.
@@ -54,7 +54,7 @@ The policies object has these keys, each applying to the whole assignment:
   - `evidence_line`: the number of the line in the part's reading, counting from 1, that earns the points; or null.
   - `evidence_element`: the number of the element in the part's reading, counting from 1, that earns the points; or null.
 
-    An award above zero cites the line or the element that earns it in at least one of these two fields, and the line or element must exist in that part's reading. An award of zero may cite where the work goes wrong, or neither.
+    An award above zero cites the line or the element that earns it in at least one of these two fields. An award of zero may cite where the work goes wrong, or neither. Whatever the award, a line or element you cite must exist in that part's reading.
   - `rationale`: for the instructor, one or two sentences on why this award, naming what in the work decided it.
   - `feedback`: for the student, addressed to them: what to fix, in a sentence or two. Empty when the criterion is fully earned.
 

@@ -344,7 +344,7 @@
           "kind": "method",
           "requirement": "Locates the minimum at x = 3 (from the vertex form, x = -b/2a or f'(x) = 0) and evaluates f there.",
           "partial": [],
-          "carry_forward": false
+          "carry_forward": true
         },
         {
           "id": "Q5.b.c2",
