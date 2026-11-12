@@ -528,6 +528,21 @@ def test_a_part_s_points_are_summed_by_code_from_the_record_and_the_key() -> Non
     assert part_points(record, KEY) == (Decimal(2), Decimal(3))
 
 
+def test_a_record_graded_under_another_key_is_never_summed() -> None:
+    record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=full(KEY, "Q4.b"))
+    c1, c2 = PARTS["Q4.b"].criteria
+    edited = key_of(
+        changed("Q4.b", criteria=[c1.model_dump() | {"requirement": "New."}, c2])
+    )
+
+    with pytest.raises(ValueError) as raised:
+        part_points(record, edited)
+
+    assert str(raised.value) == (
+        "Q4.b was graded under another version of its key part: grade it again"
+    )
+
+
 def test_dependencies_are_sent_as_context_and_are_not_graded(tmp_path: Path) -> None:
     # Q5.c is made to depend on Q4.b too, a part of another problem.
     q5c = changed("Q5.c", depends_on=["Q4.b"])

@@ -244,8 +244,14 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
 
 
 def part_points(record: GradeRecord, key: Key) -> tuple[Decimal, Decimal]:
-    """The points `record` awards and the points its part is worth in `key`."""
+    """The points `record` awards and the points its part is worth in `key`. A
+    record graded under another version of the part raises `ValueError`."""
     [part] = [p for p in key.parts if p.id == record.grade.part_id]
+    if record.provenance.key_part_hash != part_hash(part, key.policies):
+        raise ValueError(
+            f"{part.id} was graded under another version of its key part:"
+            " grade it again"
+        )
     awarded = sum((c.awarded for c in record.grade.criteria), Decimal(0))
     return awarded, sum((c.points for c in part.criteria), Decimal(0))
 
