@@ -16,6 +16,7 @@ import pytest
 from redpen.config import Config
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.map import map_student
+from redpen.grade.read import MARGIN
 from redpen.llm.client import Gateway
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import MapRecord
@@ -24,11 +25,6 @@ from tests.fixture_truth import FIXTURES, SUBMISSIONS, SubmissionTruth, truth_of
 from tests.pinned import MAPPER
 
 SPEC = read_model(FIXTURES / "spec.json", Spec)
-
-
-# The read stage crops a mapped box grown by this share of the page on each side.
-# Its margin must not be smaller than this (task 2.4 points the test at its own).
-READ_MARGIN = 0.02
 
 
 def coverage(
@@ -44,7 +40,7 @@ def coverage(
 def assert_matches_the_truth(found: MapRecord, truth: SubmissionTruth) -> None:
     """Each answered part has a `work` entry on the truth's page. Each of the
     truth's entries, work or continuation, is covered to 0.99 of its area by a box
-    found for its part on its page, grown by the read stage's margin. Each
+    found for its part on its page, grown by the read stage's margin (`MARGIN`). Each
     unanswered part is unanswered and has no entry, and each page's rotation is the
     truth's. Basis and confidence are not compared."""
     entries = found.map.entries
@@ -52,7 +48,7 @@ def assert_matches_the_truth(found: MapRecord, truth: SubmissionTruth) -> None:
         here = [e for e in entries if (e.part_id, e.page) == (want.part_id, want.page)]
         if want.role == "work":
             assert any(e.role == "work" for e in here), (want, here)
-        covered = max((coverage(e.box, want.box, READ_MARGIN) for e in here), default=0)
+        covered = max((coverage(e.box, want.box, MARGIN) for e in here), default=0)
         assert covered >= 0.99, (want, covered, here)
     for part in truth.map.unanswered:
         assert part in found.map.unanswered, part

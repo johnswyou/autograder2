@@ -249,7 +249,16 @@ INSTANCES: list[BaseModel] = [
         }
     ),
     Reading.model_validate(READING),
-    ReadingRecord.model_validate({"provenance": provenance(None), "reading": READING}),
+    ReadingRecord.model_validate(
+        {
+            "provenance": provenance(None),
+            "reading": READING,
+            "crops": [
+                {"page": 1, "box": [0.1, 0.2, 0.5, 0.4], "scale": 2.0},
+                {"page": 2, "box": [0.0, 0.0, 1.0, 0.5], "scale": None},
+            ],
+        }
+    ),
     Grade.model_validate(GRADE),
     GradeRecord.model_validate({"provenance": provenance("3f2a9c1e"), "grade": GRADE}),
     GradeRecord.model_validate({"provenance": CODE_PROVENANCE, "grade": BLANK_GRADE}),

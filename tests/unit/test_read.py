@@ -1,0 +1,614 @@
+"""The read stage with hand-built maps and a mock transport, on the fixtures' ingested
+pages (src/redpen/grade/read.py)."""
+
+import asyncio
+import io
+import json
+import shutil
+from collections.abc import Callable
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+from PIL import Image
+
+from redpen import prompts
+from redpen.grade.ingest import IngestSummary
+from redpen.grade.read import (
+    Readings,
+    problems,
+    read_student,
+    unit_images,
+    units,
+)
+from redpen.imaging import prep, render
+from redpen.llm.client import Gateway, StageError
+from redpen.llm.models import ModelInfo
+from redpen.schemas.common import Provenance
+from redpen.schemas.key import Key
+from redpen.schemas.reading import (
+    Crop,
+    FinalAnswer,
+    ProblemReadings,
+    Reading,
+    ReadingRecord,
+)
+from redpen.schemas.spec import Part, Spec
+from redpen.schemas.submission import Map, MapEntry, MapPage, MapRecord, Role
+from redpen.workspace import Workspace, read_model, write_model
+from tests.fixture_truth import FIXTURES, SUBMISSIONS, map_of, truth_of
+
+MODEL = ModelInfo(
+    slug="vendor/vision-1",
+    supported_parameters=frozenset({"structured_outputs", "max_tokens"}),
+    accepts_images=True,
+    prompt_price=Decimal(0),
+    completion_price=Decimal(0),
+    providers=frozenset({"zero"}),
+)
+BUDGET = 1536
+SPEC = read_model(FIXTURES / "spec.json", Spec)
+NOTHING = FinalAnswer(choices=[], value=None, unit=None, expression=None)
+NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
+
+
+def part(id: str, response_type: Any = "numeric", options: list[str] = []) -> Part:  # noqa: B006
+    return Part(
+        id=id,
+        label=id[1:],
+        prompt="Answer.",
+        response_type=response_type,
+        home_page=1,
+        band=[0.1, 0.5],
+        figures=[],
+        depends_on=[],
+        options=options,
+    )
+
+
+def entry(part_id: str, page: int, box: list[float], role: Role = "work") -> MapEntry:
+    return MapEntry(
+        part_id=part_id,
+        page=page,
+        box=box,
+        basis="position",
+        role=role,
+        confidence="high",
+    )
+
+
+def reading(part_id: str, **changes: Any) -> Reading:
+    fields: dict[str, Any] = {
+        "part_id": part_id,
+        "status": "answered",
+        "medium": "handwritten",
+        "lines": ["a line", "another"],
+        "final_answer": NOTHING,
+        "elements": [],
+        "uncertain": [],
+        "legibility": "clear",
+    }
+    return Reading.model_validate(fields | changes)
+
+
+def sent_images(items: list[Any]) -> list[Image.Image]:
+    return [Image.open(io.BytesIO(i)) for i in items if isinstance(i, bytes)]
+
+
+def about(items: list[Any]) -> list[dict[str, Any]]:
+    return [json.loads(i) for i in items if isinstance(i, str)]
+
+
+# --- units -------------------------------------------------------------------------
+
+
+def test_choices_go_by_the_page_answered_on_and_the_rest_by_problem() -> None:
+    spec = Spec(
+        parts=[
+            part("Q1", "multiple_choice", ["A", "B"]),
+            part("Q2", "multiple_select", ["A", "B", "C"]),
+            part("Q3.a"),
+            part("Q3.b", "symbolic"),
+            part("Q3.c", "graph"),
+            part("Q4", "multiple_choice", ["A", "B"]),
+        ]
+    )
+    q4_runs_on = entry("Q4", 3, [0.1, 0.1, 0.2, 0.2], "continuation")
+    found = Map(
+        entries=[
+            entry("Q3.b", 3, [0.1, 0.5, 0.9, 0.6]),
+            q4_runs_on,
+            entry("Q1", 2, [0.1, 0.1, 0.2, 0.2]),  # printed on page 1
+            entry("Q2", 1, [0.1, 0.1, 0.2, 0.2]),
+            entry("Q3.a", 1, [0.1, 0.5, 0.9, 0.6]),
+            entry("Q4", 2, [0.1, 0.3, 0.2, 0.4]),
+            entry("Q3.b", 1, [0.1, 0.7, 0.9, 0.8], "continuation"),
+        ],
+        unanswered=["Q3.c"],
+        set_aside=[],
+    )
+    e = found.entries
+
+    assert [
+        (u.name, [p.id for p in u.parts], u.entries) for u in units(spec, found)
+    ] == [
+        ("page 2", ["Q1", "Q4"], [e[1], e[2], e[5]]),
+        ("page 1", ["Q2"], [e[3]]),
+        ("Q3", ["Q3.a", "Q3.b"], [e[0], e[4], e[6]]),
+    ]
+
+
+def _refuse(request: httpx.Request) -> httpx.Response:
+    raise AssertionError("an unanswered part reached the model")
+
+
+def test_unanswered_parts_are_read_blank_by_code_with_no_call(tmp_path: Path) -> None:
+    spec = Spec(
+        parts=[part("Q1", "multiple_choice", ["A", "B"]), part("Q2.a"), part("Q2.b")]
+    )
+    workspace = Workspace(tmp_path / "ws")
+    found = Map(entries=[], unanswered=["Q1", "Q2.a", "Q2.b"], set_aside=[])
+    write_model(
+        workspace.map_json("s"), MapRecord(provenance=NOBODY, pages=[], map=found)
+    )
+
+    async def main() -> dict[str, ReadingRecord]:
+        async with Gateway(
+            tmp_path / "cache.sqlite",
+            "test-key",
+            transport=httpx.MockTransport(_refuse),
+        ) as gateway:
+            return await read_student(workspace, "s", spec, gateway, MODEL, BUDGET)
+
+    records = asyncio.run(main())
+
+    blank = {
+        id: ReadingRecord(
+            provenance=NOBODY,
+            reading=reading(id, status="blank", medium=None, lines=[], legibility=None),
+            crops=[],
+        )
+        for id in ("Q1", "Q2.a", "Q2.b")
+    }
+    assert records == blank
+    q2 = read_model(workspace.reading_json("s", "Q2"), ProblemReadings)
+    assert q2.records == [blank["Q2.a"], blank["Q2.b"]]
+    assert read_model(workspace.reading_json("s", "Q1"), ProblemReadings).records == [
+        blank["Q1"]
+    ]
+
+
+# --- images ------------------------------------------------------------------------
+
+
+def student_of(
+    fixture_workspace: tuple[Workspace, IngestSummary], layout: str
+) -> tuple[str, Any]:
+    _, summary = fixture_workspace
+    [pdf] = [p for p in SUBMISSIONS if truth_of(p).layout_class == layout]
+    truth = truth_of(pdf)
+    [record] = [r for r in summary.students if r.student_name == truth.student_name]
+    return record.student_key, truth
+
+
+def copy_student(
+    fixture_workspace: tuple[Workspace, IngestSummary], student: str, root: Path
+) -> Workspace:
+    """A workspace holding one ingested fixture student, to write into."""
+    shared, _ = fixture_workspace
+    workspace = Workspace(root)
+    shutil.copytree(shared.student_dir(student), workspace.student_dir(student))
+    return workspace
+
+
+def page_image(workspace: Workspace, student: str, number: int) -> Image.Image:
+    with Image.open(workspace.student_page(student, number)) as image:
+        image.load()
+    return image
+
+
+def test_a_region_is_grown_by_the_margin_clamped_and_a_shared_box_sent_once(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, _ = student_of(fixture_workspace, "ink-in-place")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    edge = [0.0, 0.3, 0.05, 0.31]  # a tiny box at the left edge of the slide
+    corner = [0.96, 0.98, 0.99, 0.995]
+    found = Map(
+        entries=[entry("Q1", 1, edge), entry("Q2", 1, corner), entry("Q3", 1, edge)],
+        unanswered=[],
+        set_aside=[],
+    )
+    pages = [MapPage(number=n, rotation=0, photo=False) for n in range(1, 5)]
+    write_model(
+        workspace.map_json(student),
+        MapRecord(provenance=NOBODY, pages=pages, map=found),
+    )
+    [unit] = units(SPEC, found)
+
+    images = unit_images(workspace, student, unit, BUDGET)
+
+    page = page_image(workspace, student, 1)
+    # Grown by 0.02 of the page on each side, clamped to the page, widened to pixels.
+    small, edge_box = prep.crop(page, [0.0, 0.28, 0.07, 0.33])
+    _, corner_box = prep.crop(page, [0.94, 0.96, 1.0, 1.0])
+    assert edge_box[0] == 0.0 and corner_box[2:] == [1.0, 1.0]
+    assert about(images.items) == [
+        {"image": "overview", "page": 1},
+        {
+            "image": "region",
+            "region": 1,
+            "page": 1,
+            "parts": ["Q1", "Q3"],
+            "continues": [],
+        },
+        {"image": "region", "region": 2, "page": 1, "parts": ["Q2"], "continues": []},
+    ]
+    overview, region, _ = sent_images(images.items)
+    assert overview.size == (BUDGET // 2, BUDGET)
+    # A tiny box on a slide export stops at twice the slide's own pixels.
+    assert region.size == (2 * small.width, 2 * small.height)
+    assert images.crops == {
+        "Q1": [Crop(page=1, box=edge_box, scale=2.0)],
+        "Q2": [Crop(page=1, box=corner_box, scale=2.0)],
+        "Q3": [Crop(page=1, box=edge_box, scale=2.0)],
+    }
+    sent = [i for i in images.items if isinstance(i, bytes)]
+    assert workspace.crop_png(student, "Q1", 1).read_bytes() == sent[1]
+    assert workspace.crop_png(student, "Q3", 1).read_bytes() == sent[1]
+    assert workspace.crop_png(student, "Q2", 1).read_bytes() == sent[2]
+
+
+def test_on_a_scanned_page_a_region_is_clamped_and_stops_at_twice_native(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, _ = student_of(fixture_workspace, "not-classkick")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    found = Map(
+        entries=[
+            entry("Q1", 1, [0.0, 0.3, 0.05, 0.31]),
+            entry("Q2", 1, [0.96, 0.98, 0.99, 0.995]),
+        ],
+        unanswered=[],
+        set_aside=[],
+    )
+    pages = [MapPage(number=n, rotation=0, photo=False) for n in range(1, 4)]
+    write_model(
+        workspace.map_json(student),
+        MapRecord(provenance=NOBODY, pages=pages, map=found),
+    )
+    [unit] = units(SPEC, found)
+
+    images = unit_images(workspace, student, unit, BUDGET)
+
+    [edge], [corner] = images.crops["Q1"], images.crops["Q2"]
+    assert edge.box == pytest.approx([0.0, 0.28, 0.07, 0.33])
+    assert corner.box == pytest.approx([0.94, 0.96, 1.0, 1.0])
+    _, region, _ = sent_images(images.items)
+    # The scan holds 200 pixels per inch; the region is 0.07 of an 8.5 inch page wide.
+    native = 0.07 * 8.5 * 200
+    assert edge.scale is not None and 1.99 < edge.scale <= 2.0
+    assert region.width == pytest.approx(2 * native, abs=2)
+
+
+def test_a_region_that_carries_on_another_says_which(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, truth = student_of(fixture_workspace, "ink-in-place")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    write_model(workspace.map_json(student), map_of(truth))
+    [unit] = [u for u in units(SPEC, truth.map) if u.name == "Q5"]
+
+    images = unit_images(workspace, student, unit, BUDGET)
+
+    assert [(a.get("parts"), a.get("continues")) for a in about(images.items)] == [
+        (None, None),
+        (None, None),
+        (["Q5.a"], []),
+        (["Q5.a"], [1]),
+        (["Q5.b"], []),
+        (["Q5.c"], []),
+    ]
+    assert len(images.crops["Q5.a"]) == 2
+
+
+def test_a_turned_photo_page_is_sent_upright_and_corrected_and_a_flat_page_as_is(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, truth = student_of(fixture_workspace, "rotated")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    mapped = map_of(truth)
+    assert [p.rotation for p in mapped.pages] == [0, 0, 90, 0]
+    # Page 2 is said not to be a photo, so that the two treatments can be told apart.
+    mapped.pages[1].photo = False
+    write_model(workspace.map_json(student), mapped)
+    [unit] = [u for u in units(SPEC, mapped.map) if u.name == "Q4"]
+    [q4c] = [e for e in unit.entries if e.part_id == "Q4.c"]
+    assert q4c.page == 3 and q4c.box[2] - q4c.box[0] < q4c.box[3] - q4c.box[1]
+
+    images = unit_images(workspace, student, unit, BUDGET)
+
+    sent = [i for i in images.items if isinstance(i, bytes)]
+    assert [a.get("page") for a in about(images.items)][:2] == [2, 3]
+    flat, turned = page_image(workspace, student, 2), page_image(workspace, student, 3)
+    assert sent[0] == prep.reduced_png(flat, BUDGET)
+    upright = prep.rotate(turned, 1)
+    assert sent[1] == prep.reduced_png(prep.correct_contrast(upright), BUDGET)
+    assert sent[1] != prep.reduced_png(upright, BUDGET)  # the correction did something
+
+    regions = dict(
+        zip([tuple(a["parts"]) for a in about(images.items)[2:]], sent[2:], strict=True)
+    )
+    with render.open_pdf(workspace.source_pdf(student)) as pdf:
+        [crop] = images.crops["Q4.c"]
+        page3 = render.render_region(pdf[2], "classkick", crop.box, BUDGET).image
+        [crop] = images.crops["Q4.a"]
+        page2 = render.render_region(pdf[1], "classkick", crop.box, BUDGET).image
+    expected = prep.reduced_png(prep.correct_contrast(prep.rotate(page3, 1)), BUDGET)
+    assert regions[("Q4.c",)] == expected
+    assert regions[("Q4.a",)] == prep.reduced_png(page2, BUDGET)
+    shown = Image.open(io.BytesIO(regions[("Q4.c",)]))
+    assert shown.width > shown.height  # the lines of writing run across
+
+
+# --- checks ------------------------------------------------------------------------
+
+BLANK_WITH_WORK = (
+    "Q4.b: a blank reading has no lines, no elements and an empty final answer"
+)
+PARTS = [p for p in SPEC.parts if p.id in ("Q1", "Q4.a", "Q4.b")]
+GOOD = [
+    reading("Q1", lines=[], final_answer=NOTHING.model_copy(update={"choices": ["C"]})),
+    reading("Q4.a"),
+    reading("Q4.b", uncertain=[2]),
+]
+
+
+@pytest.mark.parametrize(
+    ("found", "wrong"),
+    [
+        (GOOD, []),
+        (GOOD[:2], ["Q4.b has no reading"]),
+        ([*GOOD, reading("Q9")], ["Q9 is not a part of this request"]),
+        ([*GOOD, GOOD[1]], ["Q4.a is read 2 times"]),
+        (
+            [*GOOD[:2], reading("Q4.b", uncertain=[1, 3])],
+            ["Q4.b: line 3 is marked uncertain, and there is no line 3"],
+        ),
+        (
+            [
+                reading(
+                    "Q1", final_answer=NOTHING.model_copy(update={"choices": ["c"]})
+                ),
+                *GOOD[1:],
+            ],
+            ["Q1: choices must be among ['A', 'B', 'C', 'D', 'E']"],
+        ),
+        *(
+            (
+                [*GOOD[:2], reading("Q4.b", status="blank", **{field: value}, **rest)],
+                [BLANK_WITH_WORK],
+            )
+            for field, value, rest in [
+                ("lines", ["x"], {}),
+                (
+                    "elements",
+                    [
+                        {
+                            "label": "",
+                            "kind": "arrow",
+                            "direction": None,
+                            "position": None,
+                        }
+                    ],
+                    {"lines": []},
+                ),
+                (
+                    "final_answer",
+                    NOTHING.model_copy(update={"value": 0.0}),
+                    {"lines": []},
+                ),
+            ]
+        ),
+    ],
+    ids=[
+        "clean",
+        "missing",
+        "foreign",
+        "twice",
+        "no such line",
+        "choice not printed",
+        "blank with lines",
+        "blank with elements",
+        "blank with an answer",
+    ],
+)
+def test_each_check_catches_its_failure(found: list[Reading], wrong: list[str]) -> None:
+    assert problems(PARTS, Readings(readings=found)) == wrong
+
+
+# --- calls -------------------------------------------------------------------------
+
+
+class Reader:
+    """Answers each request with `answer(the outline's part ids, how many requests
+    that outline has had before)`, after waiting `delay(part ids)` seconds."""
+
+    def __init__(
+        self,
+        answer: Callable[[list[str], int], Readings] = lambda ids, n: Readings(
+            readings=[reading(i) for i in ids]
+        ),
+        delay: Callable[[list[str]], float] = lambda ids: 0.0,
+    ) -> None:
+        self.answer, self.delay = answer, delay
+        self.requests: list[dict[str, Any]] = []
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        content = body["messages"][1]["content"]
+        ids = [p["id"] for p in json.loads(content[0]["text"])["parts"]]
+        before = sum(r["ids"] == ids for r in self.requests)
+        self.requests.append(
+            {"ids": ids, "body": request.content.decode(), "json": body}
+        )
+        await asyncio.sleep(self.delay(ids))
+        value = self.answer(ids, before)
+        return httpx.Response(
+            200,
+            json={
+                "model": MODEL.slug,
+                "choices": [{"message": {"content": value.model_dump_json()}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
+            },
+        )
+
+
+def run(workspace: Workspace, student: str, reader: Reader) -> dict[str, ReadingRecord]:
+    async def main() -> dict[str, ReadingRecord]:
+        async with Gateway(
+            workspace.root.parent / "cache.sqlite",
+            "test-key",
+            requests_per_second=1000,
+            transport=httpx.MockTransport(reader),
+        ) as gateway:
+            return await read_student(workspace, student, SPEC, gateway, MODEL, BUDGET)
+
+    return asyncio.run(main())
+
+
+def mapped_fixture(
+    fixture_workspace: tuple[Workspace, IngestSummary], layout: str, root: Path
+) -> tuple[Workspace, str]:
+    student, truth = student_of(fixture_workspace, layout)
+    workspace = copy_student(fixture_workspace, student, root)
+    write_model(workspace.map_json(student), map_of(truth))
+    return workspace, student
+
+
+def test_a_unit_s_readings_are_stored_with_their_crops_and_provenance(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = mapped_fixture(
+        fixture_workspace, "partly-blank", tmp_path / "ws"
+    )
+    reader = Reader()
+
+    records = run(workspace, student, reader)
+
+    assert sorted(r["ids"] for r in reader.requests) == [
+        ["Q1", "Q3"],
+        ["Q4.a", "Q4.b"],
+        ["Q5.a"],
+    ]
+    assert {r["json"]["session_id"] for r in reader.requests} == {"ws:read"}
+    _, version = prompts.load("read", "unit")
+    by_model = Provenance(
+        key_part_hash=None, prompt_version=version, model_slug=MODEL.slug
+    )
+    assert [id for id, r in records.items() if r.provenance == by_model] == [
+        "Q1",
+        "Q3",
+        "Q4.a",
+        "Q4.b",
+        "Q5.a",
+    ]
+    assert all(
+        records[id].reading.status == "blank" for id in ("Q2", "Q4.c", "Q5.b", "Q5.c")
+    )
+    [crop] = records["Q4.b"].crops
+    assert crop.page == 2 and crop.scale is not None and crop.scale <= 2.0
+    assert workspace.crop_png(student, "Q4.b", 1).exists()
+    for problem in ("Q1", "Q2", "Q3", "Q4", "Q5"):
+        stored = read_model(workspace.reading_json(student, problem), ProblemReadings)
+        assert stored.records == [
+            r for id, r in records.items() if id.split(".")[0] == problem
+        ]
+
+
+def test_a_unit_that_fails_its_checks_is_asked_once_more_with_the_failures(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = mapped_fixture(
+        fixture_workspace, "ink-in-place", tmp_path / "ws"
+    )
+
+    def answer(ids: list[str], before: int) -> Readings:
+        short = ids[:-1] if ids[0] == "Q4.a" and before == 0 else ids
+        return Readings(readings=[reading(i) for i in short])
+
+    reader = Reader(answer)
+    records = run(workspace, student, reader)
+
+    q4 = [r for r in reader.requests if r["ids"] == ["Q4.a", "Q4.b", "Q4.c"]]
+    assert len(q4) == 2
+    last = q4[1]["json"]["messages"][1]["content"][-1]
+    assert last == {
+        "type": "text",
+        "text": json.dumps({"problems": ["Q4.c has no reading"]}),
+    }
+    assert records["Q4.c"].reading == reading("Q4.c")
+
+
+def test_a_unit_that_fails_twice_raises_after_the_others_finish_and_leaves_no_file(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = mapped_fixture(
+        fixture_workspace, "ink-in-place", tmp_path / "ws"
+    )
+    earlier = ProblemReadings(records=[])
+    for problem in ("Q1", "Q2", "Q3", "Q4", "Q5"):
+        write_model(workspace.reading_json(student, problem), earlier)
+
+    def answer(ids: list[str], before: int) -> Readings:
+        short = ids[:-1] if ids[0] == "Q4.a" else ids
+        return Readings(readings=[reading(i) for i in short])
+
+    # Every other unit is still being read when Q4's second answer fails.
+    reader = Reader(answer, delay=lambda ids: 0.0 if ids[0] == "Q4.a" else 0.3)
+
+    with pytest.raises(StageError) as raised:
+        run(workspace, student, reader)
+
+    assert str(raised.value) == (
+        f"the reading of Q4 of {student} fails its checks: Q4.c has no reading"
+    )
+    assert not workspace.reading_json(student, "Q4").exists()
+    for problem in ("Q1", "Q2", "Q3", "Q5"):
+        stored = read_model(workspace.reading_json(student, problem), ProblemReadings)
+        assert stored != earlier
+
+
+def test_no_request_holds_anything_from_the_key(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = mapped_fixture(
+        fixture_workspace, "ink-in-place", tmp_path / "ws"
+    )
+    reader = Reader()
+
+    run(workspace, student, reader)
+
+    key = Key.model_validate_json((FIXTURES / "key.json").read_text())
+    secrets = [p.solution for p in key.parts]
+    secrets += [c.requirement for p in key.parts for c in p.criteria]
+    assert len(reader.requests) == 3
+    for request in reader.requests:
+        # JSON escapes the same text in the body; compare the decoded strings too.
+        texts = [request["body"]] + [
+            c["text"]
+            for m in request["json"]["messages"]
+            for c in _parts(m)
+            if c["type"] == "text"
+        ]
+        for secret in secrets:
+            assert all(secret not in text for text in texts), secret
+    # The check would see the parts' own text, so it is looking in the right place.
+    assert any(SPEC.parts[3].prompt in r["body"] for r in reader.requests)
+
+
+def _parts(message: dict[str, Any]) -> list[dict[str, Any]]:
+    content = message["content"]
+    return [{"type": "text", "text": content}] if isinstance(content, str) else content
