@@ -11,6 +11,8 @@ Rules for the criteria of a part:
 5. Every criterion is worth one point, so the number of criteria sets the part's weight. Give a part one criterion for each step, element or reason the question asks for that a response could get right or wrong on its own, and no more.
 6. Accept any valid method unless the question requires one. Where more than one route is common, word a method criterion so that every correct route meets it, or name the routes it accepts.
 7. State each requirement so the grader needs nothing else: give the expected value with its unit, the expected expression, the direction, or the claim. Do not refer to the solution or to "the answer".
+8. Credit for a result carried from an earlier part is settled by the assignment's own policy, not by the criteria. No requirement, partial level or common error may treat an earlier part's result, used correctly, as wrong, even when that result was wrong. A method criterion that uses an earlier part's result names it by what it is, such as "the value found in part (b)", and not by its number. A final-answer criterion still states the expected value.
+9. A criterion that only asks for something to be absent, such as "nothing else is drawn" or "no other answer is given", must also say what has to be present for it to count, so that an empty or nearly empty response cannot earn it.
 
 Return a JSON object with one field, `parts`: one entry for each part in the message, in the same order, and no other entries. Each entry has three fields:
 
