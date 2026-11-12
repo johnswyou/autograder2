@@ -38,6 +38,12 @@
     0,
     0
   ],
+  "photos": [
+    true,
+    false,
+    false,
+    false
+  ],
   "map": {
     "entries": [
       {

@@ -30,6 +30,11 @@
     0,
     0
   ],
+  "photos": [
+    true,
+    true,
+    true
+  ],
   "map": {
     "entries": [
       {

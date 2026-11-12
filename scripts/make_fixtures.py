@@ -1472,12 +1472,22 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
         90 if student.layout == "rotated" and k == TURNED_PAGE else 0
         for k in range(1, len(pages) + 1)
     ]
+    # Whether the student's work on each page is a photograph or scan of paper: every
+    # page of a photographed or scanned submission, the notebook photos and the
+    # photographed sheet. A page with no work on it is not.
+    photos = [
+        student.layout in ("photo-per-page", "rotated", "not-classkick")
+        or (student.layout == "all-on-foreign-pages" and k in (2, 3))
+        or (student.layout in ("small-writing", "low-resolution") and k == 1)
+        for k in range(1, len(pages) + 1)
+    ]
     return {
         "layout_class": student.layout,
         "student_name": student.name,
         "source_kind": "classkick" if classkick else "other",
         "pages": [p.model_dump(mode="json") for p in ingest],
         "rotations": rotations,
+        "photos": photos,
         "map": found.model_dump(mode="json"),
         "readings": [r.model_dump(mode="json") for r in readings],
         "grades": [g.model_dump(mode="json") for g in grades],

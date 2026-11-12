@@ -3,12 +3,12 @@
 from pathlib import Path
 from typing import Any, Literal
 
-from redpen.schemas.common import Schema
+from redpen.schemas.common import Provenance, Schema
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.grade import Grade
 from redpen.schemas.key import Answer
 from redpen.schemas.reading import Reading
-from redpen.schemas.submission import IngestPage, Map
+from redpen.schemas.submission import IngestPage, Map, MapPage, MapRecord
 
 FIXTURES = Path(__file__).parent / "fixtures" / "synthetic"
 SUBMISSIONS = sorted(FIXTURES.glob("* - *.pdf"))
@@ -36,6 +36,8 @@ class SubmissionTruth(Schema):
     pages: list[IngestPage]
     # Per page, the clockwise degrees that turn the student's work upright.
     rotations: list[Literal[0, 90, 180, 270]]
+    # Per page, whether the student's work on it is a photograph or scan of paper.
+    photos: list[bool]
     map: Map
     readings: list[Reading]
     grades: list[Grade]
@@ -44,6 +46,20 @@ class SubmissionTruth(Schema):
 
 def truth_of(pdf: Path) -> SubmissionTruth:
     return SubmissionTruth.model_validate_json(pdf.with_suffix(".json").read_text())
+
+
+def map_of(truth: SubmissionTruth) -> MapRecord:
+    """The map record a correct map stage would write for the truth's submission:
+    its map, and each page's rotation and photo flag, as written by code."""
+    pages = [
+        MapPage(number=n, rotation=rotation, photo=photo)
+        for n, (rotation, photo) in enumerate(
+            zip(truth.rotations, truth.photos, strict=True), 1
+        )
+    ]
+    assert len(pages) == len(truth.pages)
+    nobody = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
+    return MapRecord(provenance=nobody, pages=pages, map=truth.map)
 
 
 def answer(**fields: Any) -> Answer:
