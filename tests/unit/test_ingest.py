@@ -4,6 +4,7 @@ import os
 import shutil
 import struct
 import tempfile
+import unicodedata
 import zipfile
 from hashlib import sha256
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 from PIL import Image, ImageChops
 from reportlab.pdfgen.canvas import Canvas
 
+from redpen.grade import ingest as ingest_module
 from redpen.grade.ingest import IngestSummary, ingest
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model
@@ -28,11 +30,20 @@ def folder(root: Path, files: dict[str, Path | bytes]) -> Path:
     path = root / "submissions"
     path.mkdir(parents=True)
     for name, content in files.items():
+        (path / name).parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, Path):
             shutil.copyfile(content, path / name)
         else:
             (path / name).write_bytes(content)
     return path
+
+
+def zip_of(source: Path, archive: Path) -> Path:
+    """A ZIP of every file under `source`, by its path relative to `source`."""
+    with zipfile.ZipFile(archive, "w") as zipped:
+        for path in sorted(p for p in source.rglob("*") if p.is_file()):
+            zipped.write(path, path.relative_to(source).as_posix())
+    return archive
 
 
 @pytest.fixture(scope="module")
@@ -169,6 +180,149 @@ def test_an_oversized_zip_member_is_skipped_and_reported(tmp_path: Path) -> None
     assert "crc" in reasons["Title - Liar.pdf"].lower()  # read stopped at 100 bytes
 
 
+def corrupt(archive: Path, name: str) -> None:
+    """Scramble the middle of a member's compressed data, in place."""
+    with zipfile.ZipFile(archive) as zipped:
+        member = zipped.getinfo(name)
+    data = bytearray(archive.read_bytes())
+    at = member.header_offset
+    name_length, extra_length = struct.unpack("<HH", data[at + 26 : at + 30])
+    start = at + 30 + name_length + extra_length
+    for index in range(start + 16, start + member.compress_size - 16):
+        data[index] ^= 0xFF
+    archive.write_bytes(data)
+
+
+@pytest.mark.parametrize(
+    "compression",
+    [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA],
+    ids=["stored", "deflated", "bzip2", "lzma"],
+)
+def test_a_corrupt_zip_member_of_any_compression_is_reported_and_skipped(
+    tmp_path: Path, compression: int
+) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("Title - Broken.pdf", OTHER.read_bytes(), compression)
+        zipped.write(OTHER, OTHER.name)
+    corrupt(archive, "Title - Broken.pdf")
+
+    summary = ingest(archive, Workspace(tmp_path / "ws"))
+
+    assert [r.student_name for r in summary.students] == [truth_of(OTHER).student_name]
+    assert [f.file for f in summary.failed] == ["Title - Broken.pdf"]
+
+
+def test_a_zip_member_under_dot_slash_is_ingested(tmp_path: Path) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr(zipfile.ZipInfo(f"./{OTHER.name}"), OTHER.read_bytes())
+        assert zipped.namelist() == [f"./{OTHER.name}"]
+
+    summary = ingest(archive, Workspace(tmp_path / "ws"))
+
+    assert [r.student_name for r in summary.students] == [truth_of(OTHER).student_name]
+    assert summary.ignored_files == 0
+
+
+def test_a_zip_and_a_folder_with_subfolders_give_identical_results(
+    tmp_path: Path,
+) -> None:
+    # Sorted as paths, "a/" comes before "a b/"; sorted as strings, after it.
+    files: dict[str, Path | bytes] = {
+        "a b/Title - Quinn.pdf": OTHER,
+        "a/Title - Pat.pdf": OTHER,
+        "c/Title - Quinn.pdf": OTHER,
+        "c/Title - Pat.pdf": OTHER,
+        "a b/broken.pdf": b"not a pdf",
+        "a/broken.pdf": b"not a pdf",
+    }
+    source = folder(tmp_path, files)
+    for name in files:
+        stamp = 2_000_000_000 if name.startswith("c/") else 1_500_000_000
+        os.utime(source / name, (stamp, stamp))
+    archive = zip_of(source, tmp_path / "submissions.zip")
+
+    from_folder = ingest(source, Workspace(tmp_path / "folder.redpen"))
+
+    assert ingest(archive, Workspace(tmp_path / "zip.redpen")) == from_folder
+    assert [d.used for d in from_folder.duplicates] == [
+        "c/Title - Quinn.pdf",
+        "c/Title - Pat.pdf",
+    ]
+    assert [f.file for f in from_folder.failed] == ["a b/broken.pdf", "a/broken.pdf"]
+
+
+def test_the_decomposed_and_composed_forms_of_a_name_are_one_student(
+    tmp_path: Path,
+) -> None:
+    composed = "José Núñez"
+    decomposed = unicodedata.normalize("NFD", composed)  # as macOS writes file names
+    assert decomposed != composed
+    roster = tmp_path / "roster.csv"
+    roster.write_text(composed + "\n")
+    old, new = f"Old - {decomposed}.pdf", f"New - {composed}.pdf"
+    source = folder(tmp_path / "both", {old: OTHER, new: OTHER})
+    os.utime(source / old, (1_500_000_000, 1_500_000_000))
+
+    summary = ingest(source, Workspace(tmp_path / "ws"), roster)
+    alone = ingest(folder(tmp_path / "nfd", {old: OTHER}), Workspace(tmp_path / "w2"))
+
+    [record] = summary.students
+    assert record.student_name == composed
+    assert [(d.used, d.dropped) for d in summary.duplicates] == [(new, [old])]
+    assert summary.not_on_roster == summary.missing_from_roster == []
+    assert alone.students[0].student_key == record.student_key
+
+
+def test_a_record_that_no_longer_validates_is_redone(tmp_path: Path) -> None:
+    source = folder(tmp_path, {OTHER.name: OTHER})
+    workspace = Workspace(tmp_path / "ws")
+    [record] = ingest(source, workspace).students
+    workspace.ingest_json(record.student_key).write_text('{"student_name": "old"}')
+
+    assert ingest(source, workspace).students == [record]
+    assert read_model(workspace.ingest_json(record.student_key), IngestRecord) == record
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can delete a read-only folder")
+def test_a_student_whose_folder_cannot_be_cleared_fails_alone(tmp_path: Path) -> None:
+    source = folder(tmp_path, {OTHER.name: OTHER, CLASSKICK[0].name: CLASSKICK[0]})
+    workspace = Workspace(tmp_path / "ws")
+    first = ingest(source, workspace)
+    [key] = [r.student_key for r in first.students if r.source_kind == "other"]
+    locked = workspace.student_dir(key) / "locked"
+    locked.mkdir()
+    (locked / "kept").write_text("")
+    locked.chmod(0o500)
+    resubmitted = Canvas(str(source / OTHER.name))  # a change, so the folder is cleared
+    resubmitted.drawString(72, 720, "resubmitted")
+    resubmitted.save()
+
+    try:
+        summary = ingest(source, workspace)
+    finally:
+        locked.chmod(0o700)
+
+    assert [r.source_kind for r in summary.students] == ["classkick"]
+    assert [f.file for f in summary.failed] == [OTHER.name]
+
+
+def test_a_key_is_checked_before_anything_is_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    outside = workspace.root / "outside"
+    outside.mkdir(parents=True)
+    (outside / "kept").write_text("")
+    monkeypatch.setattr(ingest_module, "_key", lambda given: "../outside")
+
+    with pytest.raises(ValueError, match="StudentKey|pattern"):
+        ingest(folder(tmp_path, {OTHER.name: OTHER}), workspace)
+
+    assert (outside / "kept").exists()
+
+
 def test_of_two_files_for_one_student_the_newer_is_used(tmp_path: Path) -> None:
     name = truth_of(CLASSKICK[0]).student_name  # from the Classkick sidebar
     renamed = f"Resubmitted - {name}.pdf"  # from the file name
@@ -196,6 +350,10 @@ def test_a_roster_fixes_spellings_and_reports_both_kinds_of_mismatch(
     keys = {r.student_key for r in ingest(source, workspace).students}
     pages = sorted(workspace.students_dir.rglob("*.png"))
     written = [page.stat().st_mtime_ns for page in pages]
+    later = [workspace.map_json(key) for key in keys]  # what later stages write
+    for path in later:
+        path.write_text("{}")
+    before = sorted(workspace.students_dir.rglob("*"))
 
     summary = ingest(source, workspace, roster)
 
@@ -205,6 +363,7 @@ def test_a_roster_fixes_spellings_and_reports_both_kinds_of_mismatch(
     # A roster moves no one and re-renders nothing; the record takes its spelling.
     assert {r.student_key for r in summary.students} == keys
     assert [page.stat().st_mtime_ns for page in pages] == written
+    assert sorted(workspace.students_dir.rglob("*")) == before  # nothing deleted
     for record in summary.students:
         on_disk = read_model(workspace.ingest_json(record.student_key), IngestRecord)
         assert on_disk.student_name == record.student_name
@@ -283,10 +442,14 @@ def test_a_changed_submission_leaves_nothing_of_the_old_one(tmp_path: Path) -> N
     not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
 )
 def test_real_submissions_ingest() -> None:
-    """Every `student_submissions` folder under REDPEN_REAL_DATA (the GRADING folder
-    or one assignment in it), ingested into a temporary workspace that is deleted
-    afterwards. Prints counts only, never a name."""
-    folders = sorted(Path(os.environ["REDPEN_REAL_DATA"]).rglob("student_submissions"))
+    """The `student_submissions` folder of REDPEN_REAL_DATA when that is one
+    assignment, or of every <term>/<assignment> under it when it is the GRADING
+    folder, ingested into a temporary workspace that is deleted afterwards. Prints
+    counts only, never a name."""
+    root = Path(os.environ["REDPEN_REAL_DATA"])
+    # Never recurse: the data folder also holds `runs` and `feedback`, off limits.
+    found = [root / "student_submissions", *root.glob("*/*/student_submissions")]
+    folders = sorted(p for p in found if p.is_dir())
     assert folders
     for index, submissions in enumerate(folders, 1):
         pdfs = len([p for p in submissions.rglob("*") if p.suffix.lower() == ".pdf"])

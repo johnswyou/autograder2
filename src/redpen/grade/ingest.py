@@ -11,15 +11,21 @@ import re
 import shutil
 import unicodedata
 import zipfile
-import zlib
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pypdfium2 as pdfium  # pyright: ignore[reportMissingTypeStubs]
+from pydantic import TypeAdapter, ValidationError
 
-from redpen.imaging.render import Sidebar, SourceKind, classkick_sidebars, render_page
-from redpen.schemas.common import Schema
+from redpen.imaging.render import (
+    Sidebar,
+    SourceKind,
+    classkick_sidebars,
+    open_pdf,
+    render_page,
+)
+from redpen.schemas.common import Schema, StudentKey
 from redpen.schemas.submission import IngestPage, IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
 
@@ -75,13 +81,13 @@ def ingest(
     spelling: dict[str, str] = {}
     if roster is not None:
         with roster.open(newline="", encoding="utf-8-sig") as rows:
-            names = [row[0].strip() for row in csv.reader(rows) if row]
+            names = [_nfc(row[0]).strip() for row in csv.reader(rows) if row]
         spelling = {_fold(name): name for name in names if name}
 
     groups: dict[str, list[_Submission]] = {}
     for file, data, modified in files:
         try:
-            pdf = pdfium.PdfDocument(data)
+            pdf = open_pdf(data)
             sidebars = classkick_sidebars(pdf)
         except pdfium.PdfiumError as error:
             failed.append(Failure(file=file, reason=str(error)))
@@ -110,7 +116,7 @@ def ingest(
     for submission in sorted(chosen, key=lambda s: _key(s.given)):
         try:
             students.append(_write(workspace, _key(submission.given), submission))
-        except pdfium.PdfiumError as error:
+        except (pdfium.PdfiumError, OSError) as error:  # OSError: clearing its folder
             failed.append(Failure(file=submission.file, reason=str(error)))
 
     return IngestSummary(
@@ -133,14 +139,7 @@ type _File = tuple[str, bytes, tuple[float, ...]]
 
 MAX_MEMBER_BYTES = 200 * 2**20  # a PDF member of a ZIP, uncompressed
 
-# What reading one ZIP member can raise: encrypted, corrupt, truncated or unsupported.
-_UNREADABLE = (
-    RuntimeError,
-    NotImplementedError,
-    EOFError,
-    zipfile.BadZipFile,
-    zlib.error,
-)
+_STUDENT_KEY = TypeAdapter(StudentKey)
 
 
 def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
@@ -151,22 +150,24 @@ def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
     unsafe: list[str] = []
     failed: list[Failure] = []
     if source.is_dir():
-        for path in sorted(p for p in source.rglob("*") if p.is_file()):
+        for path in (p for p in source.rglob("*") if p.is_file()):
             name = path.relative_to(source).as_posix()
             if _is_pdf(name):
                 found.append((name, path.read_bytes(), (path.stat().st_mtime,)))
             else:
                 ignored += 1
-        return found, ignored, unsafe, failed
+        return sorted(found), ignored, unsafe, failed  # by name, as a ZIP's are
     with zipfile.ZipFile(source) as archive:
         for member in archive.infolist():
-            name = member.filename.replace("\\", "/")
+            given = member.filename.replace("\\", "/")
+            parts = [p for p in given.split("/") if p not in ("", ".")]  # "./x.pdf"
+            name = "/".join(parts)
             if member.is_dir():
                 continue
             if (
-                name.startswith("/")
+                given.startswith("/")
                 or PureWindowsPath(member.filename).drive
-                or ".." in name.split("/")
+                or ".." in parts
             ):
                 unsafe.append(member.filename)
             elif not _is_pdf(name):
@@ -179,7 +180,7 @@ def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
                     # zipfile stops at the declared size, and a member that holds
                     # more then fails its CRC check.
                     found.append((name, archive.read(member), member.date_time))
-                except _UNREADABLE as error:
+                except Exception as error:  # each codec fails its own way
                     failed.append(Failure(file=name, reason=str(error)))
     return sorted(found), ignored, unsafe, failed
 
@@ -193,9 +194,14 @@ def _is_pdf(name: str) -> bool:
 def _name(file: str, sidebars: list[Sidebar] | None) -> str:
     for sidebar in sidebars or []:
         if sidebar.student_name:
-            return sidebar.student_name
-    stem = PurePosixPath(file).stem.strip()
+            return _nfc(sidebar.student_name)
+    stem = _nfc(PurePosixPath(file).stem).strip()
     return stem.rpartition(" - ")[2].strip() or stem
+
+
+def _nfc(text: str) -> str:
+    """One form for every name: macOS writes "é" in file names as "e" and an accent."""
+    return unicodedata.normalize("NFC", text)
 
 
 def _fold(name: str) -> str:
@@ -212,23 +218,20 @@ def _key(given: str) -> str:
 
 
 def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRecord:
+    _STUDENT_KEY.validate_python(key)  # before anything under it is deleted
     record_path = workspace.ingest_json(key)
     source = workspace.source_pdf(key)
-    if (
-        record_path.is_file()
-        and source.is_file()
-        and source.read_bytes() == submission.data
-    ):
-        record = read_model(record_path, IngestRecord)
-        if all(workspace.student_page(key, p.number).is_file() for p in record.pages):
-            if record.student_name != submission.name:  # a roster now spells it
-                record = record.model_copy(update={"student_name": submission.name})
-                write_model(record_path, record)
-            return record
+    record = _kept(workspace, key, submission.data)
+    if record is not None:
+        if record.student_name != submission.name:  # a roster now spells it
+            record = record.model_copy(update={"student_name": submission.name})
+            write_model(record_path, record)
+        return record
 
     # Everything in the directory derives from source.pdf, so none of it is kept, and
     # the record is written last, so a run cut short is redone in full next time.
-    shutil.rmtree(workspace.student_dir(key), ignore_errors=True)
+    if workspace.student_dir(key).exists():
+        shutil.rmtree(workspace.student_dir(key))
     source.parent.mkdir(parents=True)
     source.write_bytes(submission.data)
     pages: list[IngestPage] = []
@@ -255,3 +258,17 @@ def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRec
     )
     write_model(record_path, record)
     return record
+
+
+def _kept(workspace: Workspace, key: str, data: bytes) -> IngestRecord | None:
+    """The student's record if their source.pdf is `data` and all their files are
+    there; None if they must be redone, as with a record that no longer validates."""
+    record_path, source = workspace.ingest_json(key), workspace.source_pdf(key)
+    if not (record_path.is_file() and source.is_file() and source.read_bytes() == data):
+        return None
+    try:
+        record = read_model(record_path, IngestRecord)
+    except ValidationError:
+        return None
+    pages = [workspace.student_page(key, p.number) for p in record.pages]
+    return record if all(page.is_file() for page in pages) else None
