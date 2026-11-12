@@ -10,53 +10,21 @@ ingest. Each layout class has its own recording,
 
 import asyncio
 import shutil
-from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from redpen.config import Config
 from redpen.grade.grade import grade_student
 from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of, unit_images, units
 from redpen.llm.client import Gateway
-from redpen.schemas.common import Provenance
 from redpen.schemas.grade import GradeRecord
 from redpen.schemas.key import Key
-from redpen.schemas.reading import Crop, ProblemReadings, ReadingRecord
-from redpen.schemas.spec import Spec
-from redpen.workspace import Workspace, read_model, write_model
-from tests.fixture_truth import FIXTURES, SUBMISSIONS, SubmissionTruth, map_of, truth_of
+from redpen.workspace import Workspace
+from tests.fixture_truth import FIXTURES, SUBMISSIONS, store_truth_readings, truth_of
 from tests.pinned import GRADER
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
-SPEC = read_model(FIXTURES / "spec.json", Spec)
-NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
-
-
-def store_truth_readings(
-    workspace: Workspace, student: str, truth: SubmissionTruth
-) -> None:
-    """Write the truth's readings as the read stage would have, with the crops it
-    would have read them from."""
-    mapped = map_of(truth)
-    crops: dict[str, list[Crop]] = {}
-    for unit in units(SPEC, mapped.map):
-        images = unit_images(
-            workspace, student, unit, mapped.pages, Config().image_budget
-        )
-        crops |= images.crops
-    files: defaultdict[str, list[ReadingRecord]] = defaultdict(list)
-    for r in truth.readings:
-        record = ReadingRecord(
-            provenance=NOBODY, reading=r, crops=crops.get(r.part_id, [])
-        )
-        files[problem_of(r.part_id)].append(record)
-    for problem, records in files.items():
-        write_model(
-            workspace.reading_json(student, problem), ProblemReadings(records=records)
-        )
 
 
 @pytest.mark.parametrize("pdf", SUBMISSIONS, ids=lambda p: truth_of(p).layout_class)

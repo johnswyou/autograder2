@@ -1,17 +1,24 @@
 """The ground truth of the synthetic fixtures written by scripts/make_fixtures.py."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
+from redpen.config import Config
+from redpen.grade.read import problem_of, unit_images, units
 from redpen.schemas.common import Provenance, Schema
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.grade import Grade
 from redpen.schemas.key import Answer
-from redpen.schemas.reading import Reading
+from redpen.schemas.reading import Crop, ProblemReadings, Reading, ReadingRecord
+from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestPage, Map, MapPage, MapRecord
+from redpen.workspace import Workspace, read_model, write_model
 
 FIXTURES = Path(__file__).parent / "fixtures" / "synthetic"
 SUBMISSIONS = sorted(FIXTURES.glob("* - *.pdf"))
+SPEC = read_model(FIXTURES / "spec.json", Spec)
+NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
 
 
 # The ground truth of one synthetic submission, in the JSON file beside its PDF.
@@ -58,8 +65,31 @@ def map_of(truth: SubmissionTruth) -> MapRecord:
         )
     ]
     assert len(pages) == len(truth.pages)
-    nobody = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
-    return MapRecord(provenance=nobody, pages=pages, map=truth.map)
+    return MapRecord(provenance=NOBODY, pages=pages, map=truth.map)
+
+
+def store_truth_readings(
+    workspace: Workspace, student: str, truth: SubmissionTruth
+) -> None:
+    """Write the truth's readings as the read stage would have, with the crops it
+    would have read them from (built from the truth's map, no model call)."""
+    mapped = map_of(truth)
+    crops: dict[str, list[Crop]] = {}
+    for unit in units(SPEC, mapped.map):
+        images = unit_images(
+            workspace, student, unit, mapped.pages, Config().image_budget
+        )
+        crops |= images.crops
+    files: defaultdict[str, list[ReadingRecord]] = defaultdict(list)
+    for r in truth.readings:
+        record = ReadingRecord(
+            provenance=NOBODY, reading=r, crops=crops.get(r.part_id, [])
+        )
+        files[problem_of(r.part_id)].append(record)
+    for problem, records in files.items():
+        write_model(
+            workspace.reading_json(student, problem), ProblemReadings(records=records)
+        )
 
 
 def answer(**fields: Any) -> Answer:
