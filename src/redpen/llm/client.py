@@ -187,7 +187,8 @@ class Gateway:
                 # Fetching it again could change a grade (design 10.3).
                 raise ResponseValidationError(
                     f"the stored {name} for role {role} no longer validates"
-                    f" ({_locations(error)}). Bump prompt version {prompt_version}."
+                    f" ({_locations(error, schema)})."
+                    f" Bump prompt version {prompt_version}."
                 ) from None
             return Result(value, response["model"], _usage(response, model), True)
         if self._offline:
@@ -231,7 +232,7 @@ class Gateway:
                 # from student work.
                 raise ResponseValidationError(
                     f"{model.slug} returned an invalid {name} twice"
-                    f" ({_locations(again)})"
+                    f" ({_locations(again, schema)})"
                 ) from None
         self._cache.put(key, json.dumps(response))
         return Result(value, response["model"], _usage(response, model), False)
@@ -305,12 +306,25 @@ def _message(failure: dict[str, Any] | None) -> str:
     return f": {str(message)[:200]}" if message else ""
 
 
-def _locations(error: ValidationError) -> str:
-    """Each failure's type and field location, without the value."""
-    return "; ".join(
-        e["type"] + (f" at {'.'.join(map(str, e['loc']))}" if e["loc"] else "")
-        for e in error.errors()
-    )
+def _locations(error: ValidationError, schema: dict[str, Any]) -> str:
+    """Each failure's type, and where it is as far as `schema`'s own field names and
+    list indexes say. Other location parts, such as an unexpected key or a dict
+    key, are text from the output."""
+    fields = {
+        name
+        for node in [schema, *schema.get("$defs", {}).values()]
+        for name in node.get("properties", {})
+    }
+    found: list[str] = []
+    for e in error.errors():
+        loc = [
+            str(part)
+            for part in e["loc"]
+            if e["type"] != "extra_forbidden"
+            and (isinstance(part, int) or part in fields)
+        ]
+        found.append(e["type"] + (f" at {'.'.join(loc)}" if loc else ""))
+    return "; ".join(found)
 
 
 def _messages(

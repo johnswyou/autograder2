@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from redpen.llm.cache import CallCache
 from redpen.llm.client import (
@@ -24,6 +24,7 @@ from redpen.llm.client import (
     ResponseValidationError,
     Result,
     RetryableError,
+    _locations,
     without_validation_keywords,
 )
 from redpen.llm.ledger import Ledger, Usage
@@ -423,7 +424,8 @@ def test_a_stored_response_that_no_longer_validates_raises_without_a_request(
         connection.execute("UPDATE calls SET response = ?", (json.dumps(stale),))
 
     with pytest.raises(
-        ResponseValidationError, match="Bump prompt version v1"
+        ResponseValidationError,
+        match=r"\(string_pattern_mismatch at letter\)\. Bump prompt version v1",
     ) as error:
         run(db, server, ask())
     assert len(server.requests) == 1
@@ -437,6 +439,7 @@ SECRET = "the student wrote that the answer is 42"
     ("reply", "raised"),
     [
         (json.dumps({"letter": SECRET}), ResponseValidationError),
+        (json.dumps({"letter": "B", SECRET: 1}), ResponseValidationError),
         (
             httpx.Response(
                 400,
@@ -461,7 +464,7 @@ SECRET = "the student wrote that the answer is 42"
             FatalError,
         ),
     ],
-    ids=["invalid twice", "HTTP error", "error inside a 200"],
+    ids=["invalid twice", "unexpected key", "HTTP error", "error inside a 200"],
 )
 def test_an_error_does_not_quote_the_response(
     tmp_path: Path, reply: str | httpx.Response, raised: type[Exception]
@@ -538,3 +541,26 @@ def test_a_killed_batch_resumes_without_repeating_finished_calls(
     assert [r.value for r in second if isinstance(r, Result)] == [
         Answer(letter="B")
     ] * 10
+
+
+class Letters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    letters: list[Answer]
+
+
+@pytest.mark.parametrize(
+    ("output", "where"),
+    [
+        ('{"letters": [{"letter": 1}]}', "string_type at letters.0.letter"),
+        # The unexpected key's name is a field name, yet it is still output text.
+        ('{"letters": [{"letter": "B", "letters": 1}]}', "extra_forbidden"),
+    ],
+)
+def test_an_error_location_keeps_only_field_names_and_indexes(
+    output: str, where: str
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        Letters.model_validate_json(output)
+
+    assert _locations(error.value, Letters.model_json_schema()) == where
