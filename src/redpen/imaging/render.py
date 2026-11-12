@@ -3,7 +3,8 @@
 A Classkick export (docs/export-notes.md) is recognised by its structure: each page
 holds the sidebar text and one image at the slide box, and nothing else. Its working
 image is that slide image at native size, composited over white. Any other PDF is
-rendered at 200 DPI. A PDF that matches on some pages only is `other`.
+rendered at 200 DPI, reduced where needed to a longest edge of 4096 pixels. A PDF
+that matches on some pages only is `other`.
 
 Boxes are [x0, y0, x1, y1] in fractions of the page image, from its top-left.
 """
@@ -28,6 +29,7 @@ from redpen.imaging.prep import crop
 type SourceKind = Literal["classkick", "other"]
 
 DPI = 200
+MAX_EDGE = 4096  # pixels, the longest edge of an `other` page's working image
 # Where the slide sits on a Classkick page, in points: left, bottom, right, top.
 SLIDE_BOX = (200.0, 8.88, 591.56, 792.0)
 SIDEBAR_X = 15.0  # where every sidebar line starts, in points
@@ -52,8 +54,12 @@ class TextSpan:
 @dataclass(frozen=True)
 class Page:
     image: Image.Image  # RGB
-    # The lowest resolution of the page's images, in pixels per inch of the page;
-    # None if it has no image.
+    # Pixels of `image` per inch of the PDF page: 200, or less on a page so large
+    # that 200 would pass MAX_EDGE. None on a Classkick page, whose image is the
+    # slide at native_ppi.
+    dpi: float | None
+    # Pixels per inch of the page of the image that covers the most of the page;
+    # None if the page has no image.
     native_ppi: float | None
     sidebar: Sidebar | None  # on a Classkick page only
     text: list[TextSpan]  # an `other` page's text layer; empty on a Classkick page
@@ -116,9 +122,11 @@ def render_page(page: pdfium.PdfPage, kind: SourceKind) -> Page:
     """The working image of a page, with what is recorded about it at ingest."""
     if kind == "classkick":
         slide = _slide(page)
-        return Page(_composite(slide), _native_ppi([slide]), sidebar(page), [])
+        return Page(_composite(slide), None, _native_ppi([slide]), sidebar(page), [])
+    # pypdfium2 rounds the bitmap size up, so the cap sits a hair under MAX_EDGE.
+    scale = min(DPI / 72, (MAX_EDGE - 0.001) / max(page.get_size()))
     # pyright infers an int scale from the default; pypdfium2 takes a float.
-    bitmap = page.render(scale=DPI / 72)  # pyright: ignore[reportArgumentType]
+    bitmap = page.render(scale=scale)  # pyright: ignore[reportArgumentType]
     image = bitmap.to_pil().convert("RGB")
     to_bitmap = bitmap.get_posconv(page).to_bitmap
     textpage = page.get_textpage()
@@ -131,7 +139,7 @@ def render_page(page: pdfium.PdfPage, kind: SourceKind) -> Page:
         ys = sorted(min(max(y / image.height, 0.0), 1.0) for y in (ay, by))
         if text:
             spans.append(TextSpan(text, [xs[0], ys[0], xs[1], ys[1]]))
-    return Page(image, _native_ppi(_images(page)), None, spans)
+    return Page(image, scale * 72, _native_ppi(_images(page)), None, spans)
 
 
 def render_region(
@@ -176,13 +184,16 @@ def _composite(image: pdfium.PdfImage) -> Image.Image:
 
 
 def _native_ppi(images: list[pdfium.PdfImage]) -> float | None:
+    """The resolution of the image that covers the most of the page, so that small
+    decorative images do not set it."""
     # shortcut: an image inside a Form XObject is measured against the form's own
     # space, not the page; compose the form matrices if such a PDF turns up.
-    ppis: list[float] = []
+    found: list[tuple[float, float]] = []  # (area in square points, ppi)
     for image in images:
-        matrix = image.get_matrix()
-        width, height = hypot(matrix.a, matrix.b), hypot(matrix.c, matrix.d)
+        m = image.get_matrix()
+        width, height = hypot(m.a, m.b), hypot(m.c, m.d)
         px_width, px_height = image.get_px_size()
         if width and height:
-            ppis.append(72 * min(px_width / width, px_height / height))
-    return min(ppis, default=None)
+            ppi = 72 * min(px_width / width, px_height / height)
+            found.append((abs(m.a * m.d - m.b * m.c), ppi))
+    return max(found)[1] if found else None

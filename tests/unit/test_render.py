@@ -11,6 +11,7 @@ from PIL import Image, ImageChops, ImageFilter, ImageStat
 from redpen.imaging.prep import crop
 from redpen.imaging.render import (
     DPI,
+    MAX_EDGE,
     classkick_sidebars,
     render_page,
     render_region,
@@ -35,6 +36,7 @@ def test_the_vector_blank_renders_at_200_dpi_with_its_text_layer() -> None:
         rendered = render_page(page, "other")
         width, height = (round(side * DPI / 72) for side in page.get_size())
         assert rendered.image.size == (width, height)
+        assert rendered.dpi == DPI
         assert rendered.native_ppi is None
         assert rendered.sidebar is None
         assert rendered.text
@@ -59,6 +61,7 @@ def test_the_classkick_blank_renders_its_slides_and_sidebars() -> None:
         width, height = slide.get_px_size()
         left, _, right, _ = slide.get_bounds()
         assert rendered.image.size == (width, height)
+        assert rendered.dpi is None
         assert rendered.native_ppi == pytest.approx(width * 72 / (right - left))
         assert rendered.text == []
 
@@ -133,4 +136,36 @@ def test_a_classkick_export_with_anything_added_to_a_page_is_other() -> None:
     assert classkick_sidebars(pdf) is None
     rendered = render_page(pasted, "other")
     assert rendered.image.size == tuple(round(s * DPI / 72) for s in pasted.get_size())
-    assert rendered.native_ppi == pytest.approx(50)  # the lowest of the two images
+    slide = render_page(untouched, "classkick").native_ppi  # the larger image's
+    assert rendered.native_ppi == pytest.approx(slide)
+
+
+def place(
+    pdf: pdfium.PdfDocument, page: pdfium.PdfPage, px: int, inches: float
+) -> None:
+    """Put a square image of `px` pixels a side, `inches` wide, on `page`."""
+    image = pdfium.PdfImage.new(pdf)
+    image.set_bitmap(pdfium.PdfBitmap.from_pil(Image.new("RGB", (px, px), "gray")))
+    image.set_matrix(pdfium.PdfMatrix().scale(inches * 72, inches * 72))
+    page.insert_obj(image)
+    page.gen_content()
+
+
+def test_a_huge_page_renders_with_its_longest_edge_at_the_cap() -> None:
+    pdf = pdfium.PdfDocument.new()
+    page = pdf.new_page(30 * 72, 40 * 72)  # 30 x 40 inches
+
+    rendered = render_page(page, "other")
+
+    assert rendered.image.size == (3072, MAX_EDGE)
+    assert rendered.dpi == pytest.approx(MAX_EDGE / 40)
+    assert rendered.image.width / 30 == pytest.approx(rendered.dpi, abs=0.05)
+
+
+def test_native_resolution_is_the_largest_image_s_not_a_small_sharp_one() -> None:
+    pdf = pdfium.PdfDocument.new()
+    page = pdf.new_page(612, 792)
+    place(pdf, page, 800, 8)  # 100 ppi over most of the page
+    place(pdf, page, 300, 0.5)  # 600 ppi, a small logo
+
+    assert render_page(page, "other").native_ppi == pytest.approx(100)
