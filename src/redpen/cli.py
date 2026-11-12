@@ -35,6 +35,7 @@ from redpen.llm.client import (
 )
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
 from redpen.prepare.key import (
+    KeyFileError,
     assemble,
     load_key,
     number,
@@ -184,16 +185,17 @@ def prepare(
         return
     try:
         key = asyncio.run(_key(ws, config, lock, api_key, spec))
+        save_key(ws.key_yaml, key)
+        write_markdown(ws, key)
     except (
         OSError,
         StageError,
         FatalError,
         ResponseValidationError,
         RetryableError,
+        KeyFileError,
     ) as error:
         _fail(str(error))
-    save_key(ws.key_yaml, key)
-    write_markdown(ws, key)
     typer.echo(f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.rubric_md.name}")
     _points(key)
 

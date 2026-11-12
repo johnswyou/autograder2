@@ -19,10 +19,10 @@ from redpen.llm.models import ModelInfo
 from redpen.prepare import rubric, solve
 from redpen.prepare.rubric import PartRubric, Rubric, write_rubric
 from redpen.prepare.solve import PartSolution, Solution
-from redpen.schemas.key import Answer
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
+from tests.fixture_truth import answer as filled
 
 MODEL = ModelInfo(
     slug="vendor/vision-1",
@@ -81,7 +81,7 @@ class Server:
                     PartSolution(
                         part_id=p["id"],
                         solution="Work.",
-                        answer=Answer.model_validate(fitting(p)),
+                        answer=filled(**fitting(p)),
                         uses=[],
                         alternatives=[],
                     )
@@ -205,7 +205,7 @@ def solution(
             PartSolution(
                 part_id=id,
                 solution="Work.",
-                answer=Answer.model_validate(answer),
+                answer=filled(**answer),
                 uses=[],
                 alternatives=[]
                 if also is None

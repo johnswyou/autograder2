@@ -1,11 +1,12 @@
 """The ground truth of the synthetic fixtures written by scripts/make_fixtures.py."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from redpen.schemas.common import Schema
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.grade import Grade
+from redpen.schemas.key import Answer
 from redpen.schemas.reading import Reading
 from redpen.schemas.submission import IngestPage, Map
 
@@ -43,3 +44,11 @@ class SubmissionTruth(Schema):
 
 def truth_of(pdf: Path) -> SubmissionTruth:
     return SubmissionTruth.model_validate_json(pdf.with_suffix(".json").read_text())
+
+
+def answer(**fields: Any) -> Answer:
+    """An `Answer` with `fields` filled and every other field null or empty."""
+    lists = {"choices", "accept_also", "elements", "must_include"}
+    return Answer.model_validate(
+        {name: [] if name in lists else None for name in Answer.model_fields} | fields
+    )

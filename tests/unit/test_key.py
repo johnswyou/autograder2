@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.prepare.key import (
+    KeyFileError,
     assemble,
     key_version,
     load_key,
@@ -25,6 +27,7 @@ from redpen.schemas.key import Answer, Criterion, Key, PartialCredit
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
+from tests.fixture_truth import answer as filled
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 
@@ -52,7 +55,7 @@ def solved(
     return PartSolution(
         part_id=id,
         solution=f"Work of {id}.",
-        answer=Answer.model_validate(answer),
+        answer=filled(**answer),
         uses=uses or [],
         alternatives=[
             Alternative(assumption="another constant", value=v) for v in also
@@ -174,6 +177,55 @@ def test_a_hand_edit_survives_a_load_and_a_save(tmp_path: Path) -> None:
     assert "points: 3  # one more\n" in text
     assert text.index("parts:") < text.index("policies:")
     assert load_key(path) == key
+
+
+def test_answer_fields_left_out_are_filled_in_by_the_loader_not_by_the_model(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "key.yaml"
+    save_key(path, KEY)
+
+    with pytest.raises(ValidationError):
+        Answer.model_validate({})
+    assert "    answer:\n      choices:\n        - C\n    solution:" in path.read_text()
+    assert load_key(path) == KEY
+
+
+CONTROL = ["\x02", "\x0c", "\x7f", "\x85", "\ufffe"]
+
+
+def with_text(field: str, text: str) -> Key:
+    data = KEY.model_dump()
+    data["parts"][4][field] = text
+    return Key.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["prompt", "solution"])
+@pytest.mark.parametrize("character", CONTROL, ids=[repr(c) for c in CONTROL])
+def test_text_with_a_control_character_is_written_so_that_it_reads_back(
+    tmp_path: Path, field: str, character: str
+) -> None:
+    key = with_text(field, f"First line{character} of it.\nSecond line.")
+    path = tmp_path / "key.yaml"
+
+    save_key(path, key)
+
+    assert load_key(path) == key
+
+
+def test_a_file_that_would_not_read_back_is_not_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "key.yaml"
+    save_key(path, KEY)
+    before = path.read_bytes()
+    monkeypatch.setattr("redpen.prepare.key._block_safe", lambda text: True)
+
+    with pytest.raises(KeyFileError, match="left as it is"):
+        save_key(path, with_text("solution", "a\x02b\nc"))
+
+    assert path.read_bytes() == before
+    assert not path.with_name("key.yaml.partial").exists()
 
 
 @pytest.mark.parametrize("written", ["0.1", "0.10000000000000000001"])

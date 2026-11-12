@@ -34,6 +34,7 @@ from redpen.schemas.common import DiagramElement
 from redpen.schemas.key import Answer, Key
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
+from tests.fixture_truth import answer as filled
 
 # ~anthropic/claude-opus-latest as `pin` resolved it with strict privacy on
 # 12 November 2026.
@@ -139,7 +140,7 @@ def assert_answers_match_the_truth(key: Key) -> None:
 
 def test_the_loose_comparisons_tell_a_wrong_answer_from_a_right_one() -> None:
     def answer(**fields: Any) -> Answer:
-        return Answer.model_validate(fields)
+        return filled(**fields)
 
     force = DiagramElement(label="F_N", kind="force", direction="up", position=None)
     assert same_number(

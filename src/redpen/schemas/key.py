@@ -1,7 +1,7 @@
 """The key: answers, solutions, criteria and policies (design 6.2, 6.3, 6.6)."""
 
 from decimal import Decimal
-from typing import Any, Literal, Self, cast
+from typing import Literal, Self
 
 from pydantic import ConfigDict, PositiveInt, model_validator
 
@@ -27,19 +27,6 @@ class Answer(Schema):
     expression: str | None
     elements: list[DiagramElement]
     must_include: list[str]
-
-    # key.yaml leaves out the fields an answer does not use. The schema still lists
-    # every field as required, as a strict response format needs.
-    @model_validator(mode="before")
-    @classmethod
-    def _absent_is_empty(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        lists = ("choices", "accept_also", "elements", "must_include")
-        absent: dict[str, Any] = {
-            name: [] if name in lists else None for name in cls.model_fields
-        }
-        return absent | cast(dict[str, Any], data)
 
 
 _NUMBER = {"value", "unit", "rel_tol", "accept_also"}

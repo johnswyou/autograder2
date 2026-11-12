@@ -13,10 +13,12 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_origin
 
+from pydantic import ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.constructor import SafeConstructor
+from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
 from ruamel.yaml.scalarstring import LiteralScalarString
@@ -145,21 +147,48 @@ def _writer() -> YAML:
     return yaml
 
 
+class KeyFileError(Exception):
+    """`key.yaml` would not read back as the key it was written from."""
+
+
+def _reader() -> YAML:
+    yaml = YAML(typ="safe", pure=True)
+    yaml.Constructor = _Constructor
+    return yaml
+
+
 def load_key(path: Path) -> Key:
     """The key in `path`. Raises `OSError`, ruamel's `YAMLError`, or Pydantic's
     `ValidationError`."""
-    yaml = YAML(typ="safe", pure=True)
-    yaml.Constructor = _Constructor
-    return Key.model_validate(yaml.load(path))
+    data = _reader().load(path)
+    _fill_answers(data)
+    return Key.model_validate(data)
+
+
+def _fill_answers(data: Any) -> None:
+    """Give each part's answer in `data` every field: `key.yaml` leaves out those an
+    answer does not use, as design 6.3 shows, and `Answer` requires them all."""
+    parts = cast(dict[str, Any], data).get("parts") if isinstance(data, dict) else None
+    for part in cast(list[Any], parts) if isinstance(parts, list) else []:
+        answer = (
+            cast(dict[str, Any], part).get("answer") if isinstance(part, dict) else None
+        )
+        if isinstance(answer, dict):
+            absent: dict[str, Any] = {
+                name: [] if get_origin(field.annotation) is list else None
+                for name, field in Answer.model_fields.items()
+            }
+            part["answer"] = absent | cast(dict[str, Any], answer)
 
 
 def save_key(path: Path, key: Key) -> None:
     """Write `key` to `path` in one step. Where `path` already holds a key, the new
-    values are written into it, so that its comments and key order survive."""
+    values are written into it, so that its comments and key order survive. What is
+    written is read back first: if it is not `key`, `KeyFileError` is raised and
+    `path` is left as it is."""
     yaml = _writer()
     data = _yaml_data(key.model_dump())
     for part in data["parts"]:
-        # Leave out the answer fields that are not used, as design 6.3 shows.
         part["answer"] = {
             k: v for k, v in part["answer"].items() if v not in (None, [])
         }
@@ -167,6 +196,16 @@ def save_key(path: Path, key: Key) -> None:
         data = _merge(yaml.load(path), data)
     buffer = io.StringIO()
     yaml.dump(data, buffer)
+    try:
+        written = _reader().load(buffer.getvalue())
+        _fill_answers(written)
+        back = Key.model_validate(written)
+    except (YAMLError, ValidationError):
+        back = None
+    if back != key:
+        raise KeyFileError(
+            f"{path} would not read back as the key, so it is left as it is"
+        )
     partial = path.with_name(path.name + ".partial")
     partial.parent.mkdir(parents=True, exist_ok=True)
     partial.write_text(buffer.getvalue(), encoding="utf-8")
@@ -174,14 +213,27 @@ def save_key(path: Path, key: Key) -> None:
 
 
 def _yaml_data(value: Any) -> Any:
-    """`value` with each multi-line string marked for a literal block."""
+    """`value` with each multi-line string that a literal block can hold marked for
+    one. Any other string is left for ruamel to quote and escape."""
     if isinstance(value, dict):
         return {k: _yaml_data(v) for k, v in cast(dict[str, Any], value).items()}
     if isinstance(value, list):
         return [_yaml_data(v) for v in cast(list[Any], value)]
-    if isinstance(value, str) and "\n" in value:
+    if isinstance(value, str) and "\n" in value and _block_safe(value):
         return LiteralScalarString(value)
     return value
+
+
+def _block_safe(text: str) -> bool:
+    """Whether a literal block holds `text` as it is: only characters YAML prints,
+    and no line break but "\\n". A block cannot escape anything."""
+    return all(
+        c in "\n\t"
+        or " " <= c <= "~"
+        or ("\xa0" <= c <= "\ufffd" and c not in "\u2028\u2029")
+        or c >= "\U00010000"
+        for c in text
+    )
 
 
 def _merge(old: Any, new: Any) -> Any:
