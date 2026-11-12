@@ -218,16 +218,19 @@ def _label_top(
     label: str, estimate: float, spans: Sequence[render.TextSpan]
 ) -> float | None:
     """The top of the span where `label` is printed: a span that starts with the
-    label, or with a whole trailing segment of it ("(b)" for "7(b)"). The longest
-    match wins, then the one nearest the model's `estimate`."""
+    label, or with a whole trailing segment of it ("(b)" for "7(b)", "A" for
+    "12A"). The longest match wins, then one set off by punctuation ("A." over the
+    word "A" of "A ball"), then the one nearest the model's `estimate`."""
     label = " ".join(label.split())
-    best: tuple[tuple[int, float], float] | None = None
+    best: tuple[tuple[int, bool, float], float] | None = None
     for span in spans:
         text = " ".join(span.text.split())
         for start in range(len(label)):
             marker = label[start:]
             if _whole(label, start) and _starts(text, marker):
-                rank = (-len(marker), abs(span.box[1] - estimate))
+                after = text[len(marker) : len(marker) + 1]
+                bare = marker[-1].isalnum() and after in ("", " ")
+                rank = (-len(marker), bare, abs(span.box[1] - estimate))
                 if best is None or rank < best[0]:
                     best = (rank, span.box[1])
                 break

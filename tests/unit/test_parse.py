@@ -110,6 +110,9 @@ def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
             ("(b)", 0.45),
             ("3.", 0.55),
             ("(a)", 0.60),
+            ("5.", 0.85),
+            ("A crate rests on the floor.", 0.87),
+            ("A.", 0.90),
         ]
     )
     spec = Spec(
@@ -119,9 +122,14 @@ def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
             part("Q2.b", "2(b)", band=[0.47, 0.5]),
             part("Q3.a", "3(a)", band=[0.58, 0.7]),
             part("Q4", "4", band=[0.8, 0.9]),  # not in the text layer
+            part("Q5.a", "5A", band=[0.87, 0.95]),
         ]
     )
-    intros = [item("2.", None, [0.28, 0.3]), item("3.", None, [0.5, 0.55])]
+    intros = [
+        item("2.", None, [0.28, 0.3]),
+        item("3.", None, [0.5, 0.55]),
+        item("5.", None, [0.85, 0.86]),
+    ]
 
     banded = with_text_bands(spec, [page], [PageParse(items=intros, shared_stems=[])])
 
@@ -131,6 +139,7 @@ def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
         [0.45, 0.55],
         [0.60, 0.8],
         [0.8, 0.9],
+        [0.90, 1.0],  # to the bottom of a page with no ink
     ]
 
 
