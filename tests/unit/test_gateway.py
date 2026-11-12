@@ -340,6 +340,33 @@ def test_a_second_invalid_response_raises(tmp_path: Path) -> None:
     assert len(server.requests) == 2
 
 
+@pytest.mark.parametrize("finish_reason", ["length", "stop"])
+def test_a_response_cut_off_at_the_token_limit_says_so(
+    tmp_path: Path, finish_reason: str
+) -> None:
+    cut = httpx.Response(
+        200,
+        json={
+            "model": MODEL.slug,
+            "choices": [
+                {
+                    "message": {"content": '{"letter": "B'},
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "cost": 0.0001},
+        },
+    )
+    server = Server(cut)
+
+    with pytest.raises(ResponseValidationError) as error:
+        run(tmp_path / "cache.sqlite", server, ask())
+
+    assert len(server.requests) == 2
+    said = "cut off at the token limit" in str(error.value)
+    assert said == (finish_reason == "length")
+
+
 def sleeps_into(sleeps: list[float]) -> Callable[[float], Awaitable[None]]:
     async def sleep(seconds: float) -> None:
         sleeps.append(seconds)

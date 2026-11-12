@@ -235,11 +235,13 @@ class Gateway:
             try:
                 value = response_model.model_validate_json(_content(response))
             except ValidationError as again:
+                cut = _first_choice(response).get("finish_reason") == "length"
                 # `from None`: Pydantic's own text quotes the output, which comes
                 # from student work.
                 raise ResponseValidationError(
                     f"{model.slug} returned an invalid {name} twice"
                     f" ({_locations(again, schema)})"
+                    + (", the response cut off at the token limit" if cut else "")
                 ) from None
         self._cache.put(key, json.dumps(response))
         return Result(value, response["model"], _usage(response, model), False)
