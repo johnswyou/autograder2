@@ -28,8 +28,9 @@ comparison in the task 0.3 report):
   and one full-page photo per page, here a JPEG at 200 px per inch, with no sidebar.
 
 Not copied: PDFKit's object order and its flipped content-stream matrices (the
-effective image matrix and text origins are the same), and the coarse alpha levels
-of real stylus strokes.
+effective image matrix and text origins are the same), the extra Info keys reportlab
+always writes (Title "untitled", Author "anonymous" and others), and the coarse alpha
+levels of real stylus strokes.
 """
 
 import json
@@ -226,7 +227,7 @@ def key() -> Key:
             id=pid,
             label=f"{pid[1]}({pid[-1]})",
             home_page=page,
-            response_type=rtype,  # type: ignore[arg-type]
+            response_type=rtype,
             depends_on=["Q5.a"] if pid == "Q5.b" else [],
             state="verified",
             prompt=f"{stem} {PARTS[pid]}",
@@ -886,7 +887,7 @@ def answer_on_notebook(sheet: Sheet, works, pen: Pen, rng) -> None:
         else:
             write_lines(sheet, mask, 64 + 2.6 * pen.size, top, work.lines, pen, rng)
         sheet.put(pid, mask, pen.color, basis="student_label")
-        bottom = mask.getbbox()[3] / sheet.scale  # type: ignore[index]
+        bottom = mask.getbbox()[3] / sheet.scale
         row = ceil((bottom + 0.95 * pen.size - 54) / pen.spacing) + 2
 
 
@@ -1297,8 +1298,8 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
                     part_id=part,
                     page=k,
                     box=fraction(box, size),
-                    basis=basis,  # type: ignore[arg-type]
-                    role=role,  # type: ignore[arg-type]
+                    basis=basis,
+                    role=role,
                     confidence="high",
                 )
                 entries.append(entry)
