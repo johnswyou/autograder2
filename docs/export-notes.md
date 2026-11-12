@@ -32,7 +32,7 @@ Seen on one nine-slide assignment with six students:
 - A highlight or a stylus circle on a multiple-choice option.
 - Multiple-choice letters written in the left margin, outside the printed page.
 - Handwriting continued below the printed page, in the empty lower half of the slide.
-- A photo of each printed page pasted over the whole slide, skewed and unevenly lit.
+- A photo of each printed page pasted over the printed page, skewed and unevenly lit. In the export that was measured the photo covered pixels (51, 50) to (953, 1254) of the slide, so the lower part of the slide stayed empty.
 - Slides left untouched.
 
 Work outside the printed page (left margin, lower half of the slide) is common enough that no stage may assume the response lies within the printed area.
