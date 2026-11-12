@@ -36,6 +36,7 @@ PARSER = ModelInfo(
 )
 # ~anthropic/claude-sonnet-latest as well
 READER = PARSER
+GRADER = PARSER
 # ~anthropic/claude-opus-latest
 SOLVER = ModelInfo(
     slug="anthropic/claude-opus-5.5",

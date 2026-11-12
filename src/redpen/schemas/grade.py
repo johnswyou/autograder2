@@ -2,6 +2,7 @@
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
 with the provenance, including the key part hash, it was produced under.
+`ProblemGrades` is one stored file, a top-level problem's records.
 """
 
 from pydantic import PositiveInt
@@ -32,3 +33,8 @@ class Grade(Schema):
 class GradeRecord(Schema):
     provenance: Provenance
     grade: Grade
+
+
+# A part read as unreadable has no record: its score is withheld, never zero.
+class ProblemGrades(Schema):
+    records: list[GradeRecord]
