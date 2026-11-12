@@ -35,12 +35,12 @@ def assemble(
     spec: Spec,
     solutions: Mapping[str, PartSolution],
     rubrics: Mapping[str, PartRubric],
-    policies: Policies | None = None,
 ) -> Key:
-    """The key of `spec`: each part's solution and answer, and its criteria, each
-    worth one point with ids given in order. A choice part's one criterion is
-    written here. Every part is `unverified`, since one solver verifies nothing."""
-    policies = policies or Policies()
+    """The key of `spec` under the default policies: each part's solution and
+    answer, and its criteria, each worth one point with ids given in order. A choice
+    part's one criterion is written here. Every part is `unverified`, since one
+    solver verifies nothing."""
+    policies = Policies()
     parts: list[KeyPart] = []
     for part in spec.parts:
         found = solutions[part.id]

@@ -249,7 +249,7 @@ def key_check(workspace: KeyWorkspace) -> None:
     except (OSError, YAMLError) as error:
         problems = [str(error)]
     except ValidationError as error:
-        path = ws.spec_json if key else ws.key_yaml
+        path = ws.key_yaml if key is None else ws.spec_json
         problems = [
             f"{path}: {'.'.join(map(str, e['loc']))}: {e['msg']}"
             for e in error.errors()
