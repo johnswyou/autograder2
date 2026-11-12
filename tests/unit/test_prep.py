@@ -12,6 +12,7 @@ from redpen.imaging.prep import (
     correct_contrast,
     crop,
     rotate,
+    white_share,
 )
 from redpen.imaging.render import render_page
 from redpen.schemas.key import Key
@@ -49,6 +50,14 @@ def test_a_turned_box_holds_what_the_box_held(turns: int) -> None:
     turned, _ = crop(rotate(image, turns), box_to_rotated(box, turns))
 
     assert turned.tobytes() == rotate(held, turns).tobytes()
+
+
+def test_the_white_share_counts_pixels_at_or_above_the_grey_level() -> None:
+    image = Image.new("RGB", (10, 4), (250, 250, 250))
+    image.paste((249, 249, 249), (0, 0, 10, 1))  # a quarter just below the level
+    image.paste((0, 0, 255), (0, 3, 5, 4))  # an eighth that is dark in grey
+
+    assert white_share(image, 250) == 0.625
 
 
 def test_contrast_correction_stretches_a_flat_photo() -> None:

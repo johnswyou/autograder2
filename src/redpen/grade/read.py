@@ -28,7 +28,7 @@ from redpen.schemas.reading import (
     ReadingRecord,
 )
 from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
-from redpen.schemas.submission import IngestRecord, Map, MapEntry, MapRecord
+from redpen.schemas.submission import IngestRecord, Map, MapEntry, MapPage, MapRecord
 from redpen.workspace import Workspace, read_model, write_model
 
 ROLE = "reader"
@@ -36,6 +36,11 @@ PARAMS = {"max_tokens": 8000}
 # A mapped box is grown by this share of the page on each side before it is
 # rendered. The map's replay test checks its boxes cover the work grown by it.
 MARGIN = 0.02
+# The map's photo flag is trusted only on a page that is not almost all blank: on
+# the fixtures, pages that are not photos are 98.4 to 99.5 % pure white, photo
+# slides 46 to 70 % and scans 0 %, and the correction harms a page that is no photo.
+WHITE_LEVEL = 250  # a grey level counted as blank paper or canvas
+MOSTLY_WHITE = 0.9  # a share of such pixels at which a page is taken for no photo
 NO_ANSWER = FinalAnswer(choices=[], value=None, unit=None, expression=None)
 
 
@@ -70,10 +75,13 @@ async def read_student(
     units run concurrently; when one still fails its checks after one more call,
     `StageError` is raised once every other unit has finished, and that unit's
     problems are left with no file, not even an earlier one."""
-    mapped = read_model(workspace.map_json(student), MapRecord).map
+    mapped = read_model(workspace.map_json(student), MapRecord)
     by_problem: defaultdict[str, list[str]] = defaultdict(list)
     for part in spec.parts:
         by_problem[problem_of(part.id)].append(part.id)
+        crops = workspace.crop_png(student, part.id, 1).parent
+        for earlier in crops.glob(f"{part.id}-*.png"):
+            earlier.unlink()
     for problem in by_problem:
         workspace.reading_json(student, problem).unlink(missing_ok=True)
     system, version = prompts.load("read", "unit")
@@ -88,7 +96,7 @@ async def read_student(
                 write_model(workspace.reading_json(student, problem), file)
 
     async def read(unit: Unit) -> None:
-        images = unit_images(workspace, student, unit, image_budget)
+        images = unit_images(workspace, student, unit, mapped.pages, image_budget)
         fields = {"id", "label", "prompt", "response_type", "options"}
         outline = json.dumps(
             {"parts": [p.model_dump(include=fields) for p in unit.parts]}
@@ -125,7 +133,7 @@ async def read_student(
             }
         )
 
-    todo = units(spec, mapped)
+    todo = units(spec, mapped.map)
     sent = {p.id for unit in todo for p in unit.parts}
     keep({p.id: _blank(p.id) for p in spec.parts if p.id not in sent})
     await finish_all(read(unit) for unit in todo)
@@ -159,27 +167,32 @@ def units(spec: Spec, found: Map) -> list[Unit]:
 
 
 def unit_images(
-    workspace: Workspace, student: str, unit: Unit, image_budget: int
+    workspace: Workspace,
+    student: str,
+    unit: Unit,
+    pages: Sequence[MapPage],
+    image_budget: int,
 ) -> UnitImages:
     """What a call for `unit` is sent besides the parts' text, made with no model
     call: each page that holds an entry, whole, then each distinct mapped box grown
     by `MARGIN` and rendered from `source.pdf` to fill the image budget, all turned
-    upright and contrast-corrected on a photo page as the map record says. Each
-    region image is also saved with `Workspace.crop_png` under each part it holds."""
+    upright as `pages` (the map record's) say, and contrast-corrected on a page they
+    call a photo unless it is mostly white. Each region image is also saved with
+    `Workspace.crop_png` under each part it holds."""
     kind = read_model(workspace.ingest_json(student), IngestRecord).source_kind
-    pages = {
-        p.number: p for p in read_model(workspace.map_json(student), MapRecord).pages
-    }
+    facts = {p.number: p for p in pages}
+    corrected: dict[int, bool] = {}
 
     def upright(image: Image.Image, number: int) -> bytes:
-        page = pages[number]
-        turned = prep.rotate(image, page.rotation // 90)
-        shown = prep.correct_contrast(turned) if page.photo else turned
+        turned = prep.rotate(image, facts[number].rotation // 90)
+        shown = prep.correct_contrast(turned) if corrected[number] else turned
         return prep.reduced_png(shown, image_budget)
 
     items: list[Content] = []
     for number in sorted({e.page for e in unit.entries}):
         with Image.open(workspace.student_page(student, number)) as image:
+            white = prep.white_share(image, WHITE_LEVEL)
+            corrected[number] = facts[number].photo and white < MOSTLY_WHITE
             items += [
                 json.dumps({"image": "overview", "page": number}),
                 upright(image, number),

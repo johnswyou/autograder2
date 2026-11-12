@@ -222,13 +222,9 @@ def test_a_region_is_grown_by_the_margin_clamped_and_a_shared_box_sent_once(
         set_aside=[],
     )
     pages = [MapPage(number=n, rotation=0, photo=False) for n in range(1, 5)]
-    write_model(
-        workspace.map_json(student),
-        MapRecord(provenance=NOBODY, pages=pages, map=found),
-    )
     [unit] = units(SPEC, found)
 
-    images = unit_images(workspace, student, unit, BUDGET)
+    images = unit_images(workspace, student, unit, pages, BUDGET)
 
     page = page_image(workspace, student, 1)
     # Grown by 0.02 of the page on each side, clamped to the page, widened to pixels.
@@ -275,13 +271,9 @@ def test_on_a_scanned_page_a_region_is_clamped_and_stops_at_twice_native(
         set_aside=[],
     )
     pages = [MapPage(number=n, rotation=0, photo=False) for n in range(1, 4)]
-    write_model(
-        workspace.map_json(student),
-        MapRecord(provenance=NOBODY, pages=pages, map=found),
-    )
     [unit] = units(SPEC, found)
 
-    images = unit_images(workspace, student, unit, BUDGET)
+    images = unit_images(workspace, student, unit, pages, BUDGET)
 
     [edge], [corner] = images.crops["Q1"], images.crops["Q2"]
     assert edge.box == pytest.approx([0.0, 0.28, 0.07, 0.33])
@@ -298,10 +290,9 @@ def test_a_region_that_carries_on_another_says_which(
 ) -> None:
     student, truth = student_of(fixture_workspace, "ink-in-place")
     workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
-    write_model(workspace.map_json(student), map_of(truth))
     [unit] = [u for u in units(SPEC, truth.map) if u.name == "Q5"]
 
-    images = unit_images(workspace, student, unit, BUDGET)
+    images = unit_images(workspace, student, unit, map_of(truth).pages, BUDGET)
 
     assert [(a.get("parts"), a.get("continues")) for a in about(images.items)] == [
         (None, None),
@@ -323,12 +314,11 @@ def test_a_turned_photo_page_is_sent_upright_and_corrected_and_a_flat_page_as_is
     assert [p.rotation for p in mapped.pages] == [0, 0, 90, 0]
     # Page 2 is said not to be a photo, so that the two treatments can be told apart.
     mapped.pages[1].photo = False
-    write_model(workspace.map_json(student), mapped)
     [unit] = [u for u in units(SPEC, mapped.map) if u.name == "Q4"]
     [q4c] = [e for e in unit.entries if e.part_id == "Q4.c"]
     assert q4c.page == 3 and q4c.box[2] - q4c.box[0] < q4c.box[3] - q4c.box[1]
 
-    images = unit_images(workspace, student, unit, BUDGET)
+    images = unit_images(workspace, student, unit, mapped.pages, BUDGET)
 
     sent = [i for i in images.items if isinstance(i, bytes)]
     assert [a.get("page") for a in about(images.items)][:2] == [2, 3]
@@ -351,6 +341,34 @@ def test_a_turned_photo_page_is_sent_upright_and_corrected_and_a_flat_page_as_is
     assert regions[("Q4.a",)] == prep.reduced_png(page2, BUDGET)
     shown = Image.open(io.BytesIO(regions[("Q4.c",)]))
     assert shown.width > shown.height  # the lines of writing run across
+
+
+@pytest.mark.parametrize(
+    ("layout", "corrected"),
+    [("ink-in-place", False), ("photo-per-page", True)],
+    ids=["ink slide flagged as a photo", "photo slide"],
+)
+def test_a_page_flagged_as_a_photo_is_corrected_only_when_it_is_not_mostly_blank(
+    fixture_workspace: tuple[Workspace, IngestSummary],
+    tmp_path: Path,
+    layout: str,
+    corrected: bool,
+) -> None:
+    student, truth = student_of(fixture_workspace, layout)
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    pages = [MapPage(number=n, rotation=0, photo=True) for n in range(1, 5)]
+    [unit] = [u for u in units(SPEC, truth.map) if u.name == "page 1"]
+
+    images = unit_images(workspace, student, unit, pages, BUDGET)
+
+    page = page_image(workspace, student, 1)
+    shown = prep.correct_contrast(page) if corrected else page
+    assert next(i for i in images.items if isinstance(i, bytes)) == prep.reduced_png(
+        shown, BUDGET
+    )
+    assert prep.reduced_png(page, BUDGET) != prep.reduced_png(
+        prep.correct_contrast(page), BUDGET
+    )  # the correction would change the page, so the test tells the two apart
 
 
 # --- checks ------------------------------------------------------------------------
@@ -494,6 +512,10 @@ def test_a_unit_s_readings_are_stored_with_their_crops_and_provenance(
     workspace, student = mapped_fixture(
         fixture_workspace, "partly-blank", tmp_path / "ws"
     )
+    earlier = [("Q1", 1), ("Q1", 2), ("Q2", 1), ("Q4.b", 3)]  # Q2 is unanswered now
+    workspace.crop_png(student, "Q1", 1).parent.mkdir(parents=True)
+    for part_id, n in earlier:
+        workspace.crop_png(student, part_id, n).write_bytes(b"earlier")
     reader = Reader()
 
     records = run(workspace, student, reader)
@@ -520,7 +542,11 @@ def test_a_unit_s_readings_are_stored_with_their_crops_and_provenance(
     )
     [crop] = records["Q4.b"].crops
     assert crop.page == 2 and crop.scale is not None and crop.scale <= 2.0
-    assert workspace.crop_png(student, "Q4.b", 1).exists()
+    crops = workspace.crop_png(student, "Q1", 1).parent
+    assert sorted(p.name for p in crops.iterdir()) == [
+        f"{id}-1.png" for id in ("Q1", "Q3", "Q4.a", "Q4.b", "Q5.a")
+    ]
+    assert workspace.crop_png(student, "Q1", 1).read_bytes() != b"earlier"
     for problem in ("Q1", "Q2", "Q3", "Q4", "Q5"):
         stored = read_model(workspace.reading_json(student, problem), ProblemReadings)
         assert stored.records == [

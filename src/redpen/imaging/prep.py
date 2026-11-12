@@ -43,6 +43,12 @@ def correct_contrast(image: Image.Image) -> Image.Image:
     return ImageOps.autocontrast(image, cutoff=1, preserve_tone=True)
 
 
+def white_share(image: Image.Image, level: int) -> float:
+    """The share of `image`'s pixels whose grey level is `level` or more."""
+    counts = image.convert("L").histogram()
+    return sum(counts[level:]) / sum(counts)
+
+
 def crop(
     image: Image.Image, box: Sequence[float], margin: float = 0.0
 ) -> tuple[Image.Image, list[float]]:
