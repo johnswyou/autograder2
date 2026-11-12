@@ -1,7 +1,7 @@
 """The key: answers, solutions, criteria and policies (design 6.2, 6.3, 6.6)."""
 
 from decimal import Decimal
-from typing import Literal, Self
+from typing import Any, Literal, Self, cast
 
 from pydantic import ConfigDict, PositiveInt, model_validator
 
@@ -28,6 +28,19 @@ class Answer(Schema):
     elements: list[DiagramElement]
     must_include: list[str]
 
+    # key.yaml leaves out the fields an answer does not use. The schema still lists
+    # every field as required, as a strict response format needs.
+    @model_validator(mode="before")
+    @classmethod
+    def _absent_is_empty(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        lists = ("choices", "accept_also", "elements", "must_include")
+        absent: dict[str, Any] = {
+            name: [] if name in lists else None for name in cls.model_fields
+        }
+        return absent | cast(dict[str, Any], data)
+
 
 _NUMBER = {"value", "unit", "rel_tol", "accept_also"}
 
@@ -44,6 +57,17 @@ _ANSWER_FIELDS: dict[ResponseType, set[str]] = {
     "graph": {"elements", "must_include"},
     "other": set(Answer.model_fields),
 }
+
+
+def answer_problem(response_type: ResponseType, answer: Answer) -> str | None:
+    """Why `answer` does not fit `response_type`, or None if it does."""
+    filled = {name for name, value in answer if value not in (None, [])}
+    allowed = _ANSWER_FIELDS[response_type]
+    if not filled and response_type != "other":
+        return f"a {response_type} answer fills none of {sorted(allowed)}"
+    if filled - allowed:
+        return f"a {response_type} answer cannot fill {sorted(filled - allowed)}"
+    return None
 
 
 class PartialCredit(Schema):
@@ -75,16 +99,8 @@ class KeyPart(Schema):
 
     @model_validator(mode="after")
     def _answer_fits_response_type(self) -> Self:
-        filled = {name for name, value in self.answer if value not in (None, [])}
-        allowed = _ANSWER_FIELDS[self.response_type]
-        if not filled and self.response_type != "other":
-            raise ValueError(
-                f"a {self.response_type} answer fills none of {sorted(allowed)}"
-            )
-        if filled - allowed:
-            raise ValueError(
-                f"a {self.response_type} answer cannot fill {sorted(filled - allowed)}"
-            )
+        if problem := answer_problem(self.response_type, self.answer):
+            raise ValueError(problem)
         return self
 
 

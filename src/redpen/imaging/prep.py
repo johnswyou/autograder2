@@ -1,10 +1,12 @@
-"""Quarter turns, contrast correction and crops of a page image.
+"""Quarter turns, contrast correction and crops of a page image, and the image as
+it is sent to a model.
 
 A box is [x0, y0, x1, y1] in fractions of an image, from its top-left corner. The
 box functions here map a box between a turned or cropped image and the page it came
 from. Rotation is applied here but never detected: the map stage reports it.
 """
 
+import io
 from collections.abc import Sequence
 from math import ceil, floor
 
@@ -56,3 +58,13 @@ def crop(
     bottom = min(ceil(round((y1 + margin) * height, 6)), height)
     used = [left / width, top / height, right / width, bottom / height]
     return image.crop((left, top, right, bottom)), used
+
+
+def reduced_png(image: Image.Image, budget: int) -> bytes:
+    """`image` as PNG, reduced to fit `budget` pixels on its longest edge (the image
+    budget of design 10.2)."""
+    small = image.copy()
+    small.thumbnail((budget, budget))
+    buffer = io.BytesIO()
+    small.save(buffer, "PNG")
+    return buffer.getvalue()

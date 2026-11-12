@@ -2,7 +2,6 @@
 call that stitches the pages together, then the checks and the bands in code."""
 
 import asyncio
-import io
 import json
 import re
 from collections import Counter, defaultdict
@@ -13,6 +12,7 @@ from pydantic import BaseModel
 
 from redpen import prompts
 from redpen.imaging import render
+from redpen.imaging.prep import reduced_png
 from redpen.llm.client import Gateway, Part
 from redpen.llm.models import ModelInfo
 from redpen.schemas.common import Box, ResponseType, Schema
@@ -63,12 +63,7 @@ async def parse(
     re-read of its page and one more stitch; a gap that remains is left for the
     caller to warn about. A spec that fails any other check is written to
     `spec.rejected.json` and raises `SpecError`."""
-    with render.open_pdf(workspace.blank_pdf) as pdf:
-        kind = "classkick" if render.classkick_sidebars(pdf) else "other"
-        pages = [render.render_page(page, kind) for page in pdf]
-    for number, page in enumerate(pages, 1):
-        workspace.key_page(number).parent.mkdir(parents=True, exist_ok=True)
-        page.image.save(workspace.key_page(number), compress_level=1)
+    pages = render_blank(workspace)
     page_prompt = prompts.load("parse", "page")
     stitch_prompt = prompts.load("parse", "stitch")
     session = f"{workspace.root.name}:parse"
@@ -93,7 +88,7 @@ async def parse(
     async def read(number: int, *extra: str) -> PageParse:
         page = pages[number - 1]
         text = ["\n".join(span.text for span in page.text)] if page.text else []
-        items = [_png(page.image, image_budget), *text, *extra]
+        items = [reduced_png(page.image, image_budget), *text, *extra]
         return await ask(page_prompt, items, PageParse)
 
     async def stitch(results: list[PageParse]) -> Spec:
@@ -132,6 +127,18 @@ async def parse(
     spec = with_text_bands(spec, pages, results)
     write_model(workspace.spec_json, spec)
     return spec
+
+
+def render_blank(workspace: Workspace) -> list[render.Page]:
+    """Every page of `workspace.blank_pdf`, each image also saved as its
+    `key_page`."""
+    with render.open_pdf(workspace.blank_pdf) as pdf:
+        kind = "classkick" if render.classkick_sidebars(pdf) else "other"
+        pages = [render.render_page(page, kind) for page in pdf]
+    for number, page in enumerate(pages, 1):
+        workspace.key_page(number).parent.mkdir(parents=True, exist_ok=True)
+        page.image.save(workspace.key_page(number), compress_level=1)
+    return pages
 
 
 def check(spec: Spec, page_count: int) -> list[str]:
@@ -299,12 +306,3 @@ def _content_bottom(image: Image.Image) -> float:
     """The bottom of the lowest ink on the page, as a fraction of its height."""
     box = ImageOps.invert(image.convert("L")).getbbox()
     return box[3] / image.height if box else 1.0
-
-
-def _png(image: Image.Image, budget: int) -> bytes:
-    """`image` as PNG, reduced to fit `budget` pixels on its longest edge."""
-    small = image.copy()
-    small.thumbnail((budget, budget))
-    buffer = io.BytesIO()
-    small.save(buffer, "PNG")
-    return buffer.getvalue()

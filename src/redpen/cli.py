@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
+from ruamel.yaml.error import YAMLError
 
 from redpen.config import (
     Config,
@@ -31,8 +33,20 @@ from redpen.llm.client import (
     RetryableError,
 )
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
+from redpen.prepare.key import (
+    assemble,
+    load_key,
+    number,
+    page_points,
+    save_key,
+    write_markdown,
+)
+from redpen.prepare.key import check as check_key
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
+from redpen.prepare.rubric import write_rubric
+from redpen.prepare.solve import StageError, solve
+from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model
 
@@ -61,6 +75,9 @@ WorkspaceDir = Annotated[
     typer.Option(
         metavar="DIR", help="Workspace. Default: <blank stem>.redpen beside BLANK.pdf."
     ),
+]
+KeyWorkspace = Annotated[
+    Path, typer.Option("--workspace", metavar="DIR", help="The assignment's workspace.")
 ]
 
 
@@ -160,6 +177,24 @@ def prepare(
     typer.echo(f"Parts: {len(spec.parts)}")
     for response_type, count in sorted(types.items()):
         typer.echo(f"  {response_type}: {count}")
+    # The instructor may have edited it: it is never overwritten.
+    if ws.key_yaml.exists():
+        typer.echo(f"{ws.key_yaml} exists, so it is left as it is.")
+        return
+    try:
+        key = asyncio.run(_key(ws, config, lock, api_key, spec))
+    except (
+        OSError,
+        StageError,
+        FatalError,
+        ResponseValidationError,
+        RetryableError,
+    ) as error:
+        _fail(str(error))
+    save_key(ws.key_yaml, key)
+    write_markdown(ws, key)
+    typer.echo(f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.rubric_md.name}")
+    _points(key)
 
 
 def _checked(path: Path, pages: int) -> Spec:
@@ -180,21 +215,64 @@ async def _parse(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Spe
         return await parse(ws, gateway, lock.models["parser"], config.image_budget)
 
 
+async def _key(
+    ws: Workspace, config: Config, lock: Lock, api_key: str, spec: Spec
+) -> Key:
+    strict = config.strict_privacy
+    model = lock.models["solver"]
+    async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gateway:
+        solutions = await solve(ws, gateway, model, config.image_budget, spec)
+        rubrics = await write_rubric(ws, gateway, model, spec, solutions)
+    return assemble(spec, solutions, rubrics)
+
+
+def _points(key: Key) -> None:
+    pages = page_points(key)
+    typer.echo(f"Total points: {number(sum(pages.values(), Decimal(0)))}")
+    for page, points in pages.items():
+        typer.echo(f"  page {page}: {number(points)}")
+
+
 def _fail(message: str) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(code=1)
 
 
 @key_app.command("check")
-def key_check() -> None:
-    """Validate key.yaml after a hand edit: schema, point sums, page maximums."""
-    _not_implemented()
+def key_check(workspace: KeyWorkspace) -> None:
+    """Validate key.yaml after a hand edit: schema, ids, dependencies, points."""
+    ws = Workspace(workspace)
+    key, spec = None, None
+    try:
+        key = load_key(ws.key_yaml)
+        spec = read_model(ws.spec_json, Spec)
+    except (OSError, YAMLError) as error:
+        problems = [str(error)]
+    except ValidationError as error:
+        path = ws.spec_json if key else ws.key_yaml
+        problems = [
+            f"{path}: {'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in error.errors()
+        ]
+    else:
+        problems = check_key(key, spec)
+    for problem in problems:
+        typer.echo(problem)
+    if problems or key is None:
+        raise typer.Exit(code=1)
+    typer.echo(f"{ws.key_yaml}: no problem found.")
+    _points(key)
 
 
 @key_app.command("render")
-def key_render() -> None:
+def key_render(workspace: KeyWorkspace) -> None:
     """Rebuild solutions.md and rubric.md."""
-    _not_implemented()
+    ws = Workspace(workspace)
+    try:
+        key = load_key(ws.key_yaml)
+    except (OSError, YAMLError, ValidationError):
+        _fail(f"{ws.key_yaml} does not load. `redpen key check` lists its problems.")
+    write_markdown(ws, key)
 
 
 @app.command()

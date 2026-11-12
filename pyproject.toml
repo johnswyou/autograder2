@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.14.3",
     "pypdfium2>=5.15.2",
     "rich>=15.0.0",
+    "ruamel-yaml>=0.19.1",
     "typer>=0.29.1",
 ]
 

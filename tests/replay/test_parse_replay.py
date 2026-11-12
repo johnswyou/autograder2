@@ -23,7 +23,9 @@ from redpen.config import Config, Models, read_lock
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, ModelInfo
+from redpen.prepare.key import load_key
 from redpen.prepare.parse import parse
+from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
@@ -134,6 +136,15 @@ def refuse(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError("prepare reached for OpenRouter")
 
 
+TRUTH_KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
+
+
+async def truth_key(*args: object) -> Key:
+    """Stands in for the solve and rubric stages, whose replay tests start from the
+    fixtures' spec rather than from this parse."""
+    return TRUTH_KEY
+
+
 def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -144,6 +155,7 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
     monkeypatch.setattr("redpen.cli.Gateway", recorded)
+    monkeypatch.setattr("redpen.cli._key", truth_key)
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     runner = CliRunner()
 
@@ -158,6 +170,10 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     spec = read_model(workspace.spec_json, Spec)
     assert_matches_the_truth(spec)
     assert "Pages: 4\nProblems: 5\nParts: 9\n" in result.output
+    assert load_key(workspace.key_yaml) == TRUTH_KEY
+    assert workspace.solutions_md.exists() and workspace.rubric_md.exists()
+    assert "Total points: 16\n  page 1: 3\n" in result.output
+    written = workspace.key_yaml.read_bytes()
 
     monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
     monkeypatch.setattr("redpen.cli.Gateway", refuse)
@@ -166,6 +182,7 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     assert again.exit_code == 0, again.output
     assert again.output.startswith(f"Reusing {workspace.spec_json}\n")
     assert read_model(workspace.spec_json, Spec) == spec
+    assert workspace.key_yaml.read_bytes() == written
 
 
 def test_prepare_after_a_file_it_cannot_open_works_in_the_same_workspace(
@@ -178,6 +195,7 @@ def test_prepare_after_a_file_it_cannot_open_works_in_the_same_workspace(
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
     monkeypatch.setattr("redpen.cli.Gateway", recorded)
+    monkeypatch.setattr("redpen.cli._key", truth_key)
     Path("blank.pdf").write_bytes(b"Questions 1 to 5, typed in a text file.")
     runner = CliRunner()
 

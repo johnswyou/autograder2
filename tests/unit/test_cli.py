@@ -2,7 +2,7 @@ import functools
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 import pypdfium2 as pdfium
@@ -61,8 +61,6 @@ run_options = [
     "args",
     [
         ["run", "blank.pdf", "submissions", *run_options],
-        ["key", "check"],
-        ["key", "render"],
         ["grade", "submissions"],
         ["regrade", "--part", "Q7.b", "--student", "s1"],
         ["report"],
@@ -187,11 +185,40 @@ def test_prepare_checks_a_spec_it_reuses(
     shutil.copy("blank.pdf", workspace.blank_pdf)
     workspace.config_lock_toml.write_text(LOCK)
     write_model(workspace.spec_json, reused_spec(home_of_q3))
+    workspace.key_yaml.write_text("")  # so that prepare stops after the spec
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert result.exit_code == exit_code
     assert message in result.stderr
+
+
+def refuse(*args: object, **kwargs: object) -> NoReturn:
+    raise AssertionError("prepare reached for OpenRouter")
+
+
+def test_prepare_leaves_an_existing_key_as_it_is_and_calls_no_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
+    monkeypatch.setattr("redpen.cli.Gateway", refuse)
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copy("blank.pdf", workspace.blank_pdf)
+    workspace.config_lock_toml.write_text(LOCK)
+    shutil.copy(FIXTURES / "spec.json", workspace.spec_json)
+    edited = b"# Edited by hand.\nparts: []\n"
+    workspace.key_yaml.write_bytes(edited)
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    assert "ws/key/key.yaml exists, so it is left as it is." in result.output
+    assert workspace.key_yaml.read_bytes() == edited
+    assert not workspace.solutions_md.exists()
 
 
 @pytest.mark.parametrize(
