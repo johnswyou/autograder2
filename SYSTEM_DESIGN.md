@@ -6,6 +6,7 @@ Automatic grading of student work for assignments where submissions follow no fi
 |---|---|
 | Status | Draft for review |
 | Date | 11 November 2026 |
+| Revision | 3. Adds resolution and zoom handling for small writing (section 7.7). Revision 2 recorded the instructor's answers on page scores, point allocation, school policy and pilot data. |
 | Companion document | `IMPLEMENTATION_PLAN.md` |
 | Working name | `redpen` (rename freely) |
 
@@ -27,6 +28,7 @@ The two screenshots are a small sample, but they already contain most of the var
 | Stylus handwriting on the printed page | Needs a vision model. The printed page underneath is known, so the student's ink can be isolated by subtracting the blank. |
 | A photo of each printed page, placed on the matching page | Page order is intact, but nothing lines up pixel for pixel with the blank. Lighting, skew and rotation vary. |
 | Photos of separate paper holding many problems, placed on two pages, with the later pages left untouched | Page number says nothing about which problem is answered. One page holds many problems. |
+| A whole sheet of handwriting fitted onto one page, so that each line is a small fraction of the page | Whether it can be read depends on how many pixels each character gets. The system has to zoom in where writing is small. |
 | Lines drawn on a printed graph, free-body diagrams | The response is a drawing, not text. |
 | Multiple-choice answers given by highlight, by a mark on the option, or by a letter written beside the question | "Which option did the student choose" has to be read. It cannot be parsed. |
 | Pages never touched, and whole submissions with no work | Blank work must be detected reliably, and the tool must never invent work that is not there. |
@@ -53,6 +55,10 @@ Three conclusions follow. The position of a page in the PDF is not a reliable ke
 | Are point values printed on the assignment? | No, they are set in the platform | The tool allocates points itself and accepts optional page maximums so that its scores line up with the platform's. |
 | Pause for key review before grading? | No, run straight through | The answer key has to be checked by machine. Doubts about it are reported after the run instead of blocking it. |
 | Which outputs? | Per-problem CSV, per-page scores, written feedback | No annotated PDFs in this version. |
+| Which page does a part's score belong to? | The page where the part is printed, even when the work is somewhere else | Page scores are a fixed roll-up of part scores. Where the work was found never affects them. |
+| Who sets point values? | Both. The tool allocates by default, and the instructor can pass page maximums or a total. | Every path in section 6.4 is required. |
+| May student work be sent to model providers? | Yes, school policy allows it | No local-model path is needed. The cautious routing defaults stay. |
+| Is a hand-graded past assignment available? | Not yet | Building starts on synthetic fixtures. Measurement against human grades waits for real data. |
 
 ### 3.3 Out of scope
 
@@ -238,7 +244,7 @@ The key has a version, a short hash of its contents, and each part has its own h
 
 The tool accepts a folder or a ZIP. Each PDF in it is one student. The display name comes from the file name. An optional roster CSV fixes spellings and catches missing students. Two files that resolve to the same student are reported, and the most recent is used.
 
-Pages are rendered at 200 DPI. Any text layer in the PDF is saved as a hint for reading typed responses. Classkick's export includes metadata such as the student name and slide number unless that is switched off [10]. Where a slide number can be recovered it is recorded as a further hint about which blank page a submission page corresponds to, but nothing depends on it.
+Pages are rendered at 200 DPI. This render is the working copy for fingerprinting and for overview images. Small writing is not read from it: regions are rendered again from the PDF at higher resolution when needed (section 7.7), and for that purpose the native resolution of every embedded photo is recorded at this stage. Any text layer in the PDF is saved as a hint for reading typed responses. Classkick's export includes metadata such as the student name and slide number unless that is switched off [10]. Where a slide number can be recovered it is recorded as a further hint about which blank page a submission page corresponds to, but nothing depends on it.
 
 ### 7.2 Fingerprint
 
@@ -254,7 +260,7 @@ The stage has limits. A photo of a printed page usually will not match well enou
 
 Mapping answers one question: for each part, where in this PDF is the response?
 
-It runs in two steps. First, one call per page (skipping untouched pages) asks a vision model to list every distinct block of student work on the page, with a box, any label the student wrote beside it, and the parts it could belong to. The model receives the spec outline and the fingerprint's findings for that page. It also reports the page's rotation and whether it is a photo. Second, one text-only call takes all the page inventories and resolves them into a single map. This is where continuations, repeats, and unlabelled work on a foreign page get sorted out.
+It runs in two steps. First, one call per page (skipping untouched pages) asks a vision model to list every distinct block of student work on the page, with a box, any label the student wrote beside it, and the parts it could belong to. The model receives the spec outline and the fingerprint's findings for that page. It also reports the page's rotation and whether it is a photo. A page whose writing is small is inventoried in overlapping tiles instead of as a single image (section 7.7). Second, one text-only call takes all the page inventories and resolves them into a single map. This is where continuations, repeats, and unlabelled work on a foreign page get sorted out.
 
 Attribution rests on three kinds of evidence, in falling order of strength:
 
@@ -313,9 +319,9 @@ Diagrams and graphs are read into structure too. A free-body diagram becomes a l
 
 Calls are grouped to keep cost down. Multiple-choice questions are read one page at a time. Free-response parts are read one problem at a time.
 
-Each call includes the full page, rotated and contrast-corrected, and also a crop of each mapped region with a margin. The full page is always included because a crop taken from an imperfect box can cut off work.
+Each call includes two kinds of image. The full page, rotated and contrast-corrected, gives context and guards against a mapped box that cuts off work. A separate rendering of each mapped region, with a margin, is what the reader actually reads from. That rendering is zoomed until the writing is large enough, by the rules in section 7.7.
 
-Under the default profile, a second read by a different model is triggered when the response is handwritten and the reader either marked a line or the final answer as uncertain or rated legibility as poor. The two final answers are compared in code. If they differ, the grader is given both transcripts and the part is flagged.
+When the reader marks a line as uncertain or rates legibility as poor, the first response is to zoom in further on that region and read it again (section 7.7). If doubt remains and the response is handwritten, the default profile triggers a second read by a different model. The two final answers are compared in code. If they differ, the grader is given both transcripts and the part is flagged.
 
 ### 7.5 Grade
 
@@ -365,6 +371,32 @@ It looks for outliers. For each criterion, a text-only call receives a table of 
 
 It checks the key against the class. If the most common final answer differs from the key and is shared by a large share of students (a starting threshold of 40% of those who answered, and at least five students), the part is flagged as `key_suspect`. When many students independently agree on an answer the key calls wrong, the key is the more likely culprit. This check carries more weight than usual here because no person reviewed the key.
 
+### 7.7 Resolution and zoom
+
+Whether handwriting can be read depends on how many pixels each character gets by the time the image reaches the model. Small writing is common in exactly the submissions that are hardest in other ways. When a full sheet of notebook paper is photographed and fitted onto one page, each line of writing is a small fraction of the page height.
+
+A fixed page image fails on such work for three separate reasons. The source may be poor: a pasted photo has only the resolution the export kept. The working render is fixed: a page at 200 DPI gives small writing few pixels, even when the PDF holds more detail than that. And models resize what they are sent: each model has a largest image size it processes at full detail, and anything bigger is shrunk before the model sees it. The last point means that sending a larger picture of the whole page does not help. The page has to be sent in smaller pieces.
+
+Zoom in this system therefore means sending a smaller area at full size, rendered again from the PDF. It never means enlarging the 200 DPI copy.
+
+The size of the writing is measured in code, with no model call. For each block of work the student's marks are isolated (by subtraction on template pages, by adaptive thresholding on photos), the connected shapes are measured, and their median height gives an estimated line height.
+
+Each model has an image budget in the configuration: the largest image edge it handles at full detail. Budgets differ between models and are confirmed by measurement in the pilot. Every image is rendered to fit the budget of the model that will receive it.
+
+The zoom rule combines the two. A region is rendered from the PDF at the scale that makes it fill the budget. If the estimated line height at that scale is below a target (a starting value of 32 pixels per line, to be tuned against measured reading accuracy), the region is split into tiles, each rendered to the full budget, until the target is met. Tiles overlap by about 15%, so that a line cut by one tile's edge appears whole in its neighbour.
+
+There is a ceiling. At ingest the pixel dimensions and placed size of every embedded photo are read from the PDF, which gives the photo's native resolution on the page. Rendering past that point adds no detail. Typed text and stylus strokes that the export keeps as vector content have no such ceiling. A modest enlargement past native resolution, up to 2x, is still allowed, because models take in images as a grid of fixed-size patches and larger characters can be easier for them even with no new information. Whether it helps is measured in the pilot and not assumed.
+
+Zoom applies at three stages:
+
+- Map. A page whose writing is small at full-page size is inventoried in overlapping tiles, with the full page included as an overview. Boxes found in tiles are converted back to page coordinates and duplicates in the overlaps are merged. Without this, small work would be missed or mislabelled before reading even began.
+- Read. The reader always works from zoomed regions, with the full page as an overview. If it reports poor legibility or marks lines as uncertain, those lines are rendered at the next zoom level and read again, up to the ceiling. This is tried before a second read by another model, because it addresses the cause and costs less.
+- Grade. The grader is given the same zoomed images the reader used.
+
+When the ceiling is reached and the reading is still uncertain, the part is flagged `low_resolution`, and the review entry gives the measured line height. That tells the instructor the remedy is a better photo from the student, not a closer look by a person.
+
+Every tile records its transform back to page coordinates, so a piece of evidence can still be traced to its place on the original page.
+
 ## 8. Outputs
 
 ### 8.1 Scores per problem
@@ -375,11 +407,11 @@ It checks the key against the class. If the most common final answer differs fro
 
 `scores_by_page.csv` has one row per student and one column per page of the blank assignment.
 
-A page score needs a rule for which page a part's points belong to, and there are two candidates. Under home-page attribution, a part's points are reported on the blank page where the part is printed, wherever the student wrote the work. Under evidence-page attribution, they are reported on the submission page where the work was found.
+A part's points are reported on the blank page where the part is printed, wherever the student wrote the work. If problem 7 is printed on page 7 and a student solves it in a photo on page 4, the points appear under page 7. The instructor has confirmed this rule.
 
-Home-page attribution is the default. Classkick records points per slide [12], and the slides are the pages of the blank assignment, so only this rule gives page scores that can be compared with the platform's page maximums and across students. The second screenshot suggests this is also how grading is done by hand now. For the student whose photos sit on pages 4 and 5, the six visible page scores add up to 21 while the total reads 29 of 34. The other 8 points are presumably recorded on pages 7 to 9, where those problems are printed, even though the work for them is in the photos. This reading of the screenshot should be confirmed (section 17).
+The rule fits how the platform works. Classkick records points per slide [12], and the slides are the pages of the blank assignment. A page column therefore means the same thing for every student, and no page can exceed its maximum.
 
-Evidence-page attribution is available as `--page-scores evidence` for anyone who wants each score to sit beside the work.
+The alternative, reporting points on the page where the work was found, was considered and rejected. It is not offered as an option.
 
 ### 8.3 Feedback
 
@@ -422,6 +454,7 @@ A model's stated confidence is a weak signal, so it is used only as a trigger fo
 | `weak_attribution` | Work was assigned to a part on content alone | Medium |
 | `duplicate_response` | Two competing responses exist for one part | Medium |
 | `hard_to_read` | The reader marked a scored line or the final answer as uncertain | Medium |
+| `low_resolution` | Zoom reached the limit of the source and the reading is still uncertain | Medium |
 | `transcript_dispute` | The grader believes the reading is wrong | Medium |
 | `code_overruled` | The grader overruled the computed answer check | Low |
 | `audit_changed` | The class audit changed the score | Low |
@@ -484,7 +517,7 @@ Several choices here need explaining.
 
 Schemas are generated from the same Pydantic models that validate the response. Enforcement of `strict` schemas varies by provider [3], so every response is validated locally whatever the provider claims, and `require_parameters` keeps requests away from providers that would ignore the schema [5]. Schemas are kept plain (all fields required, no unions of objects) to stay inside what strict modes accept.
 
-Images are sent as base64 data URLs. Rendered pages go as PNG and photos as JPEG.
+Images are sent as base64 data URLs. Rendered pages go as PNG and photos as JPEG. Every image is sized to the image budget of the model that will receive it (section 7.7).
 
 PDFs are not sent. OpenRouter can accept a PDF directly, but how it is processed depends on the model and the chosen engine, and the OCR engine forwards at most eight images per PDF [4]. A submission made of photos would lose pages. Rendering locally gives every model the same input and is needed for fingerprinting and cropping anyway.
 
@@ -513,13 +546,14 @@ How much checking is done is set by a profile.
 | | `economy` | `balanced` (default) | `thorough` |
 |---|---|---|---|
 | Second solver for the key | yes | yes | yes |
+| Zoom on small or uncertain writing | yes | yes | yes |
 | Second read | on reader uncertainty | on reader uncertainty or poor legibility | every handwritten part |
 | Second grade | on a dispute or a code conflict | the same, plus every diagram and graph part, plus a random 10% sample | every free-response part |
 | Class audit | code checks only | code checks and model pass | code checks and model pass |
 
 The 10% sample in the balanced profile is what produces the grader agreement rate in the run report.
 
-A rough estimate for the balanced profile, for a nine-page assignment with twelve multiple-choice questions and eight free-response problems, is about 170,000 input tokens and 20,000 output tokens per student. Most of the input is page images. At $2 to $3 per million input tokens and $10 to $15 per million output tokens, which is roughly where flagship vision models are listed at the time of writing, that comes to between 50 and 85 cents per student, or $15 to $25 for a class of thirty. Preparing the key costs about as much as grading two or three students. These figures are estimates from assumed image and prompt sizes, to be replaced by measurements from the pilot. `redpen run --dry-run` prints an estimate from live prices before anything is spent.
+A rough estimate for the balanced profile, for a nine-page assignment with twelve multiple-choice questions and eight free-response problems, is about 170,000 input tokens and 20,000 output tokens per student. Most of the input is page images. A submission with dense photo pages costs more than this, because those pages are sent as several zoomed tiles. At $2 to $3 per million input tokens and $10 to $15 per million output tokens, which is roughly where flagship vision models are listed at the time of writing, that comes to between 50 and 85 cents per student, or $15 to $25 for a class of thirty. Preparing the key costs about as much as grading two or three students. These figures are estimates from assumed image and prompt sizes, to be replaced by measurements from the pilot. `redpen run --dry-run` prints an estimate from live prices before anything is spent.
 
 ## 11. Storage and reproducibility
 
@@ -542,6 +576,7 @@ unit4-forces.redpen/
       pages/p01.png ...
       fingerprint.json
       map.json
+      crops/Q7.b-1.png ...    zoomed region renderings, as sent
       readings/Q7.json
       grades/Q7.json
   audit/Q7.b.json
@@ -578,7 +613,7 @@ The instructor's corrections live in `overrides.yaml`, keyed by student and crit
 | `redpen eval --gold FILE.csv` | Compare the tool's scores with human scores (section 15). |
 | `redpen models check` | Verify the configured models. |
 
-Options on `run` and `prepare`: `--total`, `--page-points`, `--profile`, `--page-scores home|evidence`, `--roster FILE.csv`, `--dry-run`, `--workspace DIR`.
+Options on `run` and `prepare`: `--total`, `--page-points`, `--profile`, `--roster FILE.csv`, `--dry-run`, `--workspace DIR`.
 
 Global settings live in `redpen.toml`. The API key is read from `OPENROUTER_API_KEY`.
 
@@ -590,6 +625,7 @@ Global settings live in `redpen.toml`. The API key is read from `OPENROUTER_API_
 | A response is not found | Coverage check on added regions, second look at unanswered parts | Targeted re-map, then `unclaimed_work` if still unresolved. |
 | Work is attributed to the wrong part | Weak-attribution rule, grader reporting that the response answers something else | Region re-mapped once, then flagged. |
 | Handwriting is misread | Reader's uncertainty marks, second read, code check on the final answer | Both transcripts go to the grader. Part flagged. |
+| Writing is too small to read at page scale | Line-height estimate before reading. Reader's legibility report. | Region rendered again from the PDF at higher zoom and split into tiles. `low_resolution` if the source holds no more detail. |
 | Work is invented on a blank page | Untouched pages never reach a model. Awards must cite a line in the reading. | Award rejected and retried, then `no_evidence`. |
 | An equivalent expression is marked wrong | Symbolic equivalence in code. The grader may overrule with a reason. | Correct award, `code_overruled` at low severity. |
 | Partial credit is uneven across students | Listed partial levels only. Class audit. | Group re-decided together. Change recorded. |
@@ -602,9 +638,9 @@ Global settings live in `redpen.toml`. The API key is read from `OPENROUTER_API_
 
 ### 14.1 Student data
 
-Student work is sent to third-party model providers. In the United States it is an education record, and whether sending it is allowed depends on the school's own policies and agreements. That is the instructor's question to settle before the first real run, and this document cannot settle it.
+Student work is sent to third-party model providers. In the United States it is an education record, and whether sending it is allowed depends on the school's own policies and agreements. The instructor has confirmed that school policy allows it.
 
-The tool's defaults lean toward caution. Requests set `data_collection` to `deny` and `zdr` to `true`, which limits routing to providers that do not store prompts or train on them [5]. Student names are never sent as text. The name field on the first page and any header the export adds can be masked in the images with `mask_names = true`. Handwriting remains in the images and cannot be removed.
+The tool's defaults still lean toward caution. Requests set `data_collection` to `deny` and `zdr` to `true`, which limits routing to providers that do not store prompts or train on them [5]. Student names are never sent as text. The name field on the first page and any header the export adds can be masked in the images with `mask_names = true`. Handwriting remains in the images and cannot be removed.
 
 The workspace holds student work and scores, and should be kept wherever the gradebook is kept. It should not be committed to a repository.
 
@@ -659,12 +695,11 @@ One model could be given tools to look at pages and record scores, and left to w
 
 ## 17. Open questions
 
-1. Is home-page attribution (section 8.2) what you want in `scores_by_page.csv`? The reading of the second screenshot that supports it is an inference.
-2. Will you pass the platform's per-page maximums with `--page-points`, or would you sooner let the tool allocate points and copy its maximums into the platform?
-3. Does a Classkick export include pages the student never opened? Where does it print the student name and slide number? Do typed answers survive as text? A handful of real exports will answer these, and collecting them is the first task in the implementation plan.
-4. Are the policy defaults in section 6.3 right for your course, in particular units, significant figures, and accepting g = 10 m/s²?
-5. Your existing scores include values such as 3.7 and 0.2. Should the point step be 0.25, 0.1 or 0.05?
-6. Is sending student work to model providers through OpenRouter permitted by your school, and under what conditions?
+The questions on page scores, point allocation and school policy have been answered and are recorded in section 3.2. Three remain.
+
+1. Does a Classkick export include pages the student never opened? Where does it put the student name and slide number? Do typed answers survive as text? At what resolution do pasted photos survive? A handful of real exports will answer these. Collecting them is task 3.1 in the implementation plan, and a few exports sooner than that would help.
+2. Are the policy defaults in section 6.3 right for your course, in particular units, significant figures, and accepting g = 10 m/s²?
+3. Your existing scores include values such as 3.7 and 0.2. Should the point step be 0.25, 0.1 or 0.05?
 
 ## References
 
