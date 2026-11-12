@@ -12,6 +12,7 @@ import pytest
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
+from tests.real_data import submission_folders
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 
@@ -114,8 +115,7 @@ def test_truth_names_key_ids_and_awards_within_points(path: Path) -> None:
     not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
 )
 def test_fixture_page_has_the_structure_of_a_real_export() -> None:
-    real_data = Path(os.environ["REDPEN_REAL_DATA"])
-    for pdf in sorted(real_data.rglob("student_submissions/*.pdf")):
+    for pdf in (p for f in submission_folders() for p in sorted(f.glob("*.pdf"))):
         real = structure(pdfium.PdfDocument(pdf)[0])
         if real[1] and real[1][0][0] == "Student":
             break

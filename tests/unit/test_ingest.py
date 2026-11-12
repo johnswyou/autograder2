@@ -20,6 +20,7 @@ from redpen.grade.ingest import IngestSummary, ingest
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import SUBMISSIONS, truth_of
+from tests.real_data import submission_folders
 
 OTHER = next(p for p in SUBMISSIONS if truth_of(p).source_kind == "other")
 CLASSKICK = [p for p in SUBMISSIONS if truth_of(p).source_kind == "classkick"]
@@ -442,14 +443,9 @@ def test_a_changed_submission_leaves_nothing_of_the_old_one(tmp_path: Path) -> N
     not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
 )
 def test_real_submissions_ingest() -> None:
-    """The `student_submissions` folder of REDPEN_REAL_DATA when that is one
-    assignment, or of every <term>/<assignment> under it when it is the GRADING
-    folder, ingested into a temporary workspace that is deleted afterwards. Prints
-    counts only, never a name."""
-    root = Path(os.environ["REDPEN_REAL_DATA"])
-    # Never recurse: the data folder also holds `runs` and `feedback`, off limits.
-    found = [root / "student_submissions", *root.glob("*/*/student_submissions")]
-    folders = sorted(p for p in found if p.is_dir())
+    """Each real `student_submissions` folder, ingested into a temporary workspace
+    that is deleted afterwards. Prints counts only, never a name."""
+    folders = submission_folders()
     assert folders
     for index, submissions in enumerate(folders, 1):
         pdfs = len([p for p in submissions.rglob("*") if p.suffix.lower() == ".pdf"])
