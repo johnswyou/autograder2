@@ -1,14 +1,14 @@
 # Export notes
 
-What real submission files contain, measured on 12 November 2026 from 178 student PDFs and 25 blank assignments across two terms. This answers the format questions of plan task 3.1 ahead of schedule, because the files turned out to be available. No student names appear here.
+What real submission files contain, measured on 12 November 2026 from 152 student PDFs and 25 blank assignments across two terms. This answers the format questions of plan task 3.1 ahead of schedule, because the files turned out to be available. No student names appear here.
 
 ## What a Classkick export is
 
-173 of the 178 student PDFs are Classkick exports (PDF producer `PDFKit`). Every one has the same structure.
+147 of the 152 student PDFs are Classkick exports (PDF producer `PDFKit`). Every one has the same structure.
 
 | Question | Answer |
 |---|---|
-| Does the PDF include pages the student never opened? | Yes. The page count equals the slide count of the assignment in all 173 files. Page *k* is slide *k*. |
+| Does the PDF include pages the student never opened? | Yes. The page count equals the slide count of the assignment in all 147 files. Page *k* is slide *k*. |
 | Where are the student name and slide number? | In a real text layer in a left sidebar: `Student: <name>`, `Assignment: <title>`, `Page k / N`, `Class Code: XXX XXX`, and `Printed from Classkick` near the bottom. The lines start at x = 15 pt. |
 | Are typed answers real text? | No. The sidebar is the only text. Everything on the slide is flattened into one image. |
 | At what resolution are pasted photos embedded? | They are not embedded separately. Each page holds exactly one image object, the whole slide, 1004 × 2008 pixels, placed at the box (200, 0, 592, 783) in points. That is 184 pixels per inch on the PDF page. |
