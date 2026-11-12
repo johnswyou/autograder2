@@ -1,8 +1,8 @@
 """One student's submission: the ingest record, the fingerprint and the map
 (design 7.1 to 7.3).
 
-`Map` is what the resolve call returns. `MapRecord` is what is stored: the map
-with the provenance it was produced under.
+`Map` is built from what the resolve call returns. `MapRecord` is what is stored:
+the map, the facts found about each page, and the provenance.
 """
 
 from typing import Annotated, Literal
@@ -42,15 +42,21 @@ class Fingerprint(Schema):
     pages: list[FingerprintPage]
 
 
+# What a map entry's part was attributed by, strongest first (design 7.3).
+Basis = Literal["student_label", "position", "content"]
+# `continuation` carries on a response that starts in another entry.
+Role = Literal["work", "continuation"]
+Confidence = Literal["high", "medium", "low"]
+
+
 # Where one part's response sits (design 7.3).
 class MapEntry(Schema):
     part_id: PartId
     page: PositiveInt
     box: Box
-    basis: Literal["student_label", "position", "content"]
-    # `continuation` carries on a response that starts in another entry.
-    role: Literal["work", "continuation"]
-    confidence: Literal["high", "medium", "low"]
+    basis: Basis
+    role: Role
+    confidence: Confidence
 
 
 # Added work that no part claims, such as a name or a doodle, and why.
@@ -66,6 +72,16 @@ class Map(Schema):
     set_aside: list[SetAside]
 
 
+# What the mapper found about one page of the submission as a whole.
+class MapPage(Schema):
+    number: PositiveInt
+    # Clockwise degrees that turn the student's work upright.
+    rotation: Literal[0, 90, 180, 270]
+    # Whether the student's work on the page is a photograph or scan of paper.
+    photo: bool
+
+
 class MapRecord(Schema):
     provenance: Provenance
+    pages: list[MapPage]
     map: Map

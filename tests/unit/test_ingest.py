@@ -48,16 +48,6 @@ def zip_of(source: Path, archive: Path) -> Path:
     return archive
 
 
-@pytest.fixture(scope="module")
-def fixtures(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> tuple[Workspace, IngestSummary]:
-    """The fixture submissions, ingested from a folder."""
-    root = tmp_path_factory.mktemp("fixtures")
-    workspace = Workspace(root / "ws")
-    return workspace, ingest(folder(root, {p.name: p for p in SUBMISSIONS}), workspace)
-
-
 def test_a_zip_and_a_folder_of_the_same_files_give_identical_results(
     tmp_path: Path,
 ) -> None:
@@ -86,9 +76,9 @@ def test_a_zip_and_a_folder_of_the_same_files_give_identical_results(
 
 @pytest.mark.parametrize("pdf", SUBMISSIONS, ids=lambda p: truth_of(p).layout_class)
 def test_each_fixture_ingests_as_its_truth_says(
-    fixtures: tuple[Workspace, IngestSummary], pdf: Path
+    fixture_workspace: tuple[Workspace, IngestSummary], pdf: Path
 ) -> None:
-    workspace, summary = fixtures
+    workspace, summary = fixture_workspace
     truth = truth_of(pdf)
     [record] = [r for r in summary.students if r.student_name == truth.student_name]
 

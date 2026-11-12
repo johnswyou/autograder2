@@ -241,7 +241,13 @@ INSTANCES: list[BaseModel] = [
         }
     ),
     Map.model_validate(MAP),
-    MapRecord.model_validate({"provenance": provenance(None), "map": MAP}),
+    MapRecord.model_validate(
+        {
+            "provenance": provenance(None),
+            "pages": [{"number": 1, "rotation": 90, "photo": True}],
+            "map": MAP,
+        }
+    ),
     Reading.model_validate(READING),
     ReadingRecord.model_validate({"provenance": provenance(None), "reading": READING}),
     Grade.model_validate(GRADE),

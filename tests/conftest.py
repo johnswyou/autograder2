@@ -1,4 +1,5 @@
 import os
+import shutil
 import sqlite3
 from collections.abc import Callable, Generator, Iterator
 from contextlib import closing
@@ -8,8 +9,12 @@ import httpx
 import pytest
 
 from redpen.config import openrouter_api_key
+from redpen.grade.ingest import IngestSummary, ingest
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
+from redpen.prepare.parse import render_blank
+from redpen.workspace import Workspace
+from tests.fixture_truth import FIXTURES, SUBMISSIONS
 
 pytest_plugins = ["pytester"]
 
@@ -26,6 +31,26 @@ def pytest_runtest_makereport(
     if report.when == "call":
         item.stash[CALL_REPORT] = report
     return report
+
+
+@pytest.fixture(scope="session")
+def fixture_workspace(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Workspace, IngestSummary]:
+    """A workspace with the fixture blank (`blank.pdf`), its page images and
+    `spec.json`, and every fixture submission ingested. Made once per session and
+    shared: a test copies what it would change."""
+    root = tmp_path_factory.mktemp("fixtures")
+    source = root / "submissions"
+    source.mkdir()
+    for pdf in SUBMISSIONS:
+        shutil.copyfile(pdf, source / pdf.name)
+    workspace = Workspace(root / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    shutil.copyfile(FIXTURES / "spec.json", workspace.spec_json)
+    render_blank(workspace)
+    return workspace, ingest(source, workspace)
 
 
 def _no_network(request: httpx.Request) -> httpx.Response:

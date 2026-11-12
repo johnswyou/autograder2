@@ -90,6 +90,10 @@ class Workspace:
         """Rendering of page `number` of the student's submission, counting from 1."""
         return self.student_dir(student) / "pages" / f"p{number:02d}.png"
 
+    def student_page_json(self, student: str, number: int) -> Path:
+        """What the mapper found on page `number` of the student's submission."""
+        return self.student_dir(student) / "pages" / f"p{number:02d}.json"
+
     def ingest_json(self, student: str) -> Path:
         return self.student_dir(student) / "ingest.json"
 
