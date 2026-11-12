@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from typing import Any
 
@@ -6,11 +7,17 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from redpen.schemas.common import CriterionId, PartId, Points, StudentKey
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode
-from redpen.schemas.grade import Grade, GradeRecord
+from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord
 from redpen.schemas.key import Key, KeyPart, Policies
 from redpen.schemas.reading import Reading, ReadingRecord
 from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import Fingerprint, IngestRecord, Map, MapEntry
+from redpen.schemas.submission import (
+    Fingerprint,
+    IngestRecord,
+    Map,
+    MapEntry,
+    MapRecord,
+)
 
 # The design's examples, with every field present (no optional keys) and the
 # answers flattened.
@@ -106,7 +113,7 @@ READING: dict[str, Any] = {
         "a = 6.6 m/s²",
     ],
     "final_answer": {"choices": [], "value": 6.6, "unit": "m/s^2", "expression": None},
-    "diagram": [],
+    "elements": [],
     "uncertain": [],
     "legibility": "clear",
 }
@@ -148,6 +155,31 @@ GRADE: dict[str, Any] = {
 }
 
 
+MAP: dict[str, Any] = {
+    "entries": [MAP_ENTRY],
+    "unanswered": ["Q7.c"],
+    "set_aside": [{"page": 1, "box": [0.05, 0.0, 0.4, 0.05], "reason": "A name."}],
+}
+
+# A part read as blank, scored in code with no model call.
+BLANK_GRADE: dict[str, Any] = {
+    "part_id": "Q2",
+    "criteria": [
+        {
+            "id": "Q2.c1",
+            "awarded": 0,
+            "evidence_line": None,
+            "evidence_element": None,
+            "rationale": "The part was read as blank.",
+            "feedback": "",
+        }
+    ],
+    "transcript_dispute": None,
+    "belongs_elsewhere": None,
+    "code_overruled": None,
+}
+
+
 def provenance(key_part_hash: str | None) -> dict[str, Any]:
     return {
         "key_part_hash": key_part_hash,
@@ -155,6 +187,12 @@ def provenance(key_part_hash: str | None) -> dict[str, Any]:
         "model_slug": "vendor/model-1",
     }
 
+
+CODE_PROVENANCE: dict[str, Any] = {
+    "key_part_hash": "7d41b0aa",
+    "prompt_version": None,
+    "model_slug": None,
+}
 
 FLAG = Flag(
     code=FlagCode.KEY_UNVERIFIED,
@@ -202,25 +240,24 @@ INSTANCES: list[BaseModel] = [
             ]
         }
     ),
-    Map.model_validate(
-        {
-            "provenance": provenance(None),
-            "entries": [MAP_ENTRY],
-            "unanswered": ["Q7.c"],
-            "set_aside": [
-                {"page": 1, "box": [0.05, 0.0, 0.4, 0.05], "reason": "A name."}
-            ],
-        }
-    ),
+    Map.model_validate(MAP),
+    MapRecord.model_validate({"provenance": provenance(None), "map": MAP}),
     Reading.model_validate(READING),
     ReadingRecord.model_validate({"provenance": provenance(None), "reading": READING}),
     Grade.model_validate(GRADE),
     GradeRecord.model_validate({"provenance": provenance("3f2a9c1e"), "grade": GRADE}),
+    GradeRecord.model_validate({"provenance": CODE_PROVENANCE, "grade": BLANK_GRADE}),
     FLAG,
 ]
 
 
-@pytest.mark.parametrize("instance", INSTANCES, ids=lambda m: type(m).__name__)
+def instance_id(instance: BaseModel) -> str:
+    if isinstance(instance, GradeRecord) and instance.provenance.model_slug is None:
+        return "GradeRecord-from-code"
+    return type(instance).__name__
+
+
+@pytest.mark.parametrize("instance", INSTANCES, ids=instance_id)
 def test_round_trip_through_json(instance: BaseModel) -> None:
     assert type(instance).model_validate_json(instance.model_dump_json()) == instance
 
@@ -232,7 +269,22 @@ def test_points_keep_the_decimal_a_float_was_written_as() -> None:
     assert points.validate_python(1) == Decimal(1)
     assert points.validate_python("0.25") == Decimal("0.25")
     assert points.dump_json(Decimal("0.5")) == b'"0.5"'
-    assert points.json_schema() == {"type": "string"}
+
+
+def test_points_show_a_model_a_number() -> None:
+    assert TypeAdapter(Points).json_schema() == {"type": "number"}
+
+
+@pytest.mark.parametrize("awarded", [0.5, "0.5"], ids=["number", "string"])
+def test_points_load_from_a_json_number_or_string(awarded: float | str) -> None:
+    document = json.dumps(GRADE["criteria"][0] | {"awarded": awarded})
+
+    assert CriterionGrade.model_validate_json(document).awarded == Decimal("0.5")
+
+
+def test_points_reject_an_empty_string() -> None:
+    with pytest.raises(ValidationError):
+        TypeAdapter(Points).validate_json('""')
 
 
 def test_policies_default_to_the_design() -> None:
@@ -247,9 +299,20 @@ def test_policies_default_to_the_design() -> None:
     }
 
 
-@pytest.mark.parametrize("value", ["Q3", "Q7.b", "Q12.ii"])
-def test_part_id_shapes_are_accepted(value: str) -> None:
-    assert TypeAdapter(PartId).validate_python(value) == value
+@pytest.mark.parametrize(
+    ("kind", "value"),
+    [
+        (PartId, "Q3"),
+        (PartId, "Q7.b"),
+        (PartId, "Q12.ii"),
+        (PartId, "Q1.a.i"),
+        (CriterionId, "Q3.c1"),
+        (CriterionId, "Q7.b.c12"),
+        (CriterionId, "Q1.a.i.c1"),
+    ],
+)
+def test_id_shapes_are_accepted(kind: Any, value: str) -> None:
+    assert TypeAdapter(kind).validate_python(value) == value
 
 
 @pytest.mark.parametrize(

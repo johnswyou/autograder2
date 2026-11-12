@@ -22,16 +22,17 @@ class Schema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# A point value. Pydantic takes an int, a string or a Decimal as is and a float as
-# Decimal(str(x)), and writes it to JSON as a string such as "0.5".
-Points = Annotated[Decimal, Field(ge=0), WithJsonSchema({"type": "string"})]
+# A point value. Pydantic takes an int, a numeric string or a Decimal as is and a
+# float as Decimal(str(x)), and writes it to JSON as a string such as "0.5". A model
+# is shown a number: offered a string, one returned "".
+Points = Annotated[Decimal, Field(ge=0), WithJsonSchema({"type": "number"})]
 
-# `Q7.b` for a sub-part, `Q3` for a problem with no sub-parts.
-PartId = Annotated[str, StringConstraints(pattern=r"^Q[1-9][0-9]*(\.[a-z]+)?$")]
+# `Q3`, `Q7.b`, `Q1.a.i`: letters-only segments below the problem number.
+PartId = Annotated[str, StringConstraints(pattern=r"^Q[1-9][0-9]*(\.[a-z]+)*$")]
 
 # `Q7.b.c1`: criterion 1 of part Q7.b.
 CriterionId = Annotated[
-    str, StringConstraints(pattern=r"^Q[1-9][0-9]*(\.[a-z]+)?\.c[1-9][0-9]*$")
+    str, StringConstraints(pattern=r"^Q[1-9][0-9]*(\.[a-z]+)*\.c[1-9][0-9]*$")
 ]
 
 # A student's name made safe to use as a directory name.
@@ -75,8 +76,9 @@ class DiagramElement(Schema):
 
 
 # What an artifact was produced under (design section 11). The key part hash is
-# null on artifacts that do not depend on the key.
+# null on artifacts that do not depend on the key. Prompt version and model slug
+# are null on artifacts produced by code with no model call.
 class Provenance(Schema):
     key_part_hash: str | None
-    prompt_version: str
-    model_slug: str
+    prompt_version: str | None
+    model_slug: str | None

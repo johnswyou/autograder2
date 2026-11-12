@@ -26,7 +26,7 @@ class Reading(Schema):
     medium: Literal["handwritten", "typed", "mixed"] | None
     lines: list[str]
     final_answer: FinalAnswer
-    diagram: list[DiagramElement]
+    elements: list[DiagramElement]
     # Numbers, counting from 1, of the lines the reader is unsure of.
     uncertain: list[PositiveInt]
     legibility: Literal["clear", "poor"] | None

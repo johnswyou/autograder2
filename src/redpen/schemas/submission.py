@@ -1,5 +1,9 @@
 """One student's submission: the ingest record, the fingerprint and the map
-(design 7.1 to 7.3)."""
+(design 7.1 to 7.3).
+
+`Map` is what the resolve call returns. `MapRecord` is what is stored: the map
+with the provenance it was produced under.
+"""
 
 from typing import Annotated, Literal
 
@@ -57,7 +61,11 @@ class SetAside(Schema):
 
 
 class Map(Schema):
-    provenance: Provenance
     entries: list[MapEntry]
     unanswered: list[PartId]
     set_aside: list[SetAside]
+
+
+class MapRecord(Schema):
+    provenance: Provenance
+    map: Map
