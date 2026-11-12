@@ -114,7 +114,7 @@ def ingest(
         students=students,
         duplicates=duplicates,
         not_on_roster=sorted(
-            s.name for s in chosen if spelling and _fold(s.name) not in spelling
+            s.name for s in chosen if roster and _fold(s.name) not in spelling
         ),
         missing_from_roster=sorted(n for f, n in spelling.items() if f not in groups),
         ignored_files=ignored,
@@ -232,7 +232,7 @@ def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRec
         rendered = render_page(page, submission.kind)
         path = workspace.student_page(key, number)
         path.parent.mkdir(parents=True, exist_ok=True)
-        rendered.image.save(path, compress_level=1)  # lossless still; 2x faster than 6
+        rendered.image.save(path, compress_level=1)  # lossless; ~40% faster than 6
         sidebar = rendered.sidebar
         pages.append(
             IngestPage(

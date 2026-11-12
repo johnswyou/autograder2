@@ -52,7 +52,8 @@ class TextSpan:
 @dataclass(frozen=True)
 class Page:
     image: Image.Image  # RGB
-    # Lowest pixels per inch of the page's images on the page; None with no image.
+    # The lowest resolution of the page's images, in pixels per inch of the page;
+    # None if it has no image.
     native_ppi: float | None
     sidebar: Sidebar | None  # on a Classkick page only
     text: list[TextSpan]  # an `other` page's text layer; empty on a Classkick page

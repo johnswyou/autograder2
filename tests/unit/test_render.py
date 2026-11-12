@@ -57,8 +57,9 @@ def test_the_classkick_blank_renders_its_slides_and_sidebars() -> None:
         [slide] = page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE])
         assert isinstance(slide, pdfium.PdfImage)
         width, height = slide.get_px_size()
+        left, _, right, _ = slide.get_bounds()
         assert rendered.image.size == (width, height)
-        assert rendered.native_ppi == pytest.approx(width * 72 / 391.56)  # pt wide
+        assert rendered.native_ppi == pytest.approx(width * 72 / (right - left))
         assert rendered.text == []
 
 
@@ -131,5 +132,5 @@ def test_a_classkick_export_with_anything_added_to_a_page_is_other() -> None:
     assert sidebar(untouched) is not None
     assert classkick_sidebars(pdf) is None
     rendered = render_page(pasted, "other")
-    assert rendered.image.size == (1700, 2200)
+    assert rendered.image.size == tuple(round(s * DPI / 72) for s in pasted.get_size())
     assert rendered.native_ppi == pytest.approx(50)  # the lowest of the two images
