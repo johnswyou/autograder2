@@ -8,8 +8,9 @@ profile = "balanced"
 # Longest image edge, in pixels, sent to a model.
 image_budget = 1536
 
-# Send student work only to endpoints with zero data retention that collect no
-# data. Set to false only for a model that has no such endpoint.
+# Send student work only to endpoints that retain nothing: zero data retention,
+# no Safety Retention, no data collection. `redpen models check` says which
+# models have such an endpoint. Set to false only for a model that has none.
 strict_privacy = true
 
 # The model behind each role: an OpenRouter slug, or a ~author/family-latest
@@ -17,9 +18,9 @@ strict_privacy = true
 [models]
 parser  = "~anthropic/claude-sonnet-latest"
 solver  = "~anthropic/claude-opus-latest"
-checker = "~google/gemini-pro-latest"     # second solver, different vendor on purpose
-mapper  = "~google/gemini-flash-latest"
-reader  = "~google/gemini-pro-latest"
+checker = "~openai/gpt-sol-latest"         # second solver, different vendor on purpose
+mapper  = "~anthropic/claude-haiku-latest"
+reader  = "~anthropic/claude-sonnet-latest"
 grader  = "~anthropic/claude-sonnet-latest"
-second  = "~openai/gpt-latest"            # second reads and second grades
+second  = "~openai/gpt-sol-latest"         # second reads and second grades, different vendor
 referee = "~anthropic/claude-opus-latest"

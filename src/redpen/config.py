@@ -27,11 +27,11 @@ class Models(BaseModel):
 
     parser: str = "~anthropic/claude-sonnet-latest"
     solver: str = "~anthropic/claude-opus-latest"
-    checker: str = "~google/gemini-pro-latest"
-    mapper: str = "~google/gemini-flash-latest"
-    reader: str = "~google/gemini-pro-latest"
+    checker: str = "~openai/gpt-sol-latest"
+    mapper: str = "~anthropic/claude-haiku-latest"
+    reader: str = "~anthropic/claude-sonnet-latest"
     grader: str = "~anthropic/claude-sonnet-latest"
-    second: str = "~openai/gpt-latest"
+    second: str = "~openai/gpt-sol-latest"
     referee: str = "~anthropic/claude-opus-latest"
 
 

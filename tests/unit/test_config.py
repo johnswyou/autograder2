@@ -17,11 +17,11 @@ def test_defaults_load_with_no_file(
     assert config.models.model_dump() == {
         "parser": "~anthropic/claude-sonnet-latest",
         "solver": "~anthropic/claude-opus-latest",
-        "checker": "~google/gemini-pro-latest",
-        "mapper": "~google/gemini-flash-latest",
-        "reader": "~google/gemini-pro-latest",
+        "checker": "~openai/gpt-sol-latest",
+        "mapper": "~anthropic/claude-haiku-latest",
+        "reader": "~anthropic/claude-sonnet-latest",
         "grader": "~anthropic/claude-sonnet-latest",
-        "second": "~openai/gpt-latest",
+        "second": "~openai/gpt-sol-latest",
         "referee": "~anthropic/claude-opus-latest",
     }
     assert config.profile == "balanced"
