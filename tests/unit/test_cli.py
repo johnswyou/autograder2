@@ -1,6 +1,7 @@
 import logging
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from redpen.cli import app
@@ -10,9 +11,11 @@ runner = CliRunner()
 
 def first_column(help_text: str) -> set[str]:
     """Names in the first column of the help's option and command tables."""
+    # Typer forces colour when GITHUB_ACTIONS or FORCE_COLOR is set.
+    plain = Text.from_ansi(help_text).plain
     return {
         line[2:].split()[0]
-        for line in help_text.splitlines()
+        for line in plain.splitlines()
         if line.startswith("│ ") and line[2] != " "
     }
 
