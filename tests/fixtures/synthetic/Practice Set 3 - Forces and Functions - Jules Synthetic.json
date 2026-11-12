@@ -1,0 +1,299 @@
+{
+  "layout_class": "low-resolution",
+  "student_name": "Jules Synthetic",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1554,
+          0.0697,
+          0.2002,
+          0.0797
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1554,
+          0.0981,
+          0.2012,
+          0.1081
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 1,
+        "box": [
+          0.1544,
+          0.127,
+          0.2002,
+          0.1379
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.a",
+        "page": 1,
+        "box": [
+          0.1544,
+          0.1559,
+          0.3058,
+          0.2385
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 1,
+        "box": [
+          0.1524,
+          0.254,
+          0.3845,
+          0.2869
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.c",
+        "page": 1,
+        "box": [
+          0.1514,
+          0.3038,
+          0.3715,
+          0.3471
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.a",
+        "page": 1,
+        "box": [
+          0.1514,
+          0.3635,
+          0.3028,
+          0.385
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.b",
+        "page": 1,
+        "box": [
+          0.1514,
+          0.4034,
+          0.3516,
+          0.4253
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.c",
+        "page": 1,
+        "box": [
+          0.1494,
+          0.4432,
+          0.3556,
+          0.5627
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q2",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q3",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "unreadable",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "poor"
+    }
+  ],
+  "grades": [],
+  "flags": [
+    "low_resolution"
+  ]
+}

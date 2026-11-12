@@ -1,0 +1,465 @@
+{
+  "layout_class": "partly-blank",
+  "student_name": "Finley Fakename",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1843,
+          0.2002,
+          0.2649,
+          0.2131
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 1,
+        "box": [
+          0.1793,
+          0.4074,
+          0.2311,
+          0.4273
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 2,
+        "box": [
+          0.1624,
+          0.3964,
+          0.6026,
+          0.4602
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.a",
+        "page": 2,
+        "box": [
+          0.488,
+          0.248,
+          0.5717,
+          0.3526
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.a",
+        "page": 3,
+        "box": [
+          0.1624,
+          0.4776,
+          0.4183,
+          0.5189
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [
+      "Q2",
+      "Q4.c",
+      "Q5.b",
+      "Q5.c"
+    ],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "N",
+          "kind": "force",
+          "direction": "up",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "mg",
+          "kind": "force",
+          "direction": "down",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "T",
+          "kind": "force",
+          "direction": "right",
+          "position": "starts on the dot"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "f = µmg = 0.25(4.0)(10) = 10 N",
+        "Fnet = T − f = 20 − 10 = 10 N",
+        "a = Fnet/m = 10/4.0 = 2.5 m/s²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 2.5,
+        "unit": "m/s^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "x² − 6x + 9 − 9 + 5",
+        "= (x − 3)² − 4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": "(x - 3)^2 - 4"
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses C, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses B, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "0.5",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Completes the square correctly.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

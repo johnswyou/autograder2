@@ -1,0 +1,374 @@
+{
+  "layout_class": "blank",
+  "student_name": "Gray Fixture",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [],
+    "unanswered": [
+      "Q1",
+      "Q2",
+      "Q3",
+      "Q4.a",
+      "Q4.b",
+      "Q4.c",
+      "Q5.a",
+      "Q5.b",
+      "Q5.c"
+    ],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q2",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q3",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

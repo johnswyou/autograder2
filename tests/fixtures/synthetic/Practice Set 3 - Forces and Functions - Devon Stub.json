@@ -1,0 +1,542 @@
+{
+  "layout_class": "all-on-foreign-pages",
+  "student_name": "Devon Stub",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1843,
+          0.2002,
+          0.2649,
+          0.2131
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1843,
+          0.3242,
+          0.247,
+          0.3372
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 1,
+        "box": [
+          0.1843,
+          0.4109,
+          0.3855,
+          0.4243
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.a",
+        "page": 2,
+        "box": [
+          0.1464,
+          0.0772,
+          0.3616,
+          0.1788
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 2,
+        "box": [
+          0.1464,
+          0.2211,
+          0.503,
+          0.2679
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.c",
+        "page": 2,
+        "box": [
+          0.1474,
+          0.3003,
+          0.4861,
+          0.365
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.a",
+        "page": 3,
+        "box": [
+          0.1524,
+          0.0752,
+          0.3715,
+          0.1215
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.b",
+        "page": 3,
+        "box": [
+          0.1504,
+          0.1539,
+          0.3406,
+          0.1838
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.c",
+        "page": 3,
+        "box": [
+          0.1494,
+          0.2161,
+          0.4552,
+          0.3974
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "D"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "N",
+          "kind": "force",
+          "direction": "up",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "mg",
+          "kind": "force",
+          "direction": "down",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "T",
+          "kind": "force",
+          "direction": "right",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "f",
+          "kind": "force",
+          "direction": "left",
+          "position": "starts on the dot"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "f = µmg = 0.25(4.0)(10) = 10 N",
+        "Fnet = T − f = 20 − 10 = 10 N",
+        "a = Fnet/m = 10/4.0 = 2.5 m/s²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 2.5,
+        "unit": "m/s^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "It slows down and stops.",
+        "With the rope cut, friction is",
+        "the only horizontal force, and",
+        "it points against the motion."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "x² − 6x + 5",
+        "= (x − 3)² + 9 − 5",
+        "= (x − 3)² + 4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": "(x - 3)^2 + 4"
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "vertex at (3, 4)",
+        "min = 4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 4.0,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "y = f(x)",
+          "kind": "curve",
+          "direction": "opens upward",
+          "position": null
+        },
+        {
+          "label": "vertex",
+          "kind": "point",
+          "direction": null,
+          "position": "(3, 4)"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses C, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses D, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses B, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Right squared term, but adds 9 instead of subtracting it: the listed partial credit.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Vertex drawn at (3, 4), not (3, -4), and no x-intercepts marked. The graph criteria do not carry forward.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Vertex drawn at (3, 4), not (3, -4), and no x-intercepts marked. The graph criteria do not carry forward.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

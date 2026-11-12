@@ -1,0 +1,564 @@
+{
+  "layout_class": "photo-per-page",
+  "student_name": "Casey Mockup",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1922,
+          0.2097,
+          0.239,
+          0.2281
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1902,
+          0.3317,
+          0.2371,
+          0.3496
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 1,
+        "box": [
+          0.1932,
+          0.4178,
+          0.239,
+          0.4363
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.a",
+        "page": 2,
+        "box": [
+          0.4462,
+          0.2515,
+          0.5548,
+          0.3486
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 2,
+        "box": [
+          0.1663,
+          0.3989,
+          0.3317,
+          0.4447
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.c",
+        "page": 3,
+        "box": [
+          0.1853,
+          0.1295,
+          0.4631,
+          0.1912
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.a",
+        "page": 3,
+        "box": [
+          0.1833,
+          0.494,
+          0.3526,
+          0.5239
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.b",
+        "page": 4,
+        "box": [
+          0.1693,
+          0.1011,
+          0.4363,
+          0.132
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.c",
+        "page": 4,
+        "box": [
+          0.3795,
+          0.3018,
+          0.6076,
+          0.4965
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": [
+      {
+        "page": 1,
+        "box": [
+          0.2201,
+          0.1061,
+          0.3586,
+          0.1205
+        ],
+        "reason": "The student's name on the name line."
+      }
+    ]
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "D"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "N",
+          "kind": "force",
+          "direction": "up",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "mg",
+          "kind": "force",
+          "direction": "down",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "T",
+          "kind": "force",
+          "direction": "right",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "f",
+          "kind": "force",
+          "direction": "left",
+          "position": "starts on the dot"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "Fnet = ma",
+        "a = T/m = 20/4.0",
+        "a = 5.0 m/s²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 5.0,
+        "unit": "m/s^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "It slows down and stops.",
+        "With the rope cut, friction is",
+        "the only horizontal force, and",
+        "it points against the motion."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "x² − 6x + 9 − 9 + 5",
+        "= (x − 3)² − 4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": "(x - 3)^2 - 4"
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "(x − 3)² − 4 is least at x = 3",
+        "min = f(3) = −4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": -4.0,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "y = f(x)",
+          "kind": "curve",
+          "direction": "opens upward",
+          "position": null
+        },
+        {
+          "label": "vertex",
+          "kind": "point",
+          "direction": null,
+          "position": "(3, -4)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(1, 0)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(5, 0)"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses C, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses D, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses B, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law without friction in the net force: the listed partial credit on c1, and 5.0 m/s^2 is wrong.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law without friction in the net force: the listed partial credit on c1, and 5.0 m/s^2 is wrong.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Completes the square correctly.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum, -4, from the vertex form.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum, -4, from the vertex form.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

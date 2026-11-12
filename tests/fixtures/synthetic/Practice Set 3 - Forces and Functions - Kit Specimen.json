@@ -1,0 +1,526 @@
+{
+  "layout_class": "not-classkick",
+  "student_name": "Kit Specimen",
+  "source_kind": "other",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1700,
+      "height_px": 2200,
+      "slide_number": null,
+      "native_ppi": 200.0
+    },
+    {
+      "number": 2,
+      "width_px": 1700,
+      "height_px": 2200,
+      "slide_number": null,
+      "native_ppi": 200.0
+    },
+    {
+      "number": 3,
+      "width_px": 1700,
+      "height_px": 2200,
+      "slide_number": null,
+      "native_ppi": 200.0
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1476,
+          0.2741,
+          0.1976,
+          0.3023
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1447,
+          0.5086,
+          0.1941,
+          0.5368
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 1,
+        "box": [
+          0.1435,
+          0.6564,
+          0.1941,
+          0.685
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.a",
+        "page": 2,
+        "box": [
+          0.4482,
+          0.3886,
+          0.5694,
+          0.5545
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 2,
+        "box": [
+          0.1282,
+          0.635,
+          0.4612,
+          0.7173
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.b",
+        "page": 3,
+        "box": [
+          0.1253,
+          0.1173,
+          0.36,
+          0.1645
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.c",
+        "page": 3,
+        "box": [
+          0.3729,
+          0.4627,
+          0.6276,
+          0.7955
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [
+      "Q4.c",
+      "Q5.a"
+    ],
+    "set_aside": [
+      {
+        "page": 1,
+        "box": [
+          0.1841,
+          0.115,
+          0.3259,
+          0.135
+        ],
+        "reason": "The student's name on the name line."
+      }
+    ]
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "D"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "N",
+          "kind": "force",
+          "direction": "up",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "mg",
+          "kind": "force",
+          "direction": "down",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "T",
+          "kind": "force",
+          "direction": "right",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "f",
+          "kind": "force",
+          "direction": "left",
+          "position": "starts on the dot"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "f = µmg = 0.25(4.0)(10) = 10 N",
+        "Fnet = T − f = 20 − 10 = 10 N",
+        "a = Fnet/m = 10/4.0 = 2.5 m/s²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 2.5,
+        "unit": "m/s^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "x = −b/2a = 6/2 = 3",
+        "f(3) = 9 − 18 + 5 = −4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": -4.0,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "y = f(x)",
+          "kind": "curve",
+          "direction": "opens upward",
+          "position": null
+        },
+        {
+          "label": "vertex",
+          "kind": "point",
+          "direction": null,
+          "position": "(3, -4)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(1, 0)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(5, 0)"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses B; the answer is C.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses D, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses B, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "No response.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "A different valid method: x = -b/2a gives x = 3, and f(3) = -4.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "A different valid method: x = -b/2a gives x = 3, and f(3) = -4.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

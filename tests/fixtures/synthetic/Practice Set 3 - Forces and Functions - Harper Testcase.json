@@ -1,0 +1,570 @@
+{
+  "layout_class": "letters-listed",
+  "student_name": "Harper Testcase",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 4,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 4,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q4.a",
+        "page": 2,
+        "box": [
+          0.4462,
+          0.2475,
+          0.5687,
+          0.3531
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.b",
+        "page": 2,
+        "box": [
+          0.1643,
+          0.3974,
+          0.5936,
+          0.4587
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4.c",
+        "page": 3,
+        "box": [
+          0.1653,
+          0.1106,
+          0.5767,
+          0.2002
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.a",
+        "page": 3,
+        "box": [
+          0.1643,
+          0.4776,
+          0.4283,
+          0.5199
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.b",
+        "page": 4,
+        "box": [
+          0.1653,
+          0.0926,
+          0.5418,
+          0.1335
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5.c",
+        "page": 4,
+        "box": [
+          0.3825,
+          0.2933,
+          0.6185,
+          0.493
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q1",
+        "page": 4,
+        "box": [
+          0.0916,
+          0.6195,
+          0.1464,
+          0.6355
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 4,
+        "box": [
+          0.0906,
+          0.6424,
+          0.1474,
+          0.6564
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 4,
+        "box": [
+          0.0906,
+          0.6643,
+          0.1484,
+          0.6793
+        ],
+        "basis": "student_label",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": [
+      {
+        "page": 1,
+        "box": [
+          0.2102,
+          0.0916,
+          0.4373,
+          0.1096
+        ],
+        "reason": "The student's name on the name line."
+      }
+    ]
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "C"
+      ],
+      "final_answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "D"
+      ],
+      "final_answer": {
+        "choices": [
+          "D"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "A"
+      ],
+      "final_answer": {
+        "choices": [
+          "A"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "N",
+          "kind": "force",
+          "direction": "up",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "mg",
+          "kind": "force",
+          "direction": "down",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "T",
+          "kind": "force",
+          "direction": "right",
+          "position": "starts on the dot"
+        },
+        {
+          "label": "f",
+          "kind": "force",
+          "direction": "left",
+          "position": "starts on the dot"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "f = µmg = 0.25(4.0)(10) = 10 N",
+        "Fnet = T − f = 20 − 10 = 10 N",
+        "a = Fnet/m = 10/4.0 = 2.5 m/s²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 2.5,
+        "unit": "m/s^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "It slows down and stops.",
+        "With the rope cut, friction is",
+        "the only horizontal force, and",
+        "it points against the motion."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.a",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "x² − 6x + 9 − 9 + 5",
+        "= (x − 3)² − 4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": "(x - 3)^2 - 4"
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.b",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "(x − 3)² − 4 is least at x = 3",
+        "min = f(3) = −4"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": -4.0,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5.c",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [
+        {
+          "label": "y = f(x)",
+          "kind": "curve",
+          "direction": "opens upward",
+          "position": null
+        },
+        {
+          "label": "vertex",
+          "kind": "point",
+          "direction": null,
+          "position": "(3, -4)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(1, 0)"
+        },
+        {
+          "label": "x-intercept",
+          "kind": "point",
+          "direction": null,
+          "position": "(5, 0)"
+        }
+      ],
+      "uncertain": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses C, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses D, the answer.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "awarded": "0",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Chooses A; the answer is B.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.a",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.a.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "All four forces, labelled, from the dot.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.b",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4.c",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.a",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "awarded": "2",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Completes the square correctly.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.b",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum, -4, from the vertex form.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.b.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Reads the minimum, -4, from the vertex form.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5.c",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c.c2",
+          "awarded": "1",
+          "evidence_line": null,
+          "evidence_element": null,
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}
