@@ -1,0 +1,135 @@
+"""Page images, sidebars and regions (src/redpen/imaging/render.py).
+
+The fixture submissions are checked against their truth files in test_ingest.py.
+"""
+
+import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
+import pytest
+from PIL import Image, ImageChops, ImageFilter, ImageStat
+
+from redpen.imaging.prep import crop
+from redpen.imaging.render import (
+    DPI,
+    classkick_sidebars,
+    render_page,
+    render_region,
+    sidebar,
+)
+from tests.fixture_truth import FIXTURES
+
+BLANK = FIXTURES / "blank.pdf"
+BLANK_CLASSKICK = FIXTURES / "blank_classkick.pdf"
+
+
+def edges(image: Image.Image) -> float:
+    """Variance of an edge filter: higher on a sharper image of the same content."""
+    return ImageStat.Stat(image.convert("L").filter(ImageFilter.FIND_EDGES)).var[0]
+
+
+def test_the_vector_blank_renders_at_200_dpi_with_its_text_layer() -> None:
+    pdf = pdfium.PdfDocument(BLANK)
+
+    assert classkick_sidebars(pdf) is None
+    for page in pdf:
+        rendered = render_page(page, "other")
+        width, height = (round(side * DPI / 72) for side in page.get_size())
+        assert rendered.image.size == (width, height)
+        assert rendered.native_ppi is None
+        assert rendered.sidebar is None
+        assert rendered.text
+        page_text = page.get_textpage().get_text_bounded()
+        spans = "".join(span.text for span in rendered.text)
+        assert "".join(spans.split()) == "".join(page_text.split())
+
+
+def test_the_classkick_blank_renders_its_slides_and_sidebars() -> None:
+    pdf = pdfium.PdfDocument(BLANK_CLASSKICK)
+
+    sidebars = classkick_sidebars(pdf)
+
+    assert sidebars is not None
+    assert [s.slide_number for s in sidebars] == list(range(1, len(pdf) + 1))
+    assert {s.slide_count for s in sidebars} == {len(pdf)}
+    assert all(s.student_name is None and s.assignment_title for s in sidebars)
+    for page in pdf:
+        rendered = render_page(page, "classkick")
+        [slide] = page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE])
+        assert isinstance(slide, pdfium.PdfImage)
+        width, height = slide.get_px_size()
+        assert rendered.image.size == (width, height)
+        assert rendered.native_ppi == pytest.approx(width * 72 / 391.56)  # pt wide
+        assert rendered.text == []
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_an_other_region_and_text_span_land_where_the_page_shows_them(
+    rotation: int,
+) -> None:
+    page = pdfium.PdfDocument(BLANK)[0]
+    page.set_rotation(rotation)
+    working = render_page(page, "other")
+    box = [0.1, 0.2, 0.6, 0.45]
+    part, _ = crop(working.image, box)
+
+    region = render_region(page, "other", box, max(part.size))
+
+    assert abs(region.image.width - part.width) <= 1
+    assert abs(region.image.height - part.height) <= 1
+    difference = ImageChops.difference(region.image.resize(part.size), part)
+    assert max(ImageStat.Stat(difference).mean) < 2
+    for span in working.text:
+        ink, _ = crop(working.image, span.box)
+        assert ImageStat.Stat(ink.convert("L")).extrema[0][0] < 128, span.text
+
+
+def test_a_region_rendered_at_three_times_is_sharper_than_the_page_enlarged() -> None:
+    page = pdfium.PdfDocument(BLANK)[0]
+    working = render_page(page, "other")
+    line = max(working.text, key=lambda span: len(span.text))
+    part, box = crop(working.image, line.box, margin=0.01)
+    enlarged = part.resize((part.width * 3, part.height * 3), Image.Resampling.LANCZOS)
+
+    region = render_region(page, "other", box, 3 * max(part.size))
+
+    assert region.scale is None  # vector content: no ceiling
+    assert abs(region.image.width - enlarged.width) <= 3
+    assert edges(region.image) > 1.5 * edges(enlarged)
+
+
+def test_a_classkick_region_is_cropped_from_the_slide_and_enlarged_at_most_twice() -> (
+    None
+):
+    page = pdfium.PdfDocument(BLANK_CLASSKICK)[0]
+    slide = render_page(page, "classkick").image
+    box = [0.1, 0.1, 0.4, 0.2]
+    part, used = crop(slide, box)
+
+    native = render_region(page, "classkick", box, max(part.size))
+    capped = render_region(page, "classkick", box, 5 * max(part.size))
+
+    assert native.scale == 1.0
+    assert native.image.tobytes() == part.tobytes()
+    assert native.box == used
+    assert capped.scale == 2.0
+    assert capped.image.size == (2 * part.width, 2 * part.height)
+
+
+def test_a_classkick_export_with_anything_added_to_a_page_is_other() -> None:
+    pdf = pdfium.PdfDocument(BLANK_CLASSKICK)
+    pasted, annotated, untouched = pdf[0], pdf[1], pdf[2]
+    photo = pdfium.PdfImage.new(pdf)
+    photo.set_bitmap(pdfium.PdfBitmap.from_pil(Image.new("RGB", (50, 50), "gray")))
+    photo.set_matrix(pdfium.PdfMatrix().scale(72, 72).translate(30, 30))  # 50 ppi
+    pasted.insert_obj(photo)
+    pasted.gen_content()
+    annot = pdfium_c.FPDFPage_CreateAnnot(annotated.raw, pdfium_c.FPDF_ANNOT_INK)
+    pdfium_c.FPDFPage_CloseAnnot(annot)
+
+    assert sidebar(pasted) is None
+    assert sidebar(annotated) is None
+    assert sidebar(untouched) is not None
+    assert classkick_sidebars(pdf) is None
+    rendered = render_page(pasted, "other")
+    assert rendered.image.size == (1700, 2200)
+    assert rendered.native_ppi == pytest.approx(50)  # the lowest of the two images
