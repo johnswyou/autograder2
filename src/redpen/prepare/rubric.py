@@ -1,14 +1,13 @@
 """Write the rubric (design 6.3): one call per top-level problem, given its parts and
 their solutions. A choice part gets no call: code writes its one criterion."""
 
-import asyncio
 import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from redpen import prompts
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
 from redpen.prepare.parse import CHOICE_TYPES
@@ -17,7 +16,6 @@ from redpen.prepare.solve import (
     ROLE,
     PartSolution,
     answer_of,
-    ask_checked,
     by_problem,
     problem_of,
 )
@@ -92,7 +90,7 @@ async def write_rubric(
         [p for p in parts if p.response_type not in CHOICE_TYPES]
         for parts in by_problem(spec)
     ]
-    written = await asyncio.gather(*(one(parts) for parts in free if parts))
+    written = await finish_all(one(parts) for parts in free if parts)
     return {r.part_id: r for found in written for r in found}
 
 

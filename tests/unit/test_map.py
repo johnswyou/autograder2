@@ -28,9 +28,8 @@ from redpen.grade.map import (
     map_student,
     problems,
 )
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, StageError
 from redpen.llm.models import ModelInfo
-from redpen.prepare.solve import StageError
 from redpen.schemas.spec import Part, Spec
 from redpen.schemas.submission import IngestPage, IngestRecord, MapRecord
 from redpen.workspace import Workspace, read_model, write_model

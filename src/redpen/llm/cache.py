@@ -65,6 +65,9 @@ class CallCache:
     def put(self, key: str, response: str) -> None:
         self._db.execute("INSERT OR REPLACE INTO calls VALUES (?, ?)", (key, response))
 
+    def forget(self, key: str) -> None:
+        self._db.execute("DELETE FROM calls WHERE key = ?", (key,))
+
     def dump(self, path: Path) -> None:
         """Every row as a JSON line `{"key": ..., "response": {...}}`, in key order.
 

@@ -6,11 +6,12 @@ import json
 import random
 import sqlite3
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, NoReturn, Self
+from typing import Any, NoReturn, Self, cast
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -61,6 +62,11 @@ class FatalError(Exception):
 class ResponseValidationError(Exception):
     """The response failed validation, and so did the one repair attempt. Or a
     stored response no longer validates."""
+
+
+class StageError(Exception):
+    """A model's answer still fails its stage's checks after one retry. The message
+    lists every failure."""
 
 
 @dataclass(frozen=True)
@@ -178,6 +184,8 @@ class Gateway:
         }
         keyed = _messages(system, shared, items, digest=True)
         key = cache_key(model.slug, keyed, schema, sent, prompt_version)
+        if (asked := _asked.get()) is not None:
+            asked.append((self, key))
         if (raw := self._cache.get(key)) is not None:
             response = json.loads(raw)
             try:
@@ -236,6 +244,11 @@ class Gateway:
         self._cache.put(key, json.dumps(response))
         return Result(value, response["model"], _usage(response, model), False)
 
+    def forget(self, key: str) -> None:
+        """Drop the cached response under `key`, so that it is asked for again. The
+        ledger keeps its row: it was paid for."""
+        self._cache.forget(key)
+
     async def _post(
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
@@ -289,6 +302,48 @@ class Gateway:
         self._next_start[slug] = start + self._interval
         if start > now:
             await self._sleep(start - now)
+
+
+# The calls made while `ask_checked` waits for an answer, as (gateway, cache key). A
+# context variable, so that the stage's own `ask` needs no change and concurrent
+# checks, each in its own task, keep separate lists.
+_asked: ContextVar[list[tuple[Gateway, str]] | None] = ContextVar("asked", default=None)
+
+
+async def ask_checked[T](
+    ask: Callable[[Sequence[Part]], Awaitable[T]],
+    problems: Callable[[T], list[str]],
+    what: str,
+) -> T:
+    """`ask([])`'s answer if `problems` finds nothing in it. Otherwise ask once more
+    with the problems attached as the item `{"problems": [...]}`. If any remain,
+    forget both cached responses, so that a later run asks again instead of failing
+    on the cache, and raise `StageError`. `ask` makes its calls through a Gateway.
+    `problems` lists failures in a fixed order: they become part of a cache key."""
+    asked: list[tuple[Gateway, str]] = []
+    token = _asked.set(asked)
+    try:
+        found = await ask([])
+        if wrong := problems(found):
+            found = await ask([json.dumps({"problems": wrong})])
+            if wrong := problems(found):
+                for gateway, key in asked:
+                    gateway.forget(key)
+                raise StageError(f"{what} fails its checks: {'; '.join(wrong)}")
+        return found
+    finally:
+        _asked.reset(token)
+
+
+async def finish_all[T](awaitables: Iterable[Awaitable[T]]) -> list[T]:
+    """The results of `awaitables`, run concurrently, once every one has finished;
+    then the first error, if any. One failure does not cut the others' calls short,
+    so none of them is paid for twice."""
+    results = await asyncio.gather(*awaitables, return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    return cast(list[T], results)
 
 
 def _raise_for(code: int, message: str) -> NoReturn:

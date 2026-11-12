@@ -1,6 +1,9 @@
 import asyncio
+import functools
 import json
 import shutil
+import sqlite3
+from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -8,12 +11,14 @@ from typing import Any
 import httpx
 import pytest
 from pydantic import BaseModel
+from typer.testing import CliRunner
 
-from redpen.llm.client import Gateway
+from redpen.cli import app
+from redpen.llm.client import Gateway, StageError
 from redpen.llm.models import ModelInfo
 from redpen.prepare import rubric, solve
 from redpen.prepare.rubric import PartRubric, Rubric, write_rubric
-from redpen.prepare.solve import PartSolution, Solution, StageError
+from redpen.prepare.solve import PartSolution, Solution
 from redpen.schemas.key import Answer
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model
@@ -250,3 +255,67 @@ def test_a_solution_is_checked_against_the_parts_of_its_problem(
     parts = [part("Q1.a", "multiple_choice", ["A", "B", "C"]), part("Q1.b", "numeric")]
 
     assert solve.problems(parts, found) == problems
+
+
+SOLVER_LOCK = """profile = "balanced"
+
+[models.solver]
+slug = "vendor/vision-1"
+supported_parameters = ["structured_outputs", "max_tokens"]
+accepts_images = true
+prompt_price = "0"
+completion_price = "0"
+providers = ["zero"]
+"""
+
+
+def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = Server(skip=frozenset({"Q5.b"}), stubborn=True)
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        if b"Q5.a" not in request.content:
+            await asyncio.sleep(0.2)  # so that problem 5 fails while the rest run
+        return server(request)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "redpen.cli.Gateway",
+        functools.partial(Gateway, transport=httpx.MockTransport(handle)),
+    )
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    workspace = Workspace(Path("ws"))
+    workspace.spec_json.parent.mkdir(parents=True)
+    shutil.copy(FIXTURES / "spec.json", workspace.spec_json)
+    workspace.config_lock_toml.write_text(SOLVER_LOCK)
+    runner = CliRunner()
+
+    failed = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert failed.exit_code == 1
+    assert failed.stderr == (
+        "the solution of Q5 fails its checks: Q5.b has no answer\n"
+    )
+    with closing(sqlite3.connect(workspace.cache_sqlite)) as db:
+        cached = [json.loads(r) for (r,) in db.execute("SELECT response FROM calls")]
+        spent = db.execute("SELECT count(*) FROM ledger").fetchone()[0]
+    answered = {
+        json.loads(c["choices"][0]["message"]["content"])["parts"][0]["part_id"]
+        for c in cached
+    }
+    assert answered == {"Q1", "Q2", "Q3", "Q4.a"}  # the two failed answers are gone
+    assert spent == 6  # but they were paid for
+    assert not workspace.key_yaml.exists()
+
+    server = Server()
+    again = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert again.exit_code == 0, again.output
+    assert sorted((r["schema"], r["parts"][0]) for r in server.requests) == [
+        ("Rubric", "Q4.a"),
+        ("Rubric", "Q5.a"),
+        ("Solution", "Q5.a"),
+    ]
+    assert workspace.key_yaml.exists()

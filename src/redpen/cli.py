@@ -31,6 +31,7 @@ from redpen.llm.client import (
     Gateway,
     ResponseValidationError,
     RetryableError,
+    StageError,
 )
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
 from redpen.prepare.key import (
@@ -45,7 +46,7 @@ from redpen.prepare.key import check as check_key
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
-from redpen.prepare.solve import StageError, solve
+from redpen.prepare.solve import solve
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model

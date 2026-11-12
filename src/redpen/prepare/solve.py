@@ -1,16 +1,13 @@
 """Solve each problem of the spec (design 6.2, one solver): one call per top-level
 problem, with the images of the pages it is printed on and the text of its parts."""
 
-import asyncio
 import json
 from collections import Counter, defaultdict
-from collections.abc import Awaitable, Callable, Sequence
-
-from pydantic import BaseModel
+from collections.abc import Sequence
 
 from redpen import prompts
 from redpen.imaging.prep import reduced_png
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
 from redpen.prepare.parse import CHOICE_TYPES, render_blank
@@ -21,11 +18,6 @@ from redpen.workspace import Workspace
 
 ROLE = "solver"
 PARAMS = {"max_tokens": 32000}
-
-
-class StageError(Exception):
-    """A model's answer still fails its checks after one retry. The message lists
-    every failure."""
 
 
 # An assumption the question leaves open, such as a constant used with two values,
@@ -98,7 +90,7 @@ async def solve(
         )
         return found.parts
 
-    solved = await asyncio.gather(*(one(parts) for parts in by_problem(spec)))
+    solved = await finish_all(one(parts) for parts in by_problem(spec))
     return {s.part_id: s for found in solved for s in found}
 
 
@@ -112,21 +104,6 @@ def by_problem(spec: Spec) -> list[list[Part]]:
 
 def problem_of(parts: Sequence[Part]) -> str:
     return parts[0].id.split(".")[0]
-
-
-async def ask_checked[T: BaseModel](
-    ask: Callable[[Sequence[Content]], Awaitable[T]],
-    problems: Callable[[T], list[str]],
-    what: str,
-) -> T:
-    """`ask()`'s answer if `problems` finds nothing in it. Otherwise ask once more
-    with the problems attached, and raise `StageError` if any remain."""
-    found = await ask([])
-    if wrong := problems(found):
-        found = await ask([json.dumps({"problems": wrong})])
-        if wrong := problems(found):
-            raise StageError(f"{what} fails its checks: {'; '.join(wrong)}")
-    return found
 
 
 def answer_of(found: PartSolution) -> Answer:

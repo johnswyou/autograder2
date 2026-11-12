@@ -16,10 +16,9 @@ from pydantic import BaseModel, PositiveInt
 
 from redpen import prompts
 from redpen.imaging import prep
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, ask_checked
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.prepare.solve import ask_checked
 from redpen.schemas.common import Box, Provenance, Schema
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import (
