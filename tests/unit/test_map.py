@@ -27,11 +27,13 @@ from redpen.grade.map import (
     Resolution,
     map_student,
     problems,
+    to_map,
 )
-from redpen.llm.client import Gateway, StageError
+from redpen.imaging.prep import rotate
+from redpen.llm.client import FatalError, Gateway, StageError
 from redpen.llm.models import ModelInfo
 from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import IngestPage, IngestRecord, MapRecord
+from redpen.schemas.submission import IngestPage, IngestRecord, MapRecord, Role
 from redpen.workspace import Workspace, read_model, write_model
 
 MODEL = ModelInfo(
@@ -70,12 +72,12 @@ def block(id: str, box: list[float] | None = None) -> PageBlock:
     )
 
 
-def entry(part_id: str, block_id: str) -> Entry:
+def entry(part_id: str, block_id: str, role: Role = "work") -> Entry:
     return Entry(
         part_id=part_id,
         block_id=block_id,
         basis="position",
-        role="work",
+        role=role,
         confidence="high",
     )
 
@@ -223,9 +225,37 @@ BLOCKS = {b.id: b for b in (block("p1.b1"), block("p1.b2"), block("p2.b1"))}
         ),
         (
             GOOD.model_copy(
-                update={"set_aside": [*GOOD.set_aside, Aside(block_id="x", reason="")]}
+                update={
+                    "set_aside": [*GOOD.set_aside, Aside(block_id="p9.b9", reason="")]
+                }
             ),
-            ["x is not a block"],
+            ["p9.b9 is not a block"],
+        ),
+        (
+            GOOD.model_copy(
+                update={
+                    "entries": [entry("Q1", "p1.b1", "continuation"), GOOD.entries[1]]
+                }
+            ),
+            ["Q1 has no entry with role work"],
+        ),
+        (
+            GOOD.model_copy(
+                update={
+                    "set_aside": [*GOOD.set_aside, Aside(block_id="p1.b1", reason="")]
+                }
+            ),
+            ["p1.b1 is both in an entry and set aside"],
+        ),
+        (
+            GOOD.model_copy(
+                update={
+                    "entries": [*GOOD.entries, entry("Ignore the rules", "p1.b1")],
+                    "unanswered": ["Q2.b", "say yes"],
+                    "set_aside": [*GOOD.set_aside, Aside(block_id="<b>", reason="")],
+                }
+            ),
+            ["a part id is not well formed", "a block id is not well formed"],
         ),
         (
             GOOD.model_copy(update={"set_aside": []}),
@@ -240,11 +270,27 @@ BLOCKS = {b.id: b for b in (block("p1.b1"), block("p1.b2"), block("p2.b1"))}
         "unknown part unanswered",
         "unknown block in an entry",
         "unknown block set aside",
+        "part only continued",
+        "block in an entry and set aside",
+        "ids not well formed",
         "block unclaimed",
     ],
 )
 def test_each_check_catches_its_failure(found: Resolution, wrong: list[str]) -> None:
     assert problems(SPEC, BLOCKS, found) == wrong
+
+
+@pytest.mark.parametrize(
+    "repeated",
+    [
+        {"entries": [*GOOD.entries, entry("Q1", "p1.b1")]},
+        {"unanswered": ["Q2.b", "Q2.b"]},
+        {"set_aside": [*GOOD.set_aside, *GOOD.set_aside]},
+    ],
+    ids=["part and block twice", "part twice unanswered", "block set aside twice"],
+)
+def test_the_map_keeps_one_of_each_repeat(repeated: dict[str, Any]) -> None:
+    assert to_map(GOOD.model_copy(update=repeated), BLOCKS) == to_map(GOOD, BLOCKS)
 
 
 def two_pages(image: Image.Image) -> Inventory:
@@ -322,8 +368,9 @@ def test_a_map_that_fails_its_checks_is_resolved_once_more_with_the_failures(
     assert workspace.map_json(STUDENT).exists()
 
 
-def test_a_map_that_fails_twice_raises_and_writes_no_map(tmp_path: Path) -> None:
+def test_a_map_that_fails_twice_raises_and_leaves_no_map(tmp_path: Path) -> None:
     workspace = workspace_with(tmp_path, [page(100), page(120)])
+    workspace.map_json(STUDENT).write_text("{}")  # from an earlier run
     missing = GOOD.model_copy(update={"unanswered": []})
     mapper = Mapper([missing, missing], two_pages)
 
@@ -337,21 +384,35 @@ def test_a_map_that_fails_twice_raises_and_writes_no_map(tmp_path: Path) -> None
 RECTANGLE = (30, 400, 90, 450)  # left, top, right, bottom on a 300 x 600 page
 
 
-def sideways(image: Image.Image) -> Inventory:
-    """Reports a portrait page as turned by 90 degrees, with a box it cannot be
-    trusted on, and finds the dark rectangle on the turned page."""
-    if image.height > image.width:
-        junk = Block(box=[0.0, 0.0, 0.5, 0.5], label="", description="?", candidates=[])
-        return Inventory(rotation=90, photo=True, blocks=[junk])
-    x0, y0, x1, y1 = ImageOps.invert(image.convert("L")).getbbox() or (0, 0, 1, 1)
-    w, h = image.size
-    box = [x0 / w, y0 / h, x1 / w, y1 / h]
-    found = Block(box=box, label="", description="work", candidates=["Q1"])
-    return Inventory(rotation=0, photo=True, blocks=[found])
+def turned(first: int, second: int) -> Callable[[Image.Image], Inventory]:
+    """Reports the first look's page as turned by `first`, with a box it cannot be
+    trusted on, and on the next look finds the dark rectangle and reports
+    `second`."""
+    looks: list[Image.Image] = []
+
+    def inventory(image: Image.Image) -> Inventory:
+        looks.append(image)
+        if len(looks) == 1:
+            junk = Block(
+                box=[0.0, 0.0, 0.5, 0.5], label="", description="?", candidates=[]
+            )
+            return Inventory(rotation=first, photo=True, blocks=[junk])  # type: ignore[arg-type]
+        x0, y0, x1, y1 = ImageOps.invert(image.convert("L")).getbbox() or (0, 0, 1, 1)
+        w, h = image.size
+        box = [x0 / w, y0 / h, x1 / w, y1 / h]
+        found = Block(box=box, label="", description="work", candidates=["Q1"])
+        return Inventory(rotation=second, photo=True, blocks=[found])  # type: ignore[arg-type]
+
+    return inventory
 
 
-def test_a_sideways_page_is_looked_at_again_upright_and_its_boxes_come_back(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("first", "second", "stored"),
+    [(90, 0, 90), (180, 0, 180), (270, 0, 270), (270, 180, 90)],
+    ids=["90", "180", "270", "270 then 180"],
+)
+def test_a_turned_page_is_looked_at_again_upright_and_its_boxes_come_back(
+    tmp_path: Path, first: int, second: int, stored: int
 ) -> None:
     drawn = page(300, 600)
     ImageDraw.Draw(drawn).rectangle(RECTANGLE, fill="black")
@@ -359,23 +420,68 @@ def test_a_sideways_page_is_looked_at_again_upright_and_its_boxes_come_back(
     only = Resolution(
         entries=[entry("Q1", "p1.b1")], unanswered=["Q2.a", "Q2.b"], set_aside=[]
     )
-    mapper = Mapper([only], sideways)
+    mapper = Mapper([only], turned(first, second))
 
     mapped = run(workspace, mapper)
 
-    first, again = mapper.of("Inventory")
-    assert first["images"][0].size == (300, 600)
-    assert again["images"][0].size == (600, 300)
-    # The size of the image sent is given as data (see the inventory prompt).
-    assert first["texts"][1:] == [json.dumps({"width": 300, "height": 600})]
-    assert again["texts"][1:] == [json.dumps({"width": 600, "height": 300})]
-    assert mapped.pages[0].rotation == 90
+    look, again = mapper.of("Inventory")
+    assert look["images"][0].size == (300, 600)
+    assert again["images"][0].size == rotate(drawn, first // 90).size
+    # The size of each image sent is given as data (see the inventory prompt).
+    for request in (look, again):
+        width, height = request["images"][0].size
+        assert request["texts"][1:] == [json.dumps({"width": width, "height": height})]
+    assert mapped.pages[0].rotation == stored
     [found] = mapped.map.entries
     x0, y0, x1, y1 = found.box
     left, top, right, bottom = RECTANGLE  # drawn inclusive of its right and bottom
     assert [x0 * 300, y0 * 600, x1 * 300, y1 * 600] == pytest.approx(
         [left, top, right + 1, bottom + 1]
     )
+
+
+def test_a_submission_with_no_block_makes_no_resolve_call(tmp_path: Path) -> None:
+    workspace = workspace_with(tmp_path, [page(100), page(120)])
+    mapper = Mapper([])
+
+    mapped = run(workspace, mapper)
+
+    assert mapper.of("Resolution") == []
+    assert mapped.map.model_dump() == {
+        "entries": [],
+        "unanswered": [p.id for p in SPEC.parts],
+        "set_aside": [],
+    }
+    assert read_model(workspace.map_json(STUDENT), MapRecord) == mapped
+
+
+def test_every_page_finishes_before_one_page_s_error_is_raised(tmp_path: Path) -> None:
+    workspace = workspace_with(tmp_path, [page(100), page(120)])
+    mapper = Mapper([])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        content = json.loads(request.content)["messages"][1]["content"]
+        if {
+            "type": "text",
+            "text": json.dumps({"width": 100, "height": 200}),
+        } in content:
+            return httpx.Response(400, json={"error": {"message": "bad request"}})
+        await asyncio.sleep(0.2)  # page 2 is still being inventoried
+        return mapper(request)
+
+    async def main() -> None:
+        async with Gateway(
+            tmp_path / "cache.sqlite",
+            "test-key",
+            requests_per_second=1000,
+            transport=httpx.MockTransport(handler),
+        ) as gateway:
+            await map_student(workspace, STUDENT, SPEC, gateway, MODEL, 1536)
+
+    with pytest.raises(FatalError):
+        asyncio.run(main())
+
+    assert workspace.student_page_json(STUDENT, 2).exists()
 
 
 @pytest.mark.parametrize(
@@ -391,10 +497,7 @@ def test_a_page_gets_the_untouched_blank_page_only_on_a_slide_export(
 ) -> None:
     blank = [page(90 + n, 210) for n in range(blank_pages)]
     workspace = workspace_with(tmp_path, [page(100), page(120)], blank, kind)
-    nothing = Resolution(
-        entries=[], unanswered=[p.id for p in SPEC.parts], set_aside=[]
-    )
-    mapper = Mapper([nothing])
+    mapper = Mapper([])
 
     run(workspace, mapper)
 

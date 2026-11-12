@@ -3,23 +3,23 @@ one call per page lists the blocks of student work on it, one text-only call
 attributes the blocks to parts by id, and code checks the result and looks up each
 block's page and box. No model copies a coordinate."""
 
-import asyncio
 import hashlib
 import io
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
 from PIL import Image
-from pydantic import BaseModel, PositiveInt
+from pydantic import BaseModel, PositiveInt, TypeAdapter, ValidationError
 
 from redpen import prompts
 from redpen.imaging import prep
-from redpen.llm.client import Gateway, ask_checked
+from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.schemas.common import Box, Provenance, Schema
+from redpen.schemas.common import Box, PartId, Provenance, Schema
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import (
     Basis,
@@ -36,6 +36,8 @@ from redpen.workspace import Workspace, read_model, write_model
 
 ROLE = "mapper"
 PARAMS = {"max_tokens": 8000}
+PART_ID = TypeAdapter(PartId)
+BLOCK_ID = re.compile(r"p[1-9][0-9]*\.b[1-9][0-9]*")
 
 
 # One distinct piece of student work, as the inventory call reports it. The box is
@@ -96,8 +98,9 @@ async def map_student(
 ) -> MapRecord:
     """Map the ingested `student`: write each page's inventory and `map.json`, and
     return what was written. Raises `StageError` if the map still fails its checks
-    after one more resolve call; no map is written then."""
+    after one more resolve call; no map is left then, not even an earlier one."""
     record = read_model(workspace.ingest_json(student), IngestRecord)
+    workspace.map_json(student).unlink(missing_ok=True)
     inventory_prompt = prompts.load("map", "inventory")
     resolve_prompt = prompts.load("map", "resolve")
     session = f"{workspace.root.name}:map"
@@ -141,16 +144,19 @@ async def map_student(
             return await ask(inventory_prompt, [shown, *before, size], Inventory)
 
         found = await look(0)
-        blocks = found.blocks
+        blocks, rotation = found.blocks, found.rotation
         if turns := found.rotation // 90:
             # Boxes found on a sideways page are not trusted: look again upright.
+            # A turn reported then means the first look had the direction wrong.
+            upright = await look(turns)
+            rotation = (found.rotation + upright.rotation) % 360
             blocks = [
                 b.model_copy(update={"box": prep.box_from_rotated(b.box, turns)})
-                for b in (await look(turns)).blocks
+                for b in upright.blocks
             ]
         page = PageInventory(
             number=number,
-            rotation=found.rotation,
+            rotation=rotation,  # pyright: ignore[reportArgumentType]
             photo=found.photo,
             blocks=[
                 PageBlock(id=f"p{number}.b{n}", page=number, **b.model_dump())
@@ -160,15 +166,19 @@ async def map_student(
         write_model(workspace.student_page_json(student, number), page)
         return page
 
-    pages = await asyncio.gather(*(take(p.number) for p in record.pages))
+    pages = await finish_all(take(p.number) for p in record.pages)
     blocks = {b.id: b for page in pages for b in page.blocks}
     data = json.dumps({"blocks": [b.model_dump(mode="json") for b in blocks.values()]})
 
     async def resolve(extra: Sequence[Content]) -> Resolution:
         return await ask(resolve_prompt, [data, *extra], Resolution)
 
-    found = await ask_checked(
-        resolve, lambda r: problems(spec, blocks, r), f"the map of {student}"
+    found = (
+        await ask_checked(
+            resolve, lambda r: problems(spec, blocks, r), f"the map of {student}"
+        )
+        if blocks
+        else Resolution(entries=[], unanswered=[p.id for p in spec.parts], set_aside=[])
     )
     both = (inventory_prompt[1] + resolve_prompt[1]).encode()
     mapped = MapRecord(
@@ -190,9 +200,11 @@ def problems(
     spec: Spec, blocks: Mapping[str, PageBlock], found: Resolution
 ) -> list[str]:
     """Every way `found` fails the checks of design 7.3 that need no fingerprint, in
-    a fixed order (it is sent back to the model)."""
+    a fixed order (it is sent back to the model). An id the model wrote is named
+    only when it has the shape of a part id or a block id: it is free text."""
     parts = [p.id for p in spec.parts]
     mapped = [e.part_id for e in found.entries]
+    working = {e.part_id for e in found.entries if e.role == "work"}
     named = [*mapped, *found.unanswered]
     wrong = [f"{p} is in no entry and not unanswered" for p in parts if p not in named]
     wrong += [
@@ -201,23 +213,57 @@ def problems(
         if p in mapped and p in found.unanswered
     ]
     wrong += [
+        f"{p} has no entry with role work"
+        for p in parts
+        if p in mapped and p not in working
+    ]
+    wrong += [
         f"{p} is not a part of the assignment"
+        if _is_part_id(p)
+        else "a part id is not well formed"
         for p in dict.fromkeys(named)
         if p not in parts
     ]
-    used = [
-        *(e.block_id for e in found.entries),
-        *(a.block_id for a in found.set_aside),
-    ]
-    wrong += [f"{b} is not a block" for b in dict.fromkeys(used) if b not in blocks]
+    claimed = [e.block_id for e in found.entries]
+    aside = [a.block_id for a in found.set_aside]
     wrong += [
-        f"{b} is neither in an entry nor set aside" for b in blocks if b not in used
+        f"{b} is not a block"
+        if BLOCK_ID.fullmatch(b)
+        else "a block id is not well formed"
+        for b in dict.fromkeys([*claimed, *aside])
+        if b not in blocks
     ]
-    return wrong
+    wrong += [
+        f"{b} is both in an entry and set aside"
+        for b in blocks
+        if b in claimed and b in aside
+    ]
+    wrong += [
+        f"{b} is neither in an entry nor set aside"
+        for b in blocks
+        if b not in claimed and b not in aside
+    ]
+    return list(dict.fromkeys(wrong))
+
+
+def _is_part_id(text: str) -> bool:
+    try:
+        PART_ID.validate_python(text)
+    except ValidationError:
+        return False
+    return True
 
 
 def to_map(found: Resolution, blocks: Mapping[str, PageBlock]) -> Map:
-    """The map `found` describes, with each block's page and box looked up."""
+    """The map `found` describes, with each block's page and box looked up, and a
+    part and block named twice, a part unanswered twice or a block set aside twice
+    kept once (the first)."""
+    entries: dict[tuple[str, str], Entry] = {}
+    for e in found.entries:
+        entries.setdefault((e.part_id, e.block_id), e)
+    aside: dict[str, Aside] = {}
+    for a in found.set_aside:
+        aside.setdefault(a.block_id, a)
     return Map(
         entries=[
             MapEntry(
@@ -228,16 +274,16 @@ def to_map(found: Resolution, blocks: Mapping[str, PageBlock]) -> Map:
                 role=e.role,
                 confidence=e.confidence,
             )
-            for e in found.entries
+            for e in entries.values()
         ],
-        unanswered=found.unanswered,
+        unanswered=list(dict.fromkeys(found.unanswered)),
         set_aside=[
             SetAside(
                 page=blocks[a.block_id].page,
                 box=blocks[a.block_id].box,
                 reason=a.reason,
             )
-            for a in found.set_aside
+            for a in aside.values()
         ],
     )
 
