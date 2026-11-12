@@ -504,6 +504,26 @@ GOOD = [
             [*GOOD[:2], reading("Q4.b", addressed_to_grader=[3])],
             ["Q4.b: line 3 is marked addressed to a grader, and there is no line 3"],
         ),
+        # A clear answer that is only a symbol is legible; a `?` marks what is not.
+        ([*GOOD[:2], reading("Q4.b", lines=["+"])], []),
+        ([*GOOD[:2], reading("Q4.b", lines=["→"])], []),
+        (
+            [
+                GOOD[0],
+                reading("Q4.a", lines=[], elements=[arrow("+"), arrow("−")]),
+                GOOD[2],
+            ],
+            [],
+        ),
+        (
+            [*GOOD[:2], reading("Q4.b", lines=["? = ??"], uncertain=[1])],
+            [ILLEGIBLE.format("Q4.b")],
+        ),
+        (
+            [*GOOD[:2], reading("Q4.b", lines=["?"], uncertain=[1])],
+            [ILLEGIBLE.format("Q4.b")],
+        ),
+        ([*GOOD[:2], reading("Q4.b", lines=["a = ?.?"], uncertain=[1])], []),
     ],
     ids=[
         "clean",
@@ -524,6 +544,12 @@ GOOD = [
         "illegible labels but answered",
         "drawing with no writing",
         "addressed line missing",
+        "a line that is a plus sign",
+        "a line that is an arrow",
+        "labels that are signs",
+        "an equation of question marks",
+        "one question mark",
+        "a line partly read",
     ],
 )
 def test_each_check_catches_its_failure(found: list[Reading], wrong: list[str]) -> None:

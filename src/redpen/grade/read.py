@@ -276,11 +276,13 @@ def problems(parts: Sequence[Part], found: Readings) -> list[str]:
                 f"{r.part_id}: an unreadable reading has no lines"
                 " and an empty final answer"
             )
-        # Writing of which not one letter or digit is read is unreadable. A drawing
-        # with no writing at all (no lines, every label empty) is not.
+        # Writing that marks a character it cannot read (`?`) and reads no letter or
+        # digit is unreadable. Clear writing that is only a sign, such as `+` or an
+        # arrow, is not, and neither is a drawing with no writing at all.
         written = [*r.lines, *(e.label for e in r.elements if e.label)]
         legible = any(c.isalnum() for text in written for c in text)
-        if written and not legible and r.status != "unreadable":
+        unread = any("?" in text for text in written)
+        if unread and not legible and r.status != "unreadable":
             wrong.append(
                 f"{r.part_id}: no letter or digit in it can be read, so its status"
                 " is unreadable, with no lines and an empty final answer"
