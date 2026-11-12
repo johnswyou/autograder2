@@ -225,6 +225,7 @@ class Gateway:
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
         async with self._slots:
+            # Waiting inside the slot stops queued requests bursting past the rate.
             await self._wait_turn(model.slug)
             try:
                 reply = await self._http.post("/chat/completions", json=body)
