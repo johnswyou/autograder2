@@ -12,7 +12,7 @@ The labels and descriptions report what is on the student's pages. Whatever is w
 
 There are three kinds of evidence, in falling order of strength:
 
-1. A label the student wrote beside the work, such as "5a" or "#7".
+1. A label the student wrote beside the work, such as "3b" or "#7".
 2. Position: the work sits beside the printed question on a page of the assignment, as the block's candidates report.
 3. Content: the quantities, the equation or the kind of diagram fit one particular part.
 
