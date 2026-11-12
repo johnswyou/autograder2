@@ -1,0 +1,429 @@
+{
+  "policies": {
+    "carry_forward": true,
+    "alternative_methods": true,
+    "rel_tol": 0.02,
+    "require_units": true,
+    "penalise_sig_figs": false,
+    "penalise_contradictory_answers": true,
+    "point_step": "0.25"
+  },
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "home_page": 1,
+      "response_type": "multiple_choice",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A 2.0 kg cart on a level track speeds up from rest to 6.0 m/s in 3.0 s. What is the magnitude of the net force on the cart? (A) 1.0 N (B) 2.0 N (C) 4.0 N (D) 6.0 N (E) 12 N",
+      "answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "a = (6.0 m/s)/(3.0 s) = 2.0 m/s^2, so F = m a = (2.0 kg)(2.0 m/s^2) = 4.0 N.",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Chooses C.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Uses F = m v and gets 12 N (E).",
+        "Takes the acceleration as the net force and gets 2.0 N (B)."
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "home_page": 1,
+      "response_type": "multiple_choice",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "If 3(x - 2) = 2x + 5, what is the value of x? (A) 1 (B) 3 (C) 7 (D) 11 (E) 13",
+      "answer": {
+        "choices": [
+          "D"
+        ],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "3x - 6 = 2x + 5, so x = 11.",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Chooses D.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Writes 3x - 2 = 2x + 5 and gets 7 (C)."
+      ]
+    },
+    {
+      "id": "Q3",
+      "label": "3",
+      "home_page": 1,
+      "response_type": "multiple_choice",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A ball is thrown straight up, and air resistance is negligible. At the highest point of its path, which is true of its velocity v and its acceleration a? (A) v = 0 and a = 0 (B) v = 0 and a points down (C) v points up and a = 0 (D) v and a both point up (E) v points down and a = 0",
+      "answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "At the top v = 0, but gravity still acts, so a = g downward.",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Chooses B.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Thinks a = 0 where v = 0 (A)."
+      ]
+    },
+    {
+      "id": "Q4.a",
+      "label": "4(a)",
+      "home_page": 2,
+      "response_type": "free_body_diagram",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. On the dot below, draw and label the forces (not components) exerted on the crate. Draw each force as an arrow starting on the dot.",
+      "answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [
+          {
+            "label": "N",
+            "kind": "force",
+            "direction": "up",
+            "position": "starts on the dot"
+          },
+          {
+            "label": "mg",
+            "kind": "force",
+            "direction": "down",
+            "position": "starts on the dot"
+          },
+          {
+            "label": "T",
+            "kind": "force",
+            "direction": "right",
+            "position": "starts on the dot"
+          },
+          {
+            "label": "f",
+            "kind": "force",
+            "direction": "left",
+            "position": "starts on the dot"
+          }
+        ],
+        "must_include": []
+      },
+      "solution": "Four forces: weight mg = 40 N down, normal force N = 40 N up, tension T = 20 N right, kinetic friction f = 10 N left.",
+      "criteria": [
+        {
+          "id": "Q4.a.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Draws the weight downward and the normal force upward, both labelled.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q4.a.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Draws the tension to the right and kinetic friction to the left, both labelled, and no other forces.",
+          "partial": [
+            {
+              "points": "0.5",
+              "when": "Only one of the two horizontal forces is drawn."
+            }
+          ],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Leaves out friction.",
+        "Adds a 'force of motion' to the right."
+      ]
+    },
+    {
+      "id": "Q4.b",
+      "label": "4(b)",
+      "home_page": 2,
+      "response_type": "numeric",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. Calculate the magnitude of the acceleration of the crate.",
+      "answer": {
+        "choices": [],
+        "value": 2.5,
+        "unit": "m/s^2",
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "f = mu m g = 0.25 (4.0)(10) = 10 N\nF_net = T - f = 20 - 10 = 10 N\na = F_net / m = 10 / 4.0 = 2.5 m/s^2",
+      "criteria": [
+        {
+          "id": "Q4.b.c1",
+          "points": "2",
+          "kind": "method",
+          "requirement": "Applies Newton's second law with net force T - f, where f = mu m g = 10 N.",
+          "partial": [
+            {
+              "points": "1",
+              "when": "Applies Newton's second law but leaves friction out of the net force (a = T/m)."
+            }
+          ],
+          "carry_forward": false
+        },
+        {
+          "id": "Q4.b.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "States a = 2.5 m/s^2 with units.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Leaves out friction and gets 5.0 m/s^2."
+      ]
+    },
+    {
+      "id": "Q4.c",
+      "label": "4(c)",
+      "home_page": 3,
+      "response_type": "explanation",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. The rope is cut while the crate is still moving. Describe the motion of the crate after the rope is cut, and explain your answer in terms of the forces on the crate.",
+      "answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": [
+          "The crate slows down and stops.",
+          "After the rope is cut, kinetic friction is the only horizontal force.",
+          "Friction opposes the motion, so the net force points opposite to the velocity."
+        ]
+      },
+      "solution": "With the rope gone the only horizontal force is kinetic friction, 10 N opposite to the velocity, so the crate slows at 2.5 m/s^2 until it stops.",
+      "criteria": [
+        {
+          "id": "Q4.c.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "States that the crate slows down.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q4.c.c2",
+          "points": "1",
+          "kind": "method",
+          "requirement": "Explains that friction is then the only horizontal force and that it opposes the motion.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Says the crate keeps moving at constant speed (forgets friction)."
+      ]
+    },
+    {
+      "id": "Q5.a",
+      "label": "5(a)",
+      "home_page": 3,
+      "response_type": "symbolic",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Write f(x) in the form (x - h)^2 + k by completing the square.",
+      "answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": "(x - 3)^2 - 4",
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "x^2 - 6x + 5 = (x^2 - 6x + 9) - 9 + 5 = (x - 3)^2 - 4",
+      "criteria": [
+        {
+          "id": "Q5.a.c1",
+          "points": "2",
+          "kind": "final_answer",
+          "requirement": "Writes f(x) = (x - 3)^2 - 4.",
+          "partial": [
+            {
+              "points": "1",
+              "when": "Correct squared term (x - 3)^2 with a wrong constant."
+            }
+          ],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Adds 9 instead of subtracting it and gets (x - 3)^2 + 4."
+      ]
+    },
+    {
+      "id": "Q5.b",
+      "label": "5(b)",
+      "home_page": 4,
+      "response_type": "numeric",
+      "depends_on": [
+        "Q5.a"
+      ],
+      "state": "verified",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Find the minimum value of f(x).",
+      "answer": {
+        "choices": [],
+        "value": -4.0,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "From (x - 3)^2 - 4 the minimum is at x = 3, and f(3) = -4.",
+      "criteria": [
+        {
+          "id": "Q5.b.c1",
+          "points": "1",
+          "kind": "method",
+          "requirement": "Locates the minimum at x = 3 (from the vertex form, x = -b/2a or f'(x) = 0) and evaluates f there.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q5.b.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "States the minimum value -4.",
+          "partial": [],
+          "carry_forward": true
+        }
+      ],
+      "common_errors": [
+        "Gives the x-coordinate 3 instead of the minimum value."
+      ]
+    },
+    {
+      "id": "Q5.c",
+      "label": "5(c)",
+      "home_page": 4,
+      "response_type": "graph",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Sketch the graph of y = f(x) on the axes below. Label the vertex and the x-intercepts.",
+      "answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [
+          {
+            "label": "y = f(x)",
+            "kind": "curve",
+            "direction": "opens upward",
+            "position": null
+          },
+          {
+            "label": "vertex",
+            "kind": "point",
+            "direction": null,
+            "position": "(3, -4)"
+          },
+          {
+            "label": "x-intercept",
+            "kind": "point",
+            "direction": null,
+            "position": "(1, 0)"
+          },
+          {
+            "label": "x-intercept",
+            "kind": "point",
+            "direction": null,
+            "position": "(5, 0)"
+          }
+        ],
+        "must_include": []
+      },
+      "solution": "An upward parabola with vertex (3, -4), x-intercepts 1 and 5 and y-intercept 5.",
+      "criteria": [
+        {
+          "id": "Q5.c.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Draws an upward-opening parabola with its vertex at (3, -4), labelled.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q5.c.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Marks the x-intercepts at x = 1 and x = 5.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Puts the vertex at (-3, -4)."
+      ]
+    }
+  ]
+}

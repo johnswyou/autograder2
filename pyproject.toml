@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pillow>=13.0.0",
     "pydantic>=2.14.3",
+    "pypdfium2>=5.15.2",
     "rich>=15.0.0",
     "typer>=0.29.1",
 ]
@@ -37,5 +38,6 @@ dev = [
     "hypothesis>=6.170.15",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
+    "reportlab>=5.1.0",
     "ruff>=0.17.4",
 ]
