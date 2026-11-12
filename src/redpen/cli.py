@@ -1,5 +1,7 @@
-"""The `redpen` command line (design section 12). Every command is a stub for now."""
+"""The `redpen` command line (design section 12). Most commands are stubs for now."""
 
+import asyncio
+import contextlib
 import logging
 from pathlib import Path
 from typing import Annotated, NoReturn
@@ -7,8 +9,10 @@ from typing import Annotated, NoReturn
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.table import Table
 
-from redpen.config import Profile
+from redpen.config import ConfigError, Profile, load_config, openrouter_api_key
+from redpen.llm.models import ModelError, check, fetch_catalog
 
 app = typer.Typer()
 key_app = typer.Typer(help="Check or render the key.")
@@ -142,5 +146,28 @@ def eval_(
 
 @models_app.command("check")
 def models_check() -> None:
-    """Verify the configured models."""
-    _not_implemented()
+    """Verify the configured models: image input, structured outputs, privacy."""
+    try:
+        config = load_config()
+        catalog = asyncio.run(fetch_catalog(openrouter_api_key()))
+    except (ConfigError, ModelError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from None
+    names = config.models.model_dump()
+    strict = config.strict_privacy
+    problems = check(catalog, names, strict_privacy=strict)
+    table = Table("Role", "Configured", "Model", "Endpoints that retain nothing", "")
+    for role, name in names.items():
+        model, providers = "-", "-"
+        with contextlib.suppress(ModelError):
+            info = catalog.resolve(name, strict_privacy=strict)
+            model = info.slug
+            providers = (
+                ", ".join(sorted(info.providers)) if strict else "(not required)"
+            )
+        table.add_row(role, name, model, providers, "FAIL" if problems[role] else "ok")
+    Console().print(table)
+    for problem in (p for found in problems.values() for p in found):
+        typer.echo(problem)
+    if any(problems.values()):
+        raise typer.Exit(code=1)

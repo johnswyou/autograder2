@@ -1,11 +1,17 @@
-"""Global settings from `redpen.toml` and the OpenRouter API key."""
+"""Global settings from `redpen.toml`, the OpenRouter API key, and the lock that
+pins an assignment's settings in its workspace."""
 
+import json
 import os
 import tomllib
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+
+from redpen.llm.models import ModelError, ModelInfo, check, fetch_catalog
+from redpen.workspace import Workspace
 
 Profile = Literal["economy", "balanced", "thorough"]
 
@@ -37,7 +43,8 @@ class Config(BaseModel):
     image_budget: PositiveInt = 1536
     """Longest image edge, in pixels, sent to a model."""
     strict_privacy: bool = True
-    """Route only to endpoints with zero data retention and no data collection."""
+    """Route only to endpoints that retain nothing: zero data retention, no Safety
+    Retention, no data collection."""
 
 
 def load_config(path: Path = Path("redpen.toml")) -> Config:
@@ -67,3 +74,55 @@ def openrouter_api_key() -> str:
             "OPENROUTER_API_KEY is not set. Export your OpenRouter API key in it."
         )
     return key
+
+
+class Lock(BaseModel):
+    """What an assignment is pinned to: `config.lock.toml` in its workspace."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile: Profile
+    models: dict[str, ModelInfo]
+    """The concrete model behind each role."""
+
+
+async def pin(
+    workspace: Workspace,
+    config: Config,
+    api_key: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> Lock:
+    """The workspace's lock, as it is if it exists. Otherwise every role is resolved
+    to a concrete model, which must pass `check`, and the lock is written."""
+    path = workspace.config_lock_toml
+    if path.exists():
+        return read_lock(path)
+    catalog = await fetch_catalog(api_key, transport=transport)
+    names = config.models.model_dump()
+    strict = config.strict_privacy
+    problems = check(catalog, names, strict_privacy=strict)
+    if any(problems.values()):
+        raise ModelError("; ".join(p for found in problems.values() for p in found))
+    lock = Lock(
+        profile=config.profile,
+        models={
+            role: catalog.resolve(name, strict_privacy=strict)
+            for role, name in names.items()
+        },
+    )
+    lines = [f"profile = {json.dumps(lock.profile)}"]
+    for role, model in lock.models.items():
+        lines += ["", f"[models.{role}]"]
+        # JSON's strings, booleans and arrays of strings are also TOML.
+        lines += [
+            f"{k} = {json.dumps(v)}" for k, v in model.model_dump(mode="json").items()
+        ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+    return lock
+
+
+def read_lock(path: Path) -> Lock:
+    with path.open("rb") as file:
+        return Lock.model_validate(tomllib.load(file))

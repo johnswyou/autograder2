@@ -33,6 +33,7 @@ MODEL = ModelInfo(
     accepts_images=True,
     prompt_price=Decimal("0.000001"),
     completion_price=Decimal("0.000002"),
+    providers=frozenset({"zero/us", "zero"}),
 )
 PNG = b"\x89PNG\r\n\x1a\nnot really a picture"
 
@@ -176,6 +177,7 @@ def test_request_has_the_designed_shape(tmp_path: Path) -> None:
         "require_parameters": True,
         "data_collection": "deny",
         "zdr": True,
+        "only": ["zero", "zero/us"],
     }
     assert body["session_id"] == "assignment:Q1"
     assert body["temperature"] == 0
@@ -280,6 +282,7 @@ def test_an_invalid_response_is_repaired_once(tmp_path: Path) -> None:
     assert repair[:2] == server.requests[0]["messages"]
     assert repair[2] == {"role": "assistant", "content": '{"letter": "bb"}'}
     assert repair[3]["role"] == "user" and "letter" in repair[3]["content"]
+    assert server.requests[1]["provider"]["only"] == ["zero", "zero/us"]
     assert totals(db)["reader"].cost == Decimal("0.0002")  # both calls were paid for
 
 
@@ -394,3 +397,14 @@ def test_requests_to_one_model_are_spaced_by_the_rate_limit(tmp_path: Path) -> N
     )
 
     assert sleeps == pytest.approx([0.5, 1.0], abs=0.05)
+
+
+def test_strict_privacy_refuses_a_model_with_no_pinned_provider(
+    tmp_path: Path,
+) -> None:
+    server = Server('{"letter": "B"}')
+    unpinned = MODEL.model_copy(update={"providers": frozenset()})
+
+    with pytest.raises(ValueError, match="no pinned endpoint that retains nothing"):
+        run(tmp_path / "cache.sqlite", server, ask(model=unpinned))
+    assert server.requests == []

@@ -19,10 +19,9 @@ from pydantic import BaseModel, ValidationError
 
 from redpen.llm.cache import CallCache, cache_key
 from redpen.llm.ledger import Ledger, Usage
-from redpen.llm.models import ModelInfo
+from redpen.llm.models import API_URL, ModelInfo
 from redpen.schemas.strict import strict_problems
 
-API_URL = "https://openrouter.ai/api/v1"
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = 1.0
 
@@ -99,8 +98,9 @@ class Gateway:
 
     `db_path` holds the call cache and the usage ledger. `max_concurrency` limits
     the requests in flight, `requests_per_second` the requests started per model.
-    `strict_privacy=False` drops the zero-retention and no-data-collection routing
-    requirements, for a model that has no such endpoint.
+    With `strict_privacy` every request goes only to the model's `providers`, the
+    endpoints that retain nothing; `False` drops that and the zero-retention and
+    no-data-collection requirements.
     """
 
     def __init__(
@@ -123,9 +123,7 @@ class Gateway:
             timeout=httpx.Timeout(600, connect=10),
             transport=transport,
         )
-        self._provider: dict[str, Any] = {"require_parameters": True}
-        if strict_privacy:
-            self._provider |= {"data_collection": "deny", "zdr": True}
+        self._strict_privacy = strict_privacy
         self._slots = asyncio.Semaphore(max_concurrency)
         self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}
@@ -160,6 +158,18 @@ class Gateway:
         if problems := strict_problems(schema):
             name = response_model.__name__
             raise ValueError(f"{name} is not a strict schema: {'; '.join(problems)}")
+        provider: dict[str, Any] = {"require_parameters": True}
+        if self._strict_privacy:
+            if not model.providers:
+                raise ValueError(
+                    f"{model.slug} has no pinned endpoint that retains nothing,"
+                    " and strict privacy sends it nothing"
+                )
+            provider |= {
+                "data_collection": "deny",
+                "zdr": True,
+                "only": sorted(model.providers),
+            }
         sent = {
             k: v for k, v in (params or {}).items() if k in model.supported_parameters
         }
@@ -184,7 +194,7 @@ class Gateway:
                     "schema": without_validation_keywords(schema),
                 },
             },
-            "provider": self._provider,
+            "provider": provider,
         }
         if session_id is not None:
             body["session_id"] = session_id
