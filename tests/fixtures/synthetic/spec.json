@@ -1,0 +1,180 @@
+{
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "prompt": "A 2.0 kg cart on a level track speeds up from rest to 6.0 m/s in 3.0 s. What is the magnitude of the net force on the cart? (A) 1.0 N (B) 2.0 N (C) 4.0 N (D) 6.0 N (E) 12 N",
+      "response_type": "multiple_choice",
+      "home_page": 1,
+      "band": [
+        0.20959595959595959,
+        0.4198232323232323
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "prompt": "If 3(x - 2) = 2x + 5, what is the value of x? (A) 1 (B) 3 (C) 7 (D) 11 (E) 13",
+      "response_type": "multiple_choice",
+      "home_page": 1,
+      "band": [
+        0.4198232323232323,
+        0.5934343434343434
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "id": "Q3",
+      "label": "3",
+      "prompt": "A ball is thrown straight up, and air resistance is negligible. At the highest point of its path, which is true of its velocity v and its acceleration a? (A) v = 0 and a = 0 (B) v = 0 and a points down (C) v points up and a = 0 (D) v and a both point up (E) v points down and a = 0",
+      "response_type": "multiple_choice",
+      "home_page": 1,
+      "band": [
+        0.5934343434343434,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "id": "Q4.a",
+      "label": "4(a)",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. On the dot below, draw and label the forces (not components) exerted on the crate. Draw each force as an arrow starting on the dot.",
+      "response_type": "free_body_diagram",
+      "home_page": 2,
+      "band": [
+        0.3005050505050505,
+        0.6035353535353535
+      ],
+      "figures": [
+        {
+          "page": 2,
+          "box": [
+            0.3202614379084967,
+            0.19128787878787878,
+            0.6797385620915033,
+            0.26073232323232326
+          ]
+        }
+      ],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q4.b",
+      "label": "4(b)",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. Calculate the magnitude of the acceleration of the crate.",
+      "response_type": "numeric",
+      "home_page": 2,
+      "band": [
+        0.6035353535353535,
+        0.9545454545454546
+      ],
+      "figures": [
+        {
+          "page": 2,
+          "box": [
+            0.3202614379084967,
+            0.19128787878787878,
+            0.6797385620915033,
+            0.26073232323232326
+          ]
+        }
+      ],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q4.c",
+      "label": "4(c)",
+      "prompt": "A crate of mass 4.0 kg is pulled to the right across a level floor by a horizontal rope, as shown below. The tension in the rope is 20 N, and the coefficient of kinetic friction between the crate and the floor is 0.25. Use g = 10 m/s^2. The rope is cut while the crate is still moving. Describe the motion of the crate after the rope is cut, and explain your answer in terms of the forces on the crate.",
+      "response_type": "explanation",
+      "home_page": 3,
+      "band": [
+        0.07828282828282829,
+        0.702020202020202
+      ],
+      "figures": [
+        {
+          "page": 2,
+          "box": [
+            0.3202614379084967,
+            0.19128787878787878,
+            0.6797385620915033,
+            0.26073232323232326
+          ]
+        }
+      ],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q5.a",
+      "label": "5(a)",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Write f(x) in the form (x - h)^2 + k by completing the square.",
+      "response_type": "symbolic",
+      "home_page": 3,
+      "band": [
+        0.7348484848484849,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q5.b",
+      "label": "5(b)",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Find the minimum value of f(x).",
+      "response_type": "numeric",
+      "home_page": 4,
+      "band": [
+        0.07828282828282829,
+        0.4015151515151515
+      ],
+      "figures": [],
+      "depends_on": [
+        "Q5.a"
+      ],
+      "options": []
+    },
+    {
+      "id": "Q5.c",
+      "label": "5(c)",
+      "prompt": "Let f(x) = x^2 - 6x + 5. Sketch the graph of y = f(x) on the axes below. Label the vertex and the x-intercepts.",
+      "response_type": "graph",
+      "home_page": 4,
+      "band": [
+        0.4015151515151515,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    }
+  ]
+}

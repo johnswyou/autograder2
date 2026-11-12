@@ -9,8 +9,10 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
 
+from redpen.prepare.parse import check
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
+from redpen.schemas.spec import Spec
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
 from tests.real_data import submission_folders
 
@@ -84,6 +86,17 @@ def test_classkick_fixture_pages_copy_the_measured_layout(path: Path) -> None:
     if not blank:
         name = truth_of(path).student_name
         assert f"Student: {name}" in pdf[0].get_textpage().get_text_range()
+
+
+def test_the_fixture_spec_agrees_with_the_key_and_passes_the_spec_checks() -> None:
+    spec = Spec.model_validate_json((FIXTURES / "spec.json").read_text())
+    fields = ("id", "label", "prompt", "response_type", "home_page", "depends_on")
+
+    assert [p.model_dump(include=set(fields)) for p in spec.parts] == [
+        p.model_dump(include=set(fields)) for p in KEY.parts
+    ]
+    assert check(spec, 4) == []
+    assert {tuple(p.options) for p in spec.parts[:3]} == {tuple("ABCDE")}
 
 
 def test_blank_submission_slides_equal_the_blank_export() -> None:

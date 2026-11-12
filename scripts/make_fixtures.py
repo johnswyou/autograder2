@@ -59,6 +59,7 @@ from redpen.schemas.common import DiagramElement
 from redpen.schemas.grade import CriterionGrade, Grade
 from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit, Policies
 from redpen.schemas.reading import Reading
+from redpen.schemas.spec import Figure, Part, Spec
 from redpen.schemas.submission import IngestPage, Map, MapEntry, SetAside
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic"
@@ -124,6 +125,18 @@ PARTS = {
 # (page, x0, y0, x1, y1): empty space in which a student answers in place.
 OPTION_ROWS = {"Q1": 205, "Q2": 357, "Q3": 509}  # top of option (A); rows 17 pt apart
 OPTION_X = 96  # x of "(A)"
+# (page, top) of each printed label of a free-response part, and of the
+# introductions "4." and "5."
+LABEL_TOP = {
+    "Q4.a": (2, 238),
+    "Q4.b": (2, 478),
+    "Q4.c": (3, 62),
+    "Q5.a": (3, 582),
+    "Q5.b": (4, 62),
+    "Q5.c": (4, 318),
+}
+INTRO_TOP = {"Q4": (2, 62), "Q5": (3, 556)}
+PAGE_NUMBER = 756  # baseline of the page number, the lowest ink on every page
 REGION = {
     "name": (1, 104, 82, 330, 112),
     "Q1": (1, 290, 196, 540, 292),
@@ -449,7 +462,19 @@ def header(c: Canvas, page: int) -> None:
     c.drawString(72, PAGE_H - 40, "PRACTICE SET 3  ·  FORCES AND FUNCTIONS")
     c.setFillGray(0)
     c.setFont("Times-Roman", 10)
-    c.drawCentredString(PAGE_W / 2, PAGE_H - 756, str(page))
+    c.drawCentredString(PAGE_W / 2, PAGE_H - PAGE_NUMBER, str(page))
+
+
+def stem_top(pid: str) -> float:
+    """Top of multiple-choice question `pid`'s label and stem."""
+    lines = 2 if len(MC[pid][0]) > 85 else 1
+    return OPTION_ROWS[pid] - 6 - 14.5 * lines - 4
+
+
+def crate_floor() -> float:
+    """Top of the floor line in question 4's figure, below the introduction."""
+    _, height = Paragraph(markup(Q4), BODY).wrap(540 - 90, PAGE_H)
+    return INTRO_TOP["Q4"][1] + height + 92
 
 
 def arrow(c: Canvas, x0: float, y0: float, x1: float, y1: float) -> None:
@@ -480,15 +505,14 @@ def draw_blank(path: Path) -> None:
     c.drawString(72, PAGE_H - 140, "Questions 1–3. Choose the one best answer, A to E.")
     for pid, (stem, options) in MC.items():
         top = OPTION_ROWS[pid]
-        stem_top = top - 6 - 14.5 * (2 if len(stem) > 85 else 1)
-        para(c, 72, stem_top - 4, stem, bold=f"{pid[1]}.")
+        para(c, 72, stem_top(pid), stem, bold=f"{pid[1]}.")
         for row, (letter, option) in enumerate(zip("ABCDE", options, strict=True)):
             para(c, OPTION_X, top + 17 * row, f"({letter})  {option}")
     c.showPage()
 
     header(c, 2)
-    bottom = para(c, 72, 62, Q4, bold="4.")
-    floor = bottom + 92  # the figure: crate on a hatched floor, rope to the right
+    para(c, 72, INTRO_TOP["Q4"][1], Q4, bold="4.")
+    floor = crate_floor()  # the figure: crate on a hatched floor, rope to the right
     c.line(196, PAGE_H - floor, 416, PAGE_H - floor)
     for x in range(200, 416, 10):
         c.line(x, PAGE_H - floor - 1, x - 6, PAGE_H - floor - 8)
@@ -498,20 +522,20 @@ def draw_blank(path: Path) -> None:
     arrow(c, 296, floor - 22, 384, floor - 22)
     c.setFont("Times-Italic", 10)
     c.drawString(330, PAGE_H - floor + 28, "rope")
-    para(c, 72, 238, PARTS["Q4.a"], bold="(a)")
+    para(c, 72, LABEL_TOP["Q4.a"][1], PARTS["Q4.a"], bold="(a)")
     c.circle(DOT[0], PAGE_H - DOT[1], 2.6, fill=1)
-    para(c, 72, 478, PARTS["Q4.b"], bold="(b)")
+    para(c, 72, LABEL_TOP["Q4.b"][1], PARTS["Q4.b"], bold="(b)")
     c.showPage()
 
     header(c, 3)
-    para(c, 72, 62, PARTS["Q4.c"], bold="(c)")
-    para(c, 72, 556, Q5, bold="5.")
-    para(c, 72, 582, PARTS["Q5.a"], bold="(a)")
+    para(c, 72, LABEL_TOP["Q4.c"][1], PARTS["Q4.c"], bold="(c)")
+    para(c, 72, INTRO_TOP["Q5"][1], Q5, bold="5.")
+    para(c, 72, LABEL_TOP["Q5.a"][1], PARTS["Q5.a"], bold="(a)")
     c.showPage()
 
     header(c, 4)
-    para(c, 72, 62, PARTS["Q5.b"], bold="(b)")
-    para(c, 72, 318, PARTS["Q5.c"], bold="(c)")
+    para(c, 72, LABEL_TOP["Q5.b"][1], PARTS["Q5.b"], bold="(b)")
+    para(c, 72, LABEL_TOP["Q5.c"][1], PARTS["Q5.c"], bold="(c)")
     ox, oy = AXES_ORIGIN
     u = AXES_UNIT
     c.setStrokeGray(0.8)
@@ -536,6 +560,40 @@ def draw_blank(path: Path) -> None:
     c.drawString(ox + 4, PAGE_H - (oy - 6 * u - 12), "y")
     c.showPage()
     c.save()
+
+
+def spec() -> Spec:
+    """The spec that parsing blank.pdf should give: the key's ids, labels, types,
+    home pages, prompts and dependencies, options A to E on the multiple-choice
+    questions, and bands and figure boxes as fractions of blank.pdf's pages. A band
+    runs from a part's label to the next label or introduction on its page, or to
+    the page number. Question 4's figure belongs to all three of its parts; the dot
+    and the axes are answer space, not figures."""
+    floor = crate_floor()
+    figure = Figure(
+        page=2,
+        box=[196 / PAGE_W, (floor - 46) / PAGE_H, 416 / PAGE_W, (floor + 9) / PAGE_H],
+    )
+    tops = {pid: (1, stem_top(pid)) for pid in MC} | LABEL_TOP
+    starts = [*tops.values(), *INTRO_TOP.values()]
+    parts = []
+    for part in KEY.parts:
+        page, top = tops[part.id]
+        below = [t for p, t in starts if p == page and t > top]
+        parts.append(
+            Part(
+                id=part.id,
+                label=part.label,
+                prompt=part.prompt,
+                response_type=part.response_type,
+                home_page=part.home_page,
+                band=[top / PAGE_H, min(below, default=PAGE_NUMBER) / PAGE_H],
+                figures=[figure] if part.id.startswith("Q4") else [],
+                depends_on=part.depends_on,
+                options=list("ABCDE") if part.id in MC else [],
+            )
+        )
+    return Spec(parts=parts)
 
 
 # --- Slides and Classkick-style PDFs ----------------------------------------------
@@ -1423,6 +1481,7 @@ def main() -> None:
     OUT.mkdir(parents=True)
     (OUT / "key.json").write_text(KEY.model_dump_json(indent=2) + "\n")
     draw_blank(OUT / "blank.pdf")
+    (OUT / "spec.json").write_text(spec().model_dump_json(indent=2) + "\n")
     printed = render_pages(OUT / "blank.pdf", PRINTED_SIZE)
     at_200ppi = render_pages(OUT / "blank.pdf", (1700, 2200))
     write_classkick(
