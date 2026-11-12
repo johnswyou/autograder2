@@ -89,7 +89,8 @@ def test_the_key_is_assembled_from_the_stage_outputs(tmp_path: Path) -> None:
     )
     solutions = {
         "Q1": solved("Q1", {"choices": ["B"]}),
-        "Q2": solved("Q2", {"choices": ["A", "C"]}),
+        # A choice part that uses an earlier one is still not marked to carry.
+        "Q2": solved("Q2", {"choices": ["A", "C"]}, ["Q1"]),
         "Q3.a": solved("Q3.a", {"value": 2.0, "unit": "m"}, None, 2.1),
         # Itself, a later part and an unknown id are dropped.
         "Q3.b": solved("Q3.b", {"value": 4.0}, ["Q4", "Q3.b", "Q9", "Q3.a"]),
@@ -133,9 +134,17 @@ def test_the_key_is_assembled_from_the_stage_outputs(tmp_path: Path) -> None:
     ]
     assert q3b.criteria[0].partial[0].points == Decimal("0.75")
     assert q3a.answer.accept_also == [2.1]
-    assert [p.depends_on for p in key.parts] == [[], [], [], ["Q3.a"], ["Q1", "Q3.a"]]
+    assert [p.depends_on for p in key.parts] == [
+        [],
+        ["Q1"],
+        [],
+        ["Q3.a"],
+        ["Q1", "Q3.a"],
+    ]
+    # Every criterion of a part that depends on another carries, method ones too.
+    assert [c.carry_forward for c in q2.criteria] == [False]
     assert [c.carry_forward for c in q3a.criteria] == [False, False]
-    assert [c.carry_forward for c in q3b.criteria] == [False, True]
+    assert [c.carry_forward for c in q3b.criteria] == [True, True]
     assert [c.carry_forward for c in q4.criteria] == [True]
     assert q3a.common_errors == ["Halves it."]
     assert {p.state for p in key.parts} == {"unverified"}

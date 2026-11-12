@@ -40,10 +40,12 @@ def assemble(
                 )
             ]
             errors: list[str] = []
-            carries = False  # fixed options leave no result to carry forward
+            carries = False  # code scores it and cannot honour the flag
         else:
             proposed = rubrics[part.id].criteria
             errors = rubrics[part.id].common_errors
+            # Every criterion of a dependent part, method ones too: the flag alone
+            # decides carry-forward in the grader.
             carries = bool(depends)
         criteria = [
             Criterion(
@@ -52,7 +54,7 @@ def assemble(
                 kind=c.kind,
                 requirement=c.requirement,
                 partial=_levels(c.partial, ONE, policies.point_step),
-                carry_forward=carries and c.kind == "final_answer",
+                carry_forward=carries,
             )
             for n, c in enumerate(proposed, 1)
         ]
