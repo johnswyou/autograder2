@@ -271,7 +271,13 @@ def key_render(workspace: KeyWorkspace) -> None:
         key = load_key(ws.key_yaml)
     except (OSError, YAMLError, ValidationError):
         _fail(f"{ws.key_yaml} does not load. `redpen key check` lists its problems.")
-    write_markdown(ws, key)
+    try:
+        write_markdown(ws, key)
+    except ArithmeticError:  # a point value past what Decimal can sum
+        _fail(
+            f"{ws.key_yaml} holds a number too large to work with."
+            " `redpen key check` lists its problems."
+        )
     typer.echo(f"Wrote {ws.solutions_md} and {ws.rubric_md.name}")
 
 

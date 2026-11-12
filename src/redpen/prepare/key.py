@@ -11,7 +11,7 @@ import hashlib
 import io
 import json
 from collections import Counter, defaultdict
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast, get_origin
 
@@ -21,7 +21,7 @@ from ruamel.yaml.constructor import SafeConstructor
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
-from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
 from redpen.schemas.key import Answer, Key, KeyPart, Policies
 from redpen.schemas.spec import Spec
@@ -133,12 +133,16 @@ def save_key(path: Path, key: Key) -> None:
 
 def _yaml_data(value: Any) -> Any:
     """`value` with each multi-line string that a literal block can hold marked for
-    one. Any other string is left for ruamel to quote and escape."""
+    one, and each string a block cannot hold marked for double quotes, in which
+    YAML escapes what it must."""
     if isinstance(value, dict):
         return {k: _yaml_data(v) for k, v in cast(dict[str, Any], value).items()}
     if isinstance(value, list):
         return [_yaml_data(v) for v in cast(list[Any], value)]
-    if isinstance(value, str) and "\n" in value and _block_safe(value):
+    if isinstance(value, str) and not _block_safe(value):
+        # Typed, because assigning a plain string over a literal block keeps the block.
+        return DoubleQuotedScalarString(value)
+    if isinstance(value, str) and "\n" in value:
         return LiteralScalarString(value)
     return value
 
@@ -205,8 +209,12 @@ def _digest(text: str) -> str:
 
 
 def number(value: Decimal | float) -> str:
-    """`value` in its shortest plain form: 1, 0.5, 2.5, -4."""
-    return format(Decimal(str(value)).normalize(), "f")
+    """`value` in its shortest plain form: 1, 0.5, 2.5, -4. A value too large for
+    Decimal arithmetic, such as 1e1000000, is given as it is."""
+    try:
+        return format(Decimal(str(value)).normalize(), "f")
+    except ArithmeticError:
+        return str(value)
 
 
 # --- redpen key check ---------------------------------------------------------------
@@ -259,7 +267,7 @@ def check(key: Key, spec: Spec) -> list[str]:
             return
         try:
             off = value % step != 0
-        except InvalidOperation:  # too many digits for the quotient
+        except ArithmeticError:  # too many digits for the quotient
             problems.append(
                 f"{what} {number(value)}, too large to check against the point"
                 f" step {number(step)}"

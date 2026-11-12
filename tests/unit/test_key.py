@@ -217,6 +217,20 @@ def test_text_with_a_control_character_is_written_so_that_it_reads_back(
     assert load_key(path) == key
 
 
+@pytest.mark.parametrize("text", ["a\x02b\nc", "a\x02b"], ids=["lines", "one line"])
+def test_text_not_fit_for_a_block_reads_back_when_saved_over_a_block(
+    tmp_path: Path, text: str
+) -> None:
+    path = tmp_path / "key.yaml"
+    save_key(path, KEY)
+    assert "    solution: |-\n      f = mu m g" in path.read_text()
+    key = with_text("solution", text)
+
+    save_key(path, key)
+
+    assert load_key(path) == key
+
+
 def test_a_file_that_would_not_read_back_is_not_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -461,6 +475,60 @@ def test_key_check_reports_a_huge_exponent_without_raising(tmp_path: Path) -> No
     assert result.output.splitlines() == [
         f"Q4.b.c2 is worth {10**30}, too large to check against the point step 0.25"
     ]
+
+
+def huge_workspace(tmp_path: Path) -> Workspace:
+    """A workspace for the fixture blank whose key has `points: 1e1000000`, more
+    than Decimal arithmetic can hold."""
+    workspace = workspace_with(tmp_path, KEY)
+    text = workspace.key_yaml.read_text()
+    huge, n = re.subn(r"(id: Q4\.b\.c2\n\s+points:) 1", r"\1 1e1000000", text)
+    assert n == 1
+    workspace.key_yaml.write_text(huge)
+    shutil.copy(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    shutil.copy(FIXTURES / "blank.pdf", tmp_path / "blank.pdf")
+    workspace.config_lock_toml.write_text('profile = "balanced"\n[models]\n')
+    return workspace
+
+
+TOO_LARGE = (
+    "Q4.b.c2 is worth 1E+1000000, too large to check against the point step 0.25"
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "lines"),
+    [
+        (["key", "check"], [TOO_LARGE]),
+        (
+            ["prepare", "blank.pdf"],
+            [TOO_LARGE, "ws/key/key.yaml has problems and is left as it is."],
+        ),
+        (
+            ["key", "render"],
+            [
+                "ws/key/key.yaml holds a number too large to work with."
+                " `redpen key check` lists its problems."
+            ],
+        ),
+    ],
+    ids=["key check", "prepare", "key render"],
+)
+def test_a_number_too_large_for_decimal_arithmetic_gives_one_readable_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: list[str],
+    lines: list[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    huge_workspace(tmp_path)
+
+    result = runner.invoke(app, [*command, "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # no traceback
+    assert result.output.splitlines()[-len(lines) :] == lines
 
 
 def test_the_key_file_module_loads_no_stage_and_no_pdf_library() -> None:
