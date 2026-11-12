@@ -367,6 +367,9 @@ def test_a_sideways_page_is_looked_at_again_upright_and_its_boxes_come_back(
     first, again = mapper.of("Inventory")
     assert first["images"][0].size == (300, 600)
     assert again["images"][0].size == (600, 300)
+    # The size of the image sent is given as data (see the inventory prompt).
+    assert first["texts"][1:] == [json.dumps({"width": 300, "height": 600})]
+    assert again["texts"][1:] == [json.dumps({"width": 600, "height": 300})]
     assert mapped.pages[0].rotation == 90
     [found] = mapped.map.entries
     x0, y0, x1, y1 = found.box

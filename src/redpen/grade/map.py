@@ -5,6 +5,7 @@ block's page and box. No model copies a coordinate."""
 
 import asyncio
 import hashlib
+import io
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -134,7 +135,11 @@ async def map_student(
 
         async def look(turns: int) -> Inventory:
             shown = prep.reduced_png(prep.rotate(image, turns), image_budget)
-            return await ask(inventory_prompt, [shown, *before], Inventory)
+            with Image.open(io.BytesIO(shown)) as sent:
+                # Without it the model was seen to measure a tall page as if it
+                # had a paper sheet's shape (task 2.3 report).
+                size = json.dumps({"width": sent.width, "height": sent.height})
+            return await ask(inventory_prompt, [shown, *before, size], Inventory)
 
         found = await look(0)
         blocks = found.blocks
