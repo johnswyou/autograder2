@@ -34,6 +34,8 @@ PARSER = ModelInfo(
     completion_price=Decimal("0.00001"),
     providers=_VERTEX,
 )
+# ~anthropic/claude-sonnet-latest as well
+READER = PARSER
 # ~anthropic/claude-opus-latest
 SOLVER = ModelInfo(
     slug="anthropic/claude-opus-5.5",
