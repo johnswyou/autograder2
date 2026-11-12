@@ -1,6 +1,9 @@
+import ast
 import json
 import re
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
@@ -11,9 +14,10 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from redpen.cli import app
+from redpen.prepare.assemble import assemble
 from redpen.prepare.key import (
     KeyFileError,
-    assemble,
+    grading_content,
     key_version,
     load_key,
     part_hash,
@@ -23,7 +27,7 @@ from redpen.prepare.key import (
 )
 from redpen.prepare.rubric import PartRubric, ProposedCriterion
 from redpen.prepare.solve import Alternative, PartSolution
-from redpen.schemas.key import Answer, Criterion, Key, PartialCredit
+from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
@@ -262,6 +266,30 @@ def test_changing_a_part_changes_its_hash_and_the_version_only() -> None:
     assert all(hashes(stricter)[id] != before[id] for id in before)
 
 
+@pytest.mark.parametrize(("field", "value"), [("state", "refereed"), ("home_page", 9)])
+def test_state_and_home_page_change_no_part_hash_but_change_the_version(
+    field: str, value: object
+) -> None:
+    first = KEY.parts[0].model_copy(update={field: value})
+    changed = KEY.model_copy(update={"parts": [first, *KEY.parts[1:]]})
+
+    assert hashes(changed) == hashes(KEY)
+    assert key_version(changed) != key_version(KEY)
+    assert field not in json.loads(grading_content(first))
+
+
+GRADED = [f for f in KeyPart.model_fields if f not in ("state", "home_page")]
+
+
+@pytest.mark.parametrize("field", GRADED)
+def test_every_other_field_of_a_part_changes_its_hash(field: str) -> None:
+    part, other = KEY.parts[4], KEY.parts[3]  # Q4.b and Q4.a
+    value = getattr(other, field) if field != "depends_on" else ["Q4.a"]
+    changed = part.model_copy(update={field: value})
+
+    assert part_hash(changed, KEY.policies) != part_hash(part, KEY.policies)
+
+
 def test_reordering_keys_or_reformatting_the_yaml_changes_no_hash(
     tmp_path: Path,
 ) -> None:
@@ -352,6 +380,11 @@ def edited(change: Callable[[dict[str, Any]], object]) -> Key:
             KEY.model_copy(update={"parts": KEY.parts[:-1]}),
             "Q5.c is in the spec but not in the key",
         ),
+        (edited(lambda p: p["Q4.c"].update(criteria=[])), "Q4.c has no criteria"),
+        (
+            edited(lambda p: p["Q4.c"]["criteria"][0].update(points="0")),
+            "Q4.c.c1 is worth 0 points",
+        ),
         (
             edited(
                 lambda p: p["Q5.c"].update(
@@ -375,6 +408,8 @@ def edited(change: Callable[[dict[str, Any]], object]) -> Key:
         "partial level not below",
         "spec part missing",
         "key part not in the spec",
+        "no criteria",
+        "zero points",
     ],
 )
 def test_key_check_reports_each_problem_with_exit_code_1(
@@ -389,15 +424,62 @@ def test_key_check_reports_each_problem_with_exit_code_1(
     assert problem in result.output.splitlines()
 
 
-def test_key_check_reports_a_schema_error(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        (("home_page: 4", "home_page: 0"), "Q5.b: home_page: Input should be greater"),
+        (("point_step: 0.25", "point_step: x"), "policies.point_step: Input should be"),
+        (("label: '1'", "label: [1]"), "Q1: label: Input should be a valid string"),
+        (None, "Input should be a valid dictionary"),
+    ],
+    ids=["inside a part", "outside the parts", "a part's field", "no location"],
+)
+def test_key_check_names_where_a_schema_error_is(
+    tmp_path: Path, change: tuple[str, str] | None, problem: str
+) -> None:
     workspace = workspace_with(tmp_path, KEY)
     text = workspace.key_yaml.read_text()
-    workspace.key_yaml.write_text(text.replace("home_page: 4", "home_page: 0", 1))
+    workspace.key_yaml.write_text(text.replace(*change, 1) if change else "- a list\n")
 
     result = runner.invoke(app, ["key", "check", "--workspace", str(workspace.root)])
 
     assert result.exit_code == 1
-    assert result.output.startswith(f"{workspace.key_yaml}: parts.7.home_page: ")
+    assert result.output.startswith(problem)
+    assert not any(line.startswith(":") for line in result.output.splitlines())
+
+
+def test_key_check_reports_a_huge_exponent_without_raising(tmp_path: Path) -> None:
+    workspace = workspace_with(tmp_path, KEY)
+    text = workspace.key_yaml.read_text()
+    huge, n = re.subn(r"(id: Q4\.b\.c2\n\s+points:) 1", r"\1 1e30", text)
+    assert n == 1
+    workspace.key_yaml.write_text(huge)
+
+    result = runner.invoke(app, ["key", "check", "--workspace", str(workspace.root)])
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        f"Q4.b.c2 is worth {10**30}, too large to check against the point step 0.25"
+    ]
+
+
+def test_the_key_file_module_loads_no_stage_and_no_pdf_library() -> None:
+    code = (
+        "import sys, redpen.prepare.key; "
+        "print(sorted(m for m in sys.modules if m.startswith(('redpen', 'pypdfium2'))))"
+    )
+    found = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    loaded = ast.literal_eval(found.stdout)
+    assert "redpen.prepare.key" in loaded
+    assert not [
+        m
+        for m in loaded
+        if m.startswith(("redpen.prepare.", "pypdfium2")) and m != "redpen.prepare.key"
+    ]
+    assert not [m for m in loaded if m.startswith(("redpen.llm", "redpen.imaging"))]
 
 
 def test_key_check_passes_a_clean_key_and_render_writes_the_markdown(

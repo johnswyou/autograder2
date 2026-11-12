@@ -34,16 +34,16 @@ from redpen.llm.client import (
     StageError,
 )
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
+from redpen.prepare.assemble import assemble
 from redpen.prepare.key import (
     KeyFileError,
-    assemble,
+    examine,
     load_key,
     number,
     page_points,
     save_key,
     write_markdown,
 )
-from redpen.prepare.key import check as check_key
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
@@ -245,20 +245,11 @@ def _fail(message: str) -> NoReturn:
 def key_check(workspace: KeyWorkspace) -> None:
     """Validate key.yaml after a hand edit: schema, ids, dependencies, points."""
     ws = Workspace(workspace)
-    key, spec = None, None
     try:
-        key = load_key(ws.key_yaml)
         spec = read_model(ws.spec_json, Spec)
-    except (OSError, YAMLError) as error:
-        problems = [str(error)]
-    except ValidationError as error:
-        path = ws.key_yaml if key is None else ws.spec_json
-        problems = [
-            f"{path}: {'.'.join(map(str, e['loc']))}: {e['msg']}"
-            for e in error.errors()
-        ]
-    else:
-        problems = check_key(key, spec)
+    except (OSError, ValidationError) as error:
+        _fail(f"{ws.spec_json} cannot be read: {error}")
+    key, problems = examine(ws.key_yaml, spec)
     for problem in problems:
         typer.echo(problem)
     if problems or key is None:

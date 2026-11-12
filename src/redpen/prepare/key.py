@@ -1,6 +1,7 @@
-"""The key (design 6.6): assembled from the spec and the stage outputs, kept in
-`key.yaml`, checked after a hand edit, hashed, and rendered as `solutions.md` and
-`rubric.md`. `key.yaml` is the only store of answers, criteria and points."""
+"""The key file (design 6.6): `key.yaml` read and written, checked after a hand
+edit, hashed, and rendered as `solutions.md` and `rubric.md`. `key.yaml` is the only
+store of answers, criteria and points. This module imports no stage, so that the
+grade and report stages can load the key without the prepare stages or pdfium."""
 
 # ruamel.yaml leaves the parameters of many of its methods unannotated. The rest of
 # strict mode stays on.
@@ -10,8 +11,7 @@ import hashlib
 import io
 import json
 from collections import Counter, defaultdict
-from collections.abc import Mapping
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, cast, get_origin
 
@@ -23,90 +23,9 @@ from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
 from ruamel.yaml.scalarstring import LiteralScalarString
 
-from redpen.prepare.parse import CHOICE_TYPES
-from redpen.prepare.rubric import PartRubric, ProposedCriterion
-from redpen.prepare.solve import PartSolution, answer_of, depends_on
-from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit, Policies
+from redpen.schemas.key import Answer, Key, KeyPart, Policies
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace
-
-ONE = Decimal(1)  # every criterion's points (design 6.4, the proposal used as is)
-
-
-def assemble(
-    spec: Spec,
-    solutions: Mapping[str, PartSolution],
-    rubrics: Mapping[str, PartRubric],
-) -> Key:
-    """The key of `spec` under the default policies: each part's solution and
-    answer, and its criteria, each worth one point with ids given in order. A choice
-    part's one criterion is written here. Every part is `unverified`, since one
-    solver verifies nothing."""
-    policies = Policies()
-    parts: list[KeyPart] = []
-    for part in spec.parts:
-        found = solutions[part.id]
-        answer = answer_of(found)
-        depends = depends_on(spec, part, found)
-        if part.response_type in CHOICE_TYPES:
-            only = (
-                " and no other option"
-                if part.response_type == "multiple_select"
-                else ""
-            )
-            requirement = f"Chooses {' and '.join(answer.choices)}{only}."
-            proposed = [
-                ProposedCriterion(
-                    kind="final_answer", requirement=requirement, partial=[]
-                )
-            ]
-            errors: list[str] = []
-            carries = False  # fixed options leave no result to carry forward
-        else:
-            proposed = rubrics[part.id].criteria
-            errors = rubrics[part.id].common_errors
-            carries = bool(depends)
-        criteria = [
-            Criterion(
-                id=f"{part.id}.c{n}",
-                points=ONE,
-                kind=c.kind,
-                requirement=c.requirement,
-                partial=_levels(c.partial, ONE, policies.point_step),
-                carry_forward=carries and c.kind == "final_answer",
-            )
-            for n, c in enumerate(proposed, 1)
-        ]
-        parts.append(
-            KeyPart(
-                id=part.id,
-                label=part.label,
-                home_page=part.home_page,
-                response_type=part.response_type,
-                depends_on=depends,
-                state="unverified",
-                prompt=part.prompt,
-                answer=answer,
-                solution=found.solution,
-                criteria=criteria,
-                common_errors=errors,
-            )
-        )
-    return Key(policies=policies, parts=parts)
-
-
-def _levels(
-    proposed: list[PartialCredit], points: Decimal, step: Decimal
-) -> list[PartialCredit]:
-    """Each level rounded down to a multiple of `step`, kept if that leaves it above
-    zero and below `points`."""
-    kept: list[PartialCredit] = []
-    for level in proposed:
-        rounded = level.points // step * step
-        if 0 < rounded < points:
-            kept.append(level.model_copy(update={"points": rounded}))
-    return kept
-
 
 # --- key.yaml ----------------------------------------------------------------------
 
@@ -260,19 +179,28 @@ def _merge(old: Any, new: Any) -> Any:
 # --- hashes (design 6.6) -------------------------------------------------------------
 
 
+def grading_content(part: KeyPart) -> str:
+    """What the grader is given of `part`, as JSON: every field but `state` and
+    `home_page`, each point value in its shortest form. Task 2.5 sends this text."""
+    return json.dumps(part.model_dump(exclude={"state", "home_page"}), default=number)
+
+
 def part_hash(part: KeyPart, policies: Policies) -> str:
-    """The short hash of a key part's content and the policies it is graded under.
-    It does not depend on key order or the YAML's formatting."""
-    return _digest({"part": part.model_dump(), "policies": policies.model_dump()})
+    """The short hash of `part`'s grading content and the policies, so that nothing
+    the grader sees changes without it. Marking a part verified or moving it to
+    another page changes no hash and re-grades nobody. It does not depend on key
+    order or the YAML's formatting. The parts that depend on an edited part are
+    found through `depends_on`, not through this hash."""
+    policy = json.dumps(policies.model_dump(), default=number)
+    return _digest(f"{grading_content(part)}\n{policy}")
 
 
 def key_version(key: Key) -> str:
     """The short hash of the whole key."""
-    return _digest(key.model_dump())
+    return _digest(json.dumps(key.model_dump(), sort_keys=True, default=number))
 
 
-def _digest(data: dict[str, Any]) -> str:
-    text = json.dumps(data, sort_keys=True, separators=(",", ":"), default=number)
+def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
@@ -282,6 +210,34 @@ def number(value: Decimal | float) -> str:
 
 
 # --- redpen key check ---------------------------------------------------------------
+
+
+def examine(path: Path, spec: Spec) -> tuple[Key | None, list[str]]:
+    """The key in `path` if it loads, and every problem `redpen key check` reports:
+    the file's own (read, YAML, schema) or, once it loads, those of `check`. A
+    schema error is placed by part id when it lies inside a part."""
+    try:
+        data = _reader().load(path)
+    except (OSError, YAMLError) as error:
+        return None, [str(error)]
+    _fill_answers(data)
+    try:
+        key = Key.model_validate(data)
+    except ValidationError as error:
+        return None, [_located(data, e["loc"], e["msg"]) for e in error.errors()]
+    return key, check(key, spec)
+
+
+def _located(data: Any, loc: tuple[int | str, ...], message: str) -> str:
+    """`message` after where it applies: the part's id in place of `parts.<n>`, and
+    nothing at all for the whole file."""
+    where = ".".join(str(x) for x in loc)
+    if loc[:1] == ("parts",) and len(loc) > 1 and isinstance(loc[1], int):
+        part = cast(dict[str, Any], data)["parts"][loc[1]]
+        id = cast(dict[str, Any], part).get("id") if isinstance(part, dict) else None
+        if isinstance(id, str) and id:
+            where = ": ".join([id, ".".join(str(x) for x in loc[2:])]).rstrip(": ")
+    return f"{where}: {message}" if where else message
 
 
 def check(key: Key, spec: Spec) -> list[str]:
@@ -297,26 +253,41 @@ def check(key: Key, spec: Spec) -> list[str]:
     ]
     if step <= 0:
         problems.append(f"the point step is {number(step)}, not above zero")
+
+    def on_step(what: str, value: Decimal) -> None:
+        if step <= 0:
+            return
+        try:
+            off = value % step != 0
+        except InvalidOperation:  # too many digits for the quotient
+            problems.append(
+                f"{what} {number(value)}, too large to check against the point"
+                f" step {number(step)}"
+            )
+            return
+        if off:
+            problems.append(
+                f"{what} {number(value)}, not a multiple of the point step"
+                f" {number(step)}"
+            )
+
     for index, part in enumerate(key.parts):
         problems += [
             f"{part.id} depends on {other}, which is not an earlier part"
             for other in part.depends_on
             if other not in ids[:index]
         ]
+        if not part.criteria:
+            problems.append(f"{part.id} has no criteria")
         for c in part.criteria:
             if c.id.rsplit(".", 1)[0] != part.id:
                 problems.append(f"criterion {c.id} is not an id of part {part.id}")
-            if step > 0 and c.points % step:
-                problems.append(
-                    f"{c.id} is worth {number(c.points)}, not a multiple of the"
-                    f" point step {number(step)}"
-                )
+            if c.points == 0:
+                problems.append(f"{c.id} is worth 0 points")
+            else:
+                on_step(f"{c.id} is worth", c.points)
             for level in c.partial:
-                if step > 0 and level.points % step:
-                    problems.append(
-                        f"{c.id} has a partial level of {number(level.points)}, not a"
-                        f" multiple of the point step {number(step)}"
-                    )
+                on_step(f"{c.id} has a partial level of", level.points)
                 if level.points >= c.points:
                     problems.append(
                         f"{c.id} has a partial level of {number(level.points)}, not"
