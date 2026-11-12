@@ -40,5 +40,6 @@ Stronger evidence wins over weaker. The pages of a submission need not match the
 ## Rules your answer must keep
 
 - Every part of the outline is in at least one entry or in `unanswered`, never both.
-- Every block is named by at least one entry or set aside.
+- Every part that has an entry has an entry with role `work`.
+- Every block is either named by at least one entry or set aside, never both.
 - Use only ids from the outline and from the blocks.
