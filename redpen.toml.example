@@ -1,0 +1,21 @@
+# Copy to redpen.toml in the directory you run redpen from. Every setting is
+# optional; the values below are the defaults. The OpenRouter API key is read
+# from the OPENROUTER_API_KEY environment variable, never from this file.
+
+# How much checking is done: "economy", "balanced" or "thorough".
+profile = "balanced"
+
+# Longest image edge, in pixels, sent to a model.
+image_budget = 1536
+
+# The model behind each role: an OpenRouter slug, or a ~author/family-latest
+# alias that is pinned to a concrete slug when an assignment is prepared.
+[models]
+parser  = "~anthropic/claude-sonnet-latest"
+solver  = "~anthropic/claude-opus-latest"
+checker = "~google/gemini-pro-latest"     # second solver, different vendor on purpose
+mapper  = "~google/gemini-flash-latest"
+reader  = "~google/gemini-pro-latest"
+grader  = "~anthropic/claude-sonnet-latest"
+second  = "~openai/gpt-latest"            # second reads and second grades
+referee = "~anthropic/claude-opus-latest"
