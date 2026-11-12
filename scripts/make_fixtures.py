@@ -701,6 +701,7 @@ HIGHLIGHT = (255, 226, 0)
 SLIDE_SCALE = PRINTED_SIZE[1] / PAGE_H  # slide pixels per point of the printed page
 SCAN_SCALE = 200 / 72
 PHOTO_AT = (51, 50)
+TURNED_PAGE = 3  # the rotated class's page photographed sideways
 
 # A block of work as it ends up on a page: part id (or "name"), role, basis, pixel box.
 Placed = tuple[str, str, str, tuple[int, int, int, int]]
@@ -1328,7 +1329,8 @@ def build(
         answer_in_place(sheets, works, marks, PEN, rng)
         pages = []
         for k, sheet in sheets.items():
-            photo, warp = photograph(sheet, rng, turned=layout == "rotated" and k == 3)
+            turned = layout == "rotated" and k == TURNED_PAGE
+            photo, warp = photograph(sheet, rng, turned=turned)
             pages.append((photo_slide(photo), sheet.placed(warp, PHOTO_AT)))
         return pages
     if layout == "all-on-foreign-pages":
@@ -1464,11 +1466,18 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
         for k in range(1, len(pages) + 1)
     ]
     found = Map(entries=entries, unanswered=unanswered, set_aside=set_aside)
+    # Clockwise degrees that turn each page's work upright. The sideways photo holds
+    # the paper turned a quarter counter-clockwise (ROTATE_90 in `photograph`).
+    rotations = [
+        90 if student.layout == "rotated" and k == TURNED_PAGE else 0
+        for k in range(1, len(pages) + 1)
+    ]
     return {
         "layout_class": student.layout,
         "student_name": student.name,
         "source_kind": "classkick" if classkick else "other",
         "pages": [p.model_dump(mode="json") for p in ingest],
+        "rotations": rotations,
         "map": found.model_dump(mode="json"),
         "readings": [r.model_dump(mode="json") for r in readings],
         "grades": [g.model_dump(mode="json") for g in grades],

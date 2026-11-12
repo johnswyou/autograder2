@@ -116,6 +116,7 @@ def test_the_rotated_fixture_reads_upright_after_the_turn_its_truth_implies() ->
         entries = [e for e in truth.map.entries if e.page == page.number]
         size = (page.width_px, page.height_px)
         [turns] = [t for t in range(4) if sits_upright(entries, size, t)]
+        assert truth.rotations[page.number - 1] == 90 * turns
         if turns == 0:
             continue
         turned += 1

@@ -25,6 +25,11 @@
       "native_ppi": 200.0
     }
   ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
   "map": {
     "entries": [
       {

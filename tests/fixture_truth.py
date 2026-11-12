@@ -33,6 +33,8 @@ class SubmissionTruth(Schema):
     student_name: str
     source_kind: Literal["classkick", "other"]
     pages: list[IngestPage]
+    # Per page, the clockwise degrees that turn the student's work upright.
+    rotations: list[Literal[0, 90, 180, 270]]
     map: Map
     readings: list[Reading]
     grades: list[Grade]
