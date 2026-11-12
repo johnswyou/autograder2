@@ -48,10 +48,16 @@ def fitting(part: dict[str, Any]) -> dict[str, Any]:
 
 class Server:
     """Answers every part it is asked about, except the parts in `skip`: those
-    always if `stubborn`, else only when no problems are attached."""
+    always if `stubborn`, else only when no problems are attached; in the calls of
+    the response model named `only`, when given, else in every call."""
 
-    def __init__(self, skip: frozenset[str] = frozenset(), stubborn: bool = False):
-        self.skip, self.stubborn = skip, stubborn
+    def __init__(
+        self,
+        skip: frozenset[str] = frozenset(),
+        stubborn: bool = False,
+        only: str | None = None,
+    ):
+        self.skip, self.stubborn, self.only = skip, stubborn, only
         self.requests: list[dict[str, Any]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -69,10 +75,10 @@ class Server:
                 "session": body["session_id"],
             }
         )
+        schema = body["response_format"]["json_schema"]["name"]
+        skip = self.skip if self.only in (None, schema) else frozenset()
         answered = [
-            p
-            for p in parts
-            if p["id"] not in self.skip or (retry and not self.stubborn)
+            p for p in parts if p["id"] not in skip or (retry and not self.stubborn)
         ]
         value: BaseModel
         if body["response_format"]["json_schema"]["name"] == "Solution":
@@ -269,10 +275,34 @@ providers = ["zero"]
 """
 
 
+@pytest.mark.parametrize(
+    ("stage", "error", "kept", "again"),
+    [
+        (
+            "Solution",
+            "the solution of Q5 fails its checks: Q5.b has no answer",
+            {("Solution", p) for p in ("Q1", "Q2", "Q3", "Q4.a")},
+            [("Rubric", "Q4.a"), ("Rubric", "Q5.a"), ("Solution", "Q5.a")],
+        ),
+        (
+            "Rubric",
+            "the rubric of Q5 fails its checks: Q5.b has no criteria",
+            {("Solution", p) for p in ("Q1", "Q2", "Q3", "Q4.a", "Q5.a")}
+            | {("Rubric", "Q4.a")},
+            [("Rubric", "Q5.a")],
+        ),
+    ],
+    ids=["solve", "rubric"],
+)
 def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    error: str,
+    kept: set[tuple[str, str]],
+    again: list[tuple[str, str]],
 ) -> None:
-    server = Server(skip=frozenset({"Q5.b"}), stubborn=True)
+    server = Server(skip=frozenset({"Q5.b"}), stubborn=True, only=stage)
 
     async def handle(request: httpx.Request) -> httpx.Response:
         if b"Q5.a" not in request.content:
@@ -283,7 +313,10 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
         "redpen.cli.Gateway",
-        functools.partial(Gateway, transport=httpx.MockTransport(handle)),
+        # No rate spacing, so that every problem's first call starts at once.
+        functools.partial(
+            Gateway, transport=httpx.MockTransport(handle), requests_per_second=1e6
+        ),
     )
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     workspace = Workspace(Path("ws"))
@@ -295,27 +328,23 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     failed = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert failed.exit_code == 1
-    assert failed.stderr == (
-        "the solution of Q5 fails its checks: Q5.b has no answer\n"
-    )
+    assert failed.stderr == f"{error}\n"
     with closing(sqlite3.connect(workspace.cache_sqlite)) as db:
         cached = [json.loads(r) for (r,) in db.execute("SELECT response FROM calls")]
         spent = db.execute("SELECT count(*) FROM ledger").fetchone()[0]
+    first = [
+        json.loads(c["choices"][0]["message"]["content"])["parts"][0] for c in cached
+    ]
     answered = {
-        json.loads(c["choices"][0]["message"]["content"])["parts"][0]["part_id"]
-        for c in cached
+        ("Rubric" if "criteria" in p else "Solution", p["part_id"]) for p in first
     }
-    assert answered == {"Q1", "Q2", "Q3", "Q4.a"}  # the two failed answers are gone
-    assert spent == 6  # but they were paid for
+    assert answered == kept  # the two failed answers are gone
+    assert spent == len(kept) + 2  # but they were paid for
     assert not workspace.key_yaml.exists()
 
     server = Server()
-    again = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+    rerun = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
-    assert again.exit_code == 0, again.output
-    assert sorted((r["schema"], r["parts"][0]) for r in server.requests) == [
-        ("Rubric", "Q4.a"),
-        ("Rubric", "Q5.a"),
-        ("Solution", "Q5.a"),
-    ]
+    assert rerun.exit_code == 0, rerun.output
+    assert sorted((r["schema"], r["parts"][0]) for r in server.requests) == again
     assert workspace.key_yaml.exists()

@@ -26,7 +26,9 @@ from redpen.llm.client import (
     ResponseValidationError,
     Result,
     RetryableError,
+    StageError,
     _locations,
+    finish_all,
     without_validation_keywords,
 )
 from redpen.llm.ledger import Ledger, Usage
@@ -634,3 +636,28 @@ def test_an_error_location_keeps_only_field_names_and_indexes(
         Letters.model_validate_json(output)
 
     assert _locations(error.value, Letters.model_json_schema()) == where
+
+
+def test_finish_all_raises_the_first_error_noting_every_later_one() -> None:
+    finished: list[int] = []
+
+    async def unit(n: int) -> int:
+        await asyncio.sleep(0.01 * (4 - n))  # the later units fail first
+        if n in (1, 2):
+            raise ValueError(f"unit {n} failed")
+        if n == 3:
+            raise StageError("unit 3 fails its checks")
+        finished.append(n)
+        return n
+
+    with pytest.raises(ValueError, match="unit 1 failed") as raised:
+        asyncio.run(finish_all(unit(n) for n in range(5)))
+
+    assert raised.value.__notes__ == [
+        "also failed: ValueError: unit 2 failed",
+        "also failed: StageError: unit 3 fails its checks",
+    ]
+    assert sorted(finished) == [0, 4]
+    assert "also failed: StageError" in "".join(
+        traceback.format_exception(raised.value)
+    )

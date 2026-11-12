@@ -339,12 +339,14 @@ async def ask_checked[T](
 
 async def finish_all[T](awaitables: Iterable[Awaitable[T]]) -> list[T]:
     """The results of `awaitables`, run concurrently, once every one has finished;
-    then the first error, if any. One failure does not cut the others' calls short,
-    so none of them is paid for twice."""
+    then the first error, if any, with a note naming each later one. One failure
+    does not cut the others' calls short, so none of them is paid for twice."""
     results = await asyncio.gather(*awaitables, return_exceptions=True)
-    for result in results:
-        if isinstance(result, BaseException):
-            raise result
+    errors = [r for r in results if isinstance(r, BaseException)]
+    if errors:
+        for later in errors[1:]:
+            errors[0].add_note(f"also failed: {type(later).__name__}: {later}")
+        raise errors[0]
     return cast(list[T], results)
 
 
