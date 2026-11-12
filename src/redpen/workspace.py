@@ -45,6 +45,10 @@ class Workspace:
         """Rendering of page `number` of the blank, counting from 1."""
         return self.root / "key" / "pages" / f"p{number:02d}.png"
 
+    def key_page_json(self, number: int) -> Path:
+        """What the parser read on page `number` of the blank."""
+        return self.root / "key" / "pages" / f"p{number:02d}.json"
+
     @property
     def spec_json(self) -> Path:
         return self.root / "key" / "spec.json"

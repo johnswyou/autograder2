@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -12,14 +13,26 @@ from rich.logging import RichHandler
 from rich.table import Table
 
 from redpen.config import (
+    Config,
     ConfigError,
+    Lock,
     Profile,
     load_config,
     openrouter_api_key,
+    pin,
     read_lock,
 )
+from redpen.imaging import render
+from redpen.llm.client import (
+    FatalError,
+    Gateway,
+    ResponseValidationError,
+    RetryableError,
+)
 from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
-from redpen.workspace import Workspace
+from redpen.prepare.parse import SpecError, parse
+from redpen.schemas.spec import Spec
+from redpen.workspace import Workspace, read_model
 
 app = typer.Typer()
 key_app = typer.Typer(help="Check or render the key.")
@@ -93,7 +106,58 @@ def prepare(
     workspace: WorkspaceDir = None,
 ) -> None:
     """Build the key only."""
-    _not_implemented()
+    # Refused rather than ignored: ignoring --dry-run would spend money.
+    for flag, given in [
+        ("--total", total),
+        ("--page-points", page_points),
+        ("--dry-run", dry_run or None),
+    ]:
+        if given is not None:
+            _fail(f"{flag} is not supported yet")
+    ws = Workspace.for_blank(blank, workspace)
+    try:
+        config = load_config()
+        if profile is not None:
+            config = config.model_copy(update={"profile": profile})
+        api_key = openrouter_api_key()
+        data = blank.read_bytes()
+        if ws.blank_pdf.exists() and ws.blank_pdf.read_bytes() != data:
+            _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
+        ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
+        ws.blank_pdf.write_bytes(data)
+        lock = asyncio.run(pin(ws, config, api_key))
+        if ws.spec_json.exists():
+            typer.echo(f"Reusing {ws.spec_json}")
+            spec = read_model(ws.spec_json, Spec)
+        else:
+            spec = asyncio.run(_parse(ws, config, lock, api_key))
+    except (
+        OSError,
+        ConfigError,
+        ModelError,
+        SpecError,
+        FatalError,
+        ResponseValidationError,
+        RetryableError,
+    ) as error:
+        _fail(str(error))
+    types = Counter(part.response_type for part in spec.parts)
+    typer.echo(f"Pages: {len(render.open_pdf(ws.blank_pdf))}")
+    typer.echo(f"Problems: {len({part.id.split('.')[0] for part in spec.parts})}")
+    typer.echo(f"Parts: {len(spec.parts)}")
+    for response_type, count in sorted(types.items()):
+        typer.echo(f"  {response_type}: {count}")
+
+
+async def _parse(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Spec:
+    strict = config.strict_privacy
+    async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gateway:
+        return await parse(ws, gateway, lock.models["parser"], config.image_budget)
+
+
+def _fail(message: str) -> NoReturn:
+    typer.echo(message, err=True)
+    raise typer.Exit(code=1)
 
 
 @key_app.command("check")

@@ -56,7 +56,6 @@ run_options = [
     "args",
     [
         ["run", "blank.pdf", "submissions", *run_options],
-        ["prepare", "blank.pdf", *run_options],
         ["key", "check"],
         ["key", "render"],
         ["grade", "submissions"],
@@ -74,6 +73,43 @@ def test_stub_accepts_its_arguments_and_reports_not_implemented(
 
     assert result.exit_code == 1
     assert result.stderr.strip() == "not implemented yet"
+
+
+@pytest.mark.parametrize(
+    ("args", "flag"),
+    [
+        (["--total", "50"], "--total"),
+        (["--page-points", "10"], "--page-points"),
+        (["--dry-run"], "--dry-run"),
+    ],
+)
+def test_prepare_refuses_what_it_does_not_support_yet(
+    tmp_path: Path, args: list[str], flag: str
+) -> None:
+    result = runner.invoke(
+        app, ["prepare", "blank.pdf", "--workspace", str(tmp_path / "ws"), *args]
+    )
+
+    assert result.exit_code == 1
+    assert result.stderr.strip() == f"{flag} is not supported yet"
+    assert not (tmp_path / "ws").exists()
+
+
+def test_prepare_refuses_a_workspace_prepared_from_another_blank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    workspace.blank_pdf.write_bytes(b"%PDF the first blank")
+    Path("blank.pdf").write_bytes(b"%PDF another blank")
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert "holds the key of another blank" in result.stderr
+    assert workspace.blank_pdf.read_bytes() == b"%PDF the first blank"
 
 
 @pytest.mark.parametrize(
