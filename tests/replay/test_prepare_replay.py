@@ -27,9 +27,9 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.llm.client import Gateway
 from redpen.prepare.key import load_key
-from redpen.prepare.parse import CHOICE_TYPES
 from redpen.schemas.common import DiagramElement
 from redpen.schemas.key import Answer, Key
+from redpen.schemas.spec import CHOICE_TYPES
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled

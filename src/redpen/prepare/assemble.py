@@ -4,11 +4,10 @@ the first row of 6.4: the proposal used as is)."""
 from collections.abc import Mapping
 from decimal import Decimal
 
-from redpen.prepare.parse import CHOICE_TYPES
 from redpen.prepare.rubric import PartRubric, ProposedCriterion
 from redpen.prepare.solve import PartSolution, answer_of, depends_on
 from redpen.schemas.key import Criterion, Key, KeyPart, PartialCredit, Policies
-from redpen.schemas.spec import Spec
+from redpen.schemas.spec import CHOICE_TYPES, Spec
 
 ONE = Decimal(1)  # every criterion's points (design 6.4, the proposal used as is)
 

@@ -16,12 +16,11 @@ from redpen.imaging.prep import reduced_png
 from redpen.llm.client import Gateway, Part
 from redpen.llm.models import ModelInfo
 from redpen.schemas.common import Box, ResponseType, Schema
-from redpen.schemas.spec import Band, Spec
+from redpen.schemas.spec import CHOICE_TYPES, Band, Spec
 from redpen.workspace import Workspace, write_model
 
 ROLE = "parser"
 PARAMS = {"max_tokens": 32000}
-CHOICE_TYPES = ("multiple_choice", "multiple_select")
 MARGIN = 0.03  # of the page height, around the model's band, where a label may be
 COLUMN = 0.25  # of the page width: a label further left or right is another column
 

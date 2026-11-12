@@ -19,7 +19,6 @@ from redpen.imaging import prep, render
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.prepare.parse import CHOICE_TYPES
 from redpen.schemas.common import Provenance, Schema
 from redpen.schemas.reading import (
     Crop,
@@ -28,7 +27,7 @@ from redpen.schemas.reading import (
     Reading,
     ReadingRecord,
 )
-from redpen.schemas.spec import Part, Spec
+from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
 from redpen.schemas.submission import IngestRecord, Map, MapEntry, MapRecord
 from redpen.workspace import Workspace, read_model, write_model
 

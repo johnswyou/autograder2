@@ -10,10 +10,10 @@ from redpen.imaging.prep import reduced_png
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.prepare.parse import CHOICE_TYPES, render_blank
+from redpen.prepare.parse import render_blank
 from redpen.schemas.common import Schema
 from redpen.schemas.key import Answer, answer_problem
-from redpen.schemas.spec import Part, Spec
+from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
 from redpen.workspace import Workspace
 
 ROLE = "solver"

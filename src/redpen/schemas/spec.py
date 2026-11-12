@@ -13,6 +13,10 @@ def _check_band(band: list[float]) -> list[float]:
     return band
 
 
+# The response types whose answer is a selection among printed options.
+CHOICE_TYPES = ("multiple_choice", "multiple_select")
+
+
 # [top, bottom] of a part on its home page, as fractions of the page height.
 Band = Annotated[list[float], AfterValidator(_check_band)]
 

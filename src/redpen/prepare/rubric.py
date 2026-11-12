@@ -10,7 +10,6 @@ from redpen import prompts
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.prepare.parse import CHOICE_TYPES
 from redpen.prepare.solve import (
     PARAMS,
     ROLE,
@@ -21,7 +20,7 @@ from redpen.prepare.solve import (
 )
 from redpen.schemas.common import Schema
 from redpen.schemas.key import PartialCredit
-from redpen.schemas.spec import Part, Spec
+from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
 from redpen.workspace import Workspace
 
 
