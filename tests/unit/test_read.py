@@ -376,6 +376,12 @@ def test_a_page_flagged_as_a_photo_is_corrected_only_when_it_is_not_mostly_blank
 BLANK_WITH_WORK = (
     "Q4.b: a blank reading has no lines, no elements and an empty final answer"
 )
+
+
+def choose(*labels: str) -> FinalAnswer:
+    return NOTHING.model_copy(update={"choices": list(labels)})
+
+
 PARTS = [p for p in SPEC.parts if p.id in ("Q1", "Q4.a", "Q4.b")]
 GOOD = [
     reading("Q1", lines=[], final_answer=NOTHING.model_copy(update={"choices": ["C"]})),
@@ -430,6 +436,14 @@ GOOD = [
                 ),
             ]
         ),
+        (
+            [reading("Q1", final_answer=choose("C", "C")), *GOOD[1:]],
+            ["Q1: an option is in choices more than once"],
+        ),
+        (
+            [*GOOD[:2], reading("Q4.b", final_answer=choose("A"))],
+            ["Q4.b has no printed options, so its choices are empty"],
+        ),
     ],
     ids=[
         "clean",
@@ -441,6 +455,8 @@ GOOD = [
         "blank with lines",
         "blank with elements",
         "blank with an answer",
+        "an option twice",
+        "choices with no options",
     ],
 )
 def test_each_check_catches_its_failure(found: list[Reading], wrong: list[str]) -> None:
@@ -618,8 +634,19 @@ def test_no_request_holds_anything_from_the_key(
     run(workspace, student, reader)
 
     key = Key.model_validate_json((FIXTURES / "key.json").read_text())
-    secrets = [p.solution for p in key.parts]
-    secrets += [c.requirement for p in key.parts for c in p.criteria]
+    secrets: list[str] = []
+    for p in key.parts:
+        answer = p.answer
+        # A choice is searched for as the list the key holds: one letter alone is
+        # in every request, among the printed options.
+        secrets += [json.dumps(answer.choices)] if answer.choices else []
+        if answer.value is not None:
+            secrets.append(f"{answer.value:g} {answer.unit or ''}".strip())
+        secrets += [answer.expression] if answer.expression else []
+        secrets += [p.solution, *answer.must_include, *p.common_errors]
+        secrets += [c.requirement for c in p.criteria]
+        secrets += [x.when for c in p.criteria for x in c.partial]
+    assert {"2.5 m/s^2", "-4", '["C"]', "(x - 3)^2 - 4"} <= set(secrets)
     assert len(reader.requests) == 3
     for request in reader.requests:
         # JSON escapes the same text in the body; compare the decoded strings too.
@@ -633,6 +660,15 @@ def test_no_request_holds_anything_from_the_key(
             assert all(secret not in text for text in texts), secret
     # The check would see the parts' own text, so it is looking in the right place.
     assert any(SPEC.parts[3].prompt in r["body"] for r in reader.requests)
+    fields = {"id", "label", "prompt", "response_type", "options"}
+    spec = {p.id: p.model_dump(include=fields) for p in SPEC.parts}
+    for request in reader.requests:
+        shared = request["json"]["messages"][1]["content"][0]
+        assert "cache_control" in shared  # the part every student's call shares
+        sent = json.loads(shared["text"])
+        assert list(sent) == ["parts"]
+        assert sent["parts"] == [spec[part["id"]] for part in sent["parts"]]
+        assert all(set(part) == fields for part in sent["parts"])
 
 
 def _parts(message: dict[str, Any]) -> list[dict[str, Any]]:

@@ -27,7 +27,7 @@ from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import read_student
 from redpen.llm.client import Gateway
 from redpen.schemas.reading import ReadingRecord
-from redpen.schemas.spec import Spec
+from redpen.schemas.spec import CHOICE_TYPES, Spec
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, map_of, truth_of
 from tests.pinned import READER
@@ -39,9 +39,10 @@ TRANSFORMATIONS = (*standard_transformations, implicit_multiplication, convert_x
 
 
 def expression(text: str, letters: str) -> sympy.Expr:
-    """`text` parsed, after checking it holds only digits, arithmetic and `letters`:
-    SymPy's parser evaluates its input as Python (design 14.2)."""
-    allowed = rf"[0-9{re.escape(letters)}+\-*/^(). ]+"
+    """`text` parsed, after checking it holds only numbers (a point only between
+    digits), arithmetic and `letters`: SymPy's parser evaluates its input as Python
+    (design 14.2)."""
+    allowed = rf"(?:[0-9]+(?:\.[0-9]+)?|[{re.escape(letters)}]|[-+*/^() ])+"
     assert re.fullmatch(allowed, text), f"not a plain expression in {letters}: {text!r}"
     try:
         return parse_expr(text, transformations=TRANSFORMATIONS)
@@ -53,14 +54,17 @@ def agree(found: str, truth: str) -> bool:
     letters = "".join(sorted({c for c in truth if c.isalpha()}))
     want, got = expression(truth, letters), expression(found, letters)
     names = sorted(want.free_symbols | got.free_symbols, key=str)
-    return all(
-        abs(
-            float(want.subs({n: x for n in names}))
-            - float(got.subs({n: x for n in names}))
+    try:
+        return all(
+            abs(
+                float(want.subs({n: x for n in names}))
+                - float(got.subs({n: x for n in names}))
+            )
+            < 1e-9
+            for x in POINTS
         )
-        < 1e-9
-        for x in POINTS
-    )
+    except Exception as error:  # any failure to evaluate is reported with the string
+        raise AssertionError(f"cannot evaluate {found!r}: {error!r}") from None
 
 
 @pytest.mark.parametrize("pdf", SUBMISSIONS, ids=lambda p: truth_of(p).layout_class)
@@ -91,8 +95,10 @@ def test_each_fixture_reads_as_its_truth_says(
         kind = TYPES[want.part_id]
         if want.status != "answered":
             continue
-        if kind in ("multiple_choice", "multiple_select"):
-            assert got.final_answer.choices == want.final_answer.choices, want.part_id
+        if kind in CHOICE_TYPES:
+            assert set(got.final_answer.choices) == set(want.final_answer.choices), (
+                want.part_id
+            )
         if want.legibility != "clear":
             continue
         if kind == "numeric":

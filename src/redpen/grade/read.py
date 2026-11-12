@@ -251,10 +251,15 @@ def problems(parts: Sequence[Part], found: Readings) -> list[str]:
             for n in r.uncertain
             if n > len(r.lines)
         ]
-        if part.response_type in CHOICE_TYPES and not set(
-            r.final_answer.choices
-        ) <= set(part.options):
+        choices = r.final_answer.choices
+        if choices and not part.options:
+            wrong.append(
+                f"{r.part_id} has no printed options, so its choices are empty"
+            )
+        elif not set(choices) <= set(part.options):
             wrong.append(f"{r.part_id}: choices must be among {part.options}")
+        if len(set(choices)) < len(choices):
+            wrong.append(f"{r.part_id}: an option is in choices more than once")
         if r.status == "blank" and (
             r.lines or r.elements or r.final_answer != NO_ANSWER
         ):
