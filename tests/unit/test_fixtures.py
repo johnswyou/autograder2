@@ -3,52 +3,17 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
 
-from redpen.schemas.common import Schema
 from redpen.schemas.flags import FlagCode
-from redpen.schemas.grade import Grade
 from redpen.schemas.key import Key
-from redpen.schemas.reading import Reading
-from redpen.schemas.submission import IngestPage, Map
+from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
 
-FIXTURES = Path(__file__).parents[1] / "fixtures" / "synthetic"
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
-SUBMISSIONS = sorted(FIXTURES.glob("* - *.pdf"))
-
-
-# The ground truth of one synthetic submission, in the JSON file beside its PDF.
-# Reading lines leave out the student's own part labels such as "4b)". A part whose
-# response is unreadable has no grade, because the design withholds that score.
-class SubmissionTruth(Schema):
-    layout_class: Literal[
-        "typed-in-place",
-        "ink-in-place",
-        "photo-per-page",
-        "all-on-foreign-pages",
-        "rotated",
-        "partly-blank",
-        "blank",
-        "letters-listed",
-        "small-writing",
-        "low-resolution",
-        "not-classkick",
-    ]
-    student_name: str
-    source_kind: Literal["classkick", "other"]
-    pages: list[IngestPage]
-    map: Map
-    readings: list[Reading]
-    grades: list[Grade]
-    flags: list[FlagCode]
-
-
-def truth_of(pdf: Path) -> SubmissionTruth:
-    return SubmissionTruth.model_validate_json(pdf.with_suffix(".json").read_text())
 
 
 def source_kind(pdf: Path) -> str:

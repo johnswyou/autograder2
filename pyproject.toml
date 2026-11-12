@@ -30,6 +30,7 @@ strict = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
+pythonpath = ["."]  # so tests can import shared helpers as `tests.<module>`
 markers = ["live: makes a paid OpenRouter call; skipped unless REDPEN_LIVE=1"]
 filterwarnings = ["error"]
 
