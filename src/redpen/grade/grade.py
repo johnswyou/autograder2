@@ -98,6 +98,8 @@ async def grade_student(
             for part in asked:
                 record = mine[part.id]
                 items.append(json.dumps({"grade": _json(record.reading)}))
+                # shortcut: a region the map gave to two parts is sent once for each;
+                # send it once when real maps share boxes often.
                 for n in range(1, len(record.crops) + 1):
                     png = workspace.crop_png(student, part.id, n).read_bytes()
                     items += [json.dumps({"crop": n, "part": part.id}), png]
