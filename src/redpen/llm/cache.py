@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 
@@ -35,3 +36,22 @@ class CallCache:
 
     def put(self, key: str, response: str) -> None:
         self._db.execute("INSERT OR REPLACE INTO calls VALUES (?, ?)", (key, response))
+
+    def dump(self, path: Path) -> None:
+        """Every row as a JSON line `{"key": ..., "response": {...}}`, in key order.
+
+        Keys hold image digests, never images, so a dump holds responses only.
+        """
+        rows = self._db.execute("SELECT key, response FROM calls ORDER BY key")
+        path.write_text(
+            "".join(
+                json.dumps({"key": key, "response": json.loads(response)}) + "\n"
+                for key, response in rows
+            )
+        )
+
+    def load(self, path: Path) -> None:
+        """Add the rows of a file `dump` wrote."""
+        for line in path.read_text().splitlines():
+            row = json.loads(line)
+            self.put(row["key"], json.dumps(row["response"]))

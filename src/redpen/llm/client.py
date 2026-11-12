@@ -55,7 +55,8 @@ class RetryableError(Exception):
 
 class FatalError(Exception):
     """A failure retrying cannot fix: a bad request, no credits, no provider that
-    meets the routing requirements, or a response served by another model."""
+    meets the routing requirements, a response served by another model, or a cache
+    miss while offline."""
 
 
 class ResponseValidationError(Exception):
@@ -100,7 +101,8 @@ class Gateway:
     the requests in flight, `requests_per_second` the requests started per model.
     With `strict_privacy` every request goes only to the model's `providers`, the
     endpoints that retain nothing; `False` drops that and the zero-retention and
-    no-data-collection requirements.
+    no-data-collection requirements. With `offline` a cache miss raises and no
+    request is ever made.
     """
 
     def __init__(
@@ -109,6 +111,7 @@ class Gateway:
         api_key: str,
         *,
         strict_privacy: bool = True,
+        offline: bool = False,
         max_concurrency: int = 8,
         requests_per_second: float = 4.0,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -124,6 +127,7 @@ class Gateway:
             transport=transport,
         )
         self._strict_privacy = strict_privacy
+        self._offline = offline
         self._slots = asyncio.Semaphore(max_concurrency)
         self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}
@@ -186,6 +190,11 @@ class Gateway:
                     f" ({_locations(error)}). Bump prompt version {prompt_version}."
                 ) from None
             return Result(value, response["model"], _usage(response, model), True)
+        if self._offline:
+            raise FatalError(
+                f"offline, and nothing is recorded for role {role}"
+                f" at prompt version {prompt_version}"
+            )
 
         body: dict[str, Any] = {
             **sent,

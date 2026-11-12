@@ -14,6 +14,7 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
+from redpen.llm.cache import CallCache
 from redpen.llm.client import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
@@ -469,3 +470,71 @@ def test_an_error_does_not_quote_the_response(
         run(tmp_path / "cache.sqlite", Server(reply), ask())
 
     assert SECRET not in "".join(traceback.format_exception(error.value))
+
+
+def test_offline_a_hit_returns_and_a_miss_raises_without_a_request(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    run(db, Server('{"letter": "B"}'), ask())
+    server = Server('{"letter": "C"}')
+
+    hit = run(db, server, ask(), offline=True)
+    with pytest.raises(FatalError, match="role reader at prompt version v2"):
+        run(db, server, ask(prompt_version="v2"), offline=True)
+
+    assert (hit.value, hit.from_cache) == (Answer(letter="B"), True)
+    assert server.requests == []
+
+
+def test_dump_and_load_round_trip_the_cache_without_images(tmp_path: Path) -> None:
+    db, copy, recording = (
+        tmp_path / name for name in ("a.sqlite", "b.sqlite", "r.jsonl")
+    )
+    run(db, Server('{"letter": "B"}'), ask())
+    run(db, Server('{"letter": "C"}'), ask(prompt_version="v2"))
+    query = "SELECT key, response FROM calls ORDER BY key"
+
+    with closing(sqlite3.connect(db)) as connection:
+        CallCache(connection).dump(recording)
+        rows = connection.execute(query).fetchall()
+    with closing(sqlite3.connect(copy)) as connection:
+        CallCache(connection).load(recording)
+        loaded = connection.execute(query).fetchall()
+
+    assert len(rows) == 2
+    assert loaded == rows
+    assert base64.b64encode(PNG).decode() not in recording.read_text()
+
+
+class Killed(Exception):
+    pass
+
+
+def test_a_killed_batch_resumes_without_repeating_finished_calls(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    served = 0
+
+    async def dies_after_four(request: httpx.Request) -> httpx.Response:
+        nonlocal served
+        await asyncio.sleep(0)  # let the ten calls interleave
+        if served == 4:
+            raise Killed
+        served += 1
+        return completion('{"letter": "B"}')
+
+    async def batch(gateway: Gateway) -> list[Result[BaseModel] | BaseException]:
+        calls = [ask(items=(f"item {n}",))(gateway) for n in range(10)]
+        return await asyncio.gather(*calls, return_exceptions=True)
+
+    first = run(db, dies_after_four, batch)
+    healthy = Server('{"letter": "B"}')
+    second = run(db, healthy, batch)
+
+    assert sum(isinstance(r, Killed) for r in first) == 6
+    assert len(healthy.requests) == 6
+    assert [r.value for r in second if isinstance(r, Result)] == [
+        Answer(letter="B")
+    ] * 10
