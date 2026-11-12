@@ -24,8 +24,10 @@ The `answer` object has eight fields. Fill the ones that fit the part's `respons
 - `rel_tol`: null, unless the question itself calls for a looser match than an exact calculation, as for an estimate or a value read off a graph or a figure. Then give the relative tolerance a fair grader would accept, such as 0.1.
 - `accept_also`: always empty. Alternative answers go in `alternatives`.
 - `expression`: the final expression in exact form, in the variables and constants the question names. Keep fractions, roots and `pi` exact rather than decimal, unless the question asks for a decimal. Write the right-hand side only: for "find v", the expression for v, not "v = ...". Use the same plain-text notation as in `solution`.
-- `elements`: the elements a correct drawing must show, one entry each, with four fields: `label` (the label a correct drawing would carry, using the problem's own symbols where it has them), `kind` (what the element is, such as "force", "curve", "point", "line", "asymptote" or "axis label"), `direction` (which way it points, or the shape of a curve, such as "opens upward" or "increasing, linear"; null when that does not apply) and `position` (where it is, such as "(3, -4)" for a point, or where an arrow starts; null when that does not apply).
-- `must_include`: each fact, claim, step or feature a correct response must contain, one short sentence each.
+- `elements`: the elements the question requires a correct drawing to show, one entry each, with four fields: `label` (the label a correct drawing would carry, using the problem's own symbols where it has them), `kind` (what the element is, such as "force", "curve", "point", "line", "asymptote" or "axis label"), `direction` (which way it points, or the shape of a curve, such as "opens upward" or "increasing, linear"; null when that does not apply) and `position` (where it is, such as "(3, -4)" for a point, or where an arrow starts; null when that does not apply).
+- `must_include`: each fact, claim, step or feature a full-credit response must contain, one short sentence each.
+
+`elements` and `must_include` hold only what the question asks for. A value it does not ask for, a feature of a drawing or a graph it does not mention, or a consequence beyond what it asks is not required, however true, and stays out of both. It can go in `solution`.
 
 The fields each response type uses:
 

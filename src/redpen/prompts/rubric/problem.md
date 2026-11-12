@@ -5,17 +5,18 @@ The message holds a JSON text with `parts`: the parts of the problem that need c
 Rules for the criteria of a part:
 
 1. Each criterion is one thing that can be seen in the response: an equation written, a value substituted, a result stated with its unit, an arrow drawn in a direction, a point plotted, a claim made. Never a state of mind, such as "understands" or "knows".
-2. Each criterion tests one thing. When a requirement joins two things a response could do one without the other, write two criteria.
-3. No two criteria reward the same thing. The final result is rewarded once, and so is each step.
-4. Every criterion is worth one point, so the number of criteria sets the part's weight. Give a part one criterion for each distinct step or feature that deserves credit on its own: one for a part with a single short step, more for a part with several. Do not split a part into trivial criteria to make it heavier.
-5. Accept any valid method unless the question requires one. Where more than one route is common, word a method criterion so that every correct route meets it, or name the routes it accepts.
-6. State each requirement so the grader needs nothing else: give the expected value with its unit, the expected expression, the direction, or the claim. Do not refer to the solution or to "the answer".
+2. Reward only what the question asks for. A response that answers exactly what is asked, correctly and completely, earns every point, so no criterion may require more. A value the question does not ask for, a feature of a drawing or a graph it does not mention, or a consequence or condition beyond what it asks is not a criterion, even where the key's solution or answer mentions it.
+3. Each criterion tests one thing. When a requirement joins two things a response could do one without the other, write two criteria.
+4. No two criteria reward the same thing. The final result is rewarded once, and so is each step.
+5. Every criterion is worth one point, so the number of criteria sets the part's weight. Give a part one criterion for each step, element or reason the question asks for that a response could get right or wrong on its own, and no more.
+6. Accept any valid method unless the question requires one. Where more than one route is common, word a method criterion so that every correct route meets it, or name the routes it accepts.
+7. State each requirement so the grader needs nothing else: give the expected value with its unit, the expected expression, the direction, or the claim. Do not refer to the solution or to "the answer".
 
 Return a JSON object with one field, `parts`: one entry for each part in the message, in the same order, and no other entries. Each entry has three fields:
 
 - `part_id`: the part's `id`, exactly as given.
 - `criteria`: at least one criterion, in the order a response would show them. Each has three fields:
-  - `kind`: "final_answer" for a criterion that checks the part's result: the final value or expression, the finished drawing's elements, or an explanation's conclusion. "method" for a criterion that checks a step, an equation, a substitution, a reason or a feature of the work.
+  - `kind`: "final_answer" for a criterion on the result the question asks for: the final value with its unit, the final expression, each required element of a finished drawing or graph, or the conclusion of an explanation. "method" for a criterion on the working or the reasoning that leads to the result: a step, an equation, a substitution, or a reason an explanation must give.
   - `requirement`: what the response must show, as one sentence that starts with a verb, such as "States that ...", "Writes ...", "Draws ...".
-  - `partial`: listed partial credit, usually empty. Add a level only where a response can be partly right in a way the grader can see, such as the right expression with a sign error. Each level has `points` (a fraction of the criterion's one point: 0.25, 0.5 or 0.75) and `when` (the condition, as observable as a requirement). The grader can award only the listed levels or the whole point or nothing.
+  - `partial`: listed partial credit, usually empty. Add a level only where a response can be partly right in a way the grader can see, such as the right expression with a sign error. Each level has `points` (a fraction of the criterion's one point: 0.25, 0.5 or 0.75) and `when` (the condition, as observable as a requirement). The grader can award only the listed levels, the whole point, or nothing. A missing or wrong unit and the number of significant figures are settled by the assignment's own policies, so no level is about them.
 - `common_errors`: the mistakes students are likely to make on this part, one short sentence each, with the wrong result each leads to where there is one.

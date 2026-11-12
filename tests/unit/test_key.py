@@ -70,7 +70,7 @@ def proposed(kind: str, *levels: str) -> ProposedCriterion:
     )
 
 
-def test_the_key_is_assembled_from_the_stage_outputs() -> None:
+def test_the_key_is_assembled_from_the_stage_outputs(tmp_path: Path) -> None:
     spec = Spec(
         parts=[
             spec_part("Q1", "multiple_choice", options=["A", "B", "C"]),
@@ -132,6 +132,10 @@ def test_the_key_is_assembled_from_the_stage_outputs() -> None:
     assert [c.carry_forward for c in q4.criteria] == [True]
     assert q3a.common_errors == ["Halves it."]
     assert {p.state for p in key.parts} == {"unverified"}
+    # Every criterion's points are one Decimal object, never written as an anchor.
+    save_key(tmp_path / "key.yaml", key)
+    points = re.findall(r"points: (\S+)", (tmp_path / "key.yaml").read_text())
+    assert points == ["1", "1", "1", "0.5", "1", "1", "0.75", "1", "1"]
 
 
 def test_the_key_file_round_trips_in_the_layout_of_the_design(tmp_path: Path) -> None:

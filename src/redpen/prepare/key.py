@@ -123,7 +123,10 @@ _Constructor.add_constructor("tag:yaml.org,2002:float", _float_text)
 
 
 class _Representer(RoundTripRepresenter):
-    pass
+    def ignore_aliases(self, data: Any) -> bool:
+        # Criteria share one Decimal object: an anchor would let one hand edit
+        # change the points of them all.
+        return isinstance(data, Decimal) or super().ignore_aliases(data)
 
 
 def _decimal(representer: RoundTripRepresenter, value: Decimal) -> Any:
