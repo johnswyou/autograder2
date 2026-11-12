@@ -8,9 +8,16 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from redpen.config import Config, Models, pin, read_lock
+from redpen.config import Config, Lock, Models, pin, read_lock
 from redpen.llm.client import FatalError, Gateway
-from redpen.llm.models import Catalog, ModelError, ModelInfo, check, fetch_catalog
+from redpen.llm.models import (
+    Catalog,
+    ModelError,
+    ModelInfo,
+    check,
+    fetch_catalog,
+    recheck_providers,
+)
 from redpen.workspace import Workspace
 
 
@@ -81,12 +88,19 @@ ZDR_ENDPOINTS = [
 
 
 class OpenRouter:
-    """Lists MODELS and ZDR_ENDPOINTS, and answers a completion with each reply in
-    turn, the last repeating, served by `served_by` or the model asked for."""
+    """Lists MODELS and `zdr` (a list, a reply, or an error to raise), and answers
+    a completion with each reply in turn, the last repeating, served by
+    `served_by` or the model asked for."""
 
-    def __init__(self, *replies: str, served_by: str | None = None) -> None:
+    def __init__(
+        self,
+        *replies: str,
+        served_by: str | None = None,
+        zdr: list[dict[str, Any]] | httpx.Response | Exception = ZDR_ENDPOINTS,
+    ) -> None:
         self.replies = list(replies) or ['{"letter": "B"}']
         self.served_by = served_by
+        self.zdr = zdr
         self.paths: list[str] = []
         self.completions: list[dict[str, Any]] = []
 
@@ -95,7 +109,11 @@ class OpenRouter:
         if request.url.path == "/api/v1/models":
             return httpx.Response(200, json={"data": MODELS})
         if request.url.path == "/api/v1/endpoints/zdr":
-            return httpx.Response(200, json={"data": ZDR_ENDPOINTS})
+            if isinstance(self.zdr, Exception):
+                raise self.zdr
+            if isinstance(self.zdr, httpx.Response):
+                return self.zdr
+            return httpx.Response(200, json={"data": self.zdr})
         body = json.loads(request.content)
         self.completions.append(body)
         reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
@@ -268,3 +286,83 @@ def test_pin_refuses_a_model_that_fails_the_check(tmp_path: Path) -> None:
             )
         )
     assert not workspace.config_lock_toml.exists()
+
+
+def pinned(tmp_path: Path, *, strict_privacy: bool = True) -> tuple[Path, Lock]:
+    """A lock written by `pin` for every role on ~vendor/vision-latest."""
+    workspace = Workspace(tmp_path / "ws")
+    config = config_with().model_copy(update={"strict_privacy": strict_privacy})
+    transport = httpx.MockTransport(OpenRouter())
+    asyncio.run(pin(workspace, config, "k", transport=transport))
+    return workspace.config_lock_toml, read_lock(workspace.config_lock_toml)
+
+
+def recheck(lock: Lock, server: OpenRouter, *, strict_privacy: bool = True) -> Any:
+    transport = httpx.MockTransport(server)
+    return asyncio.run(
+        recheck_providers(
+            lock.models, "k", strict_privacy=strict_privacy, transport=transport
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("zdr", "problem"),
+    [
+        (ZDR_ENDPOINTS, None),
+        (
+            [*ZDR_ENDPOINTS, endpoint("vendor/vision-2", "zero/eu", None)],
+            "vendor/vision-2 pinned endpoint zero now admits zero/eu, which may"
+            " retain data",
+        ),
+        (
+            [e for e in ZDR_ENDPOINTS if e.get("tag") != "zero"],
+            "vendor/vision-2 pinned endpoint zero is no longer zero data retention",
+        ),
+        (
+            httpx.Response(500, json={"error": {"code": 500}}),
+            "cannot verify the endpoints of vendor/vision-2"
+            " (OpenRouter /endpoints/zdr: HTTP 500)",
+        ),
+        (
+            httpx.ConnectError("connection refused"),
+            "cannot verify the endpoints of vendor/vision-2 (connection refused)",
+        ),
+    ],
+    ids=["unchanged", "retaining below", "left the list", "HTTP error", "no network"],
+)
+def test_recheck_finds_pinned_endpoints_that_may_now_retain(
+    tmp_path: Path, zdr: Any, problem: str | None
+) -> None:
+    path, lock = pinned(tmp_path)
+    before = path.read_bytes()
+    server = OpenRouter(zdr=zdr)
+
+    problems = recheck(lock, server)
+
+    expected = {role: [f"{role}: {problem}"] if problem else [] for role in lock.models}
+    assert problems == expected
+    assert server.paths == ["/api/v1/endpoints/zdr"]
+    assert path.read_bytes() == before
+
+
+def test_recheck_without_strict_privacy_makes_no_request(tmp_path: Path) -> None:
+    path, lock = pinned(tmp_path)
+    before = path.read_bytes()
+    server = OpenRouter()
+
+    problems = recheck(lock, server, strict_privacy=False)
+
+    assert problems == dict.fromkeys(lock.models, [])
+    assert server.paths == []
+    assert path.read_bytes() == before
+
+
+def test_recheck_refuses_a_lock_pinned_without_strict_privacy(tmp_path: Path) -> None:
+    _, lock = pinned(tmp_path, strict_privacy=False)
+
+    problems = recheck(lock, OpenRouter())
+
+    assert problems["reader"] == [
+        "reader: vendor/vision-2 pinned endpoints: none, so nothing is sent"
+    ]

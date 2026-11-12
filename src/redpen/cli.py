@@ -11,8 +11,15 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
-from redpen.config import ConfigError, Profile, load_config, openrouter_api_key
-from redpen.llm.models import ModelError, check, fetch_catalog
+from redpen.config import (
+    ConfigError,
+    Profile,
+    load_config,
+    openrouter_api_key,
+    read_lock,
+)
+from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
+from redpen.workspace import Workspace
 
 app = typer.Typer()
 key_app = typer.Typer(help="Check or render the key.")
@@ -145,11 +152,20 @@ def eval_(
 
 
 @models_app.command("check")
-def models_check() -> None:
+def models_check(
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            metavar="DIR",
+            help="Also re-verify the endpoints pinned in this workspace's lock.",
+        ),
+    ] = None,
+) -> None:
     """Verify the configured models: image input, structured outputs, privacy."""
     try:
         config = load_config()
-        catalog = asyncio.run(fetch_catalog(openrouter_api_key()))
+        api_key = openrouter_api_key()
+        catalog = asyncio.run(fetch_catalog(api_key))
     except (ConfigError, ModelError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from None
@@ -167,7 +183,15 @@ def models_check() -> None:
             )
         table.add_row(role, name, model, providers, "FAIL" if problems[role] else "ok")
     Console().print(table)
-    for problem in (p for found in problems.values() for p in found):
+    found = [problem for each in problems.values() for problem in each]
+    lock = Workspace(workspace).config_lock_toml if workspace else None
+    if lock is not None and lock.exists():
+        pinned = read_lock(lock).models
+        rechecked = recheck_providers(pinned, api_key, strict_privacy=strict)
+        found += [
+            f"{lock}: {p}" for each in asyncio.run(rechecked).values() for p in each
+        ]
+    for problem in found:
         typer.echo(problem)
-    if any(problems.values()):
+    if found:
         raise typer.Exit(code=1)

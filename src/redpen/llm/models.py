@@ -105,6 +105,45 @@ async def fetch_catalog(
     return Catalog({model["id"]: model for model in models}, zdr_endpoints)
 
 
+async def recheck_providers(
+    models: Mapping[str, ModelInfo],
+    api_key: str,
+    *,
+    strict_privacy: bool,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, list[str]]:
+    """The problems of each role's pinned `providers` against OpenRouter's ZDR list
+    now, `[]` for a role that has none. Run it before student work is sent.
+
+    It only verifies: nothing is resolved again and the lock is not touched. A
+    failed fetch is a problem for every role. Without strict privacy it does
+    nothing.
+    """
+    if not strict_privacy:
+        return {role: [] for role in models}
+    try:
+        async with _client(api_key, transport) as http:
+            zdr_endpoints = await _data(http, "/endpoints/zdr")
+    except Exception as error:  # fail closed: unverified is not safe
+        reason = str(error) or type(error).__name__
+        return {
+            role: [f"{role}: cannot verify the endpoints of {model.slug} ({reason})"]
+            for role, model in models.items()
+        }
+    problems: dict[str, list[str]] = {}
+    for role, model in models.items():
+        keeping_nothing, retaining = _split(zdr_endpoints, model.slug)
+        about = f"{role}: {model.slug} pinned endpoint"
+        found = [] if model.providers else [f"{about}s: none, so nothing is sent"]
+        for slug in sorted(model.providers):
+            if hit := next((tag for tag in retaining if _matches(slug, tag)), None):
+                found.append(f"{about} {slug} now admits {hit}, which may retain data")
+            elif slug not in keeping_nothing:
+                found.append(f"{about} {slug} is no longer zero data retention")
+        problems[role] = found
+    return problems
+
+
 def _client(
     api_key: str, transport: httpx.AsyncBaseTransport | None
 ) -> httpx.AsyncClient:

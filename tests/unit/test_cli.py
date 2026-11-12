@@ -1,14 +1,17 @@
+import functools
 import logging
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from rich.text import Text
 from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Models
-from redpen.llm.models import Catalog
+from redpen.llm.models import Catalog, recheck_providers
+from redpen.workspace import Workspace
 
 runner = CliRunner()
 
@@ -109,6 +112,21 @@ CATALOG = Catalog(
 )
 
 
+def configure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str) -> None:
+    """A redpen.toml with every role on vendor/vision-1 but the reader, and
+    OpenRouter listing CATALOG."""
+
+    async def fetch_catalog(api_key: str) -> Catalog:
+        return CATALOG
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch_catalog)
+    roles = dict.fromkeys(Models.model_fields, "vendor/vision-1") | {"reader": reader}
+    toml = "".join(f'{role} = "{name}"\n' for role, name in roles.items())
+    Path("redpen.toml").write_text("[models]\n" + toml)
+
+
 @pytest.mark.parametrize(
     ("reader", "exit_code", "problem"),
     [
@@ -123,15 +141,7 @@ def test_models_check_prints_a_table_and_fails_on_a_problem(
     exit_code: int,
     problem: str | None,
 ) -> None:
-    async def fetch_catalog(api_key: str) -> Catalog:
-        return CATALOG
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch_catalog)
-    roles = dict.fromkeys(Models.model_fields, "vendor/vision-1") | {"reader": reader}
-    toml = "".join(f'{role} = "{name}"\n' for role, name in roles.items())
-    Path("redpen.toml").write_text("[models]\n" + toml)
+    configure(tmp_path, monkeypatch, reader)
 
     result = runner.invoke(app, ["models", "check"])
 
@@ -140,4 +150,62 @@ def test_models_check_prints_a_table_and_fails_on_a_problem(
     output = result.output.splitlines()
     assert [line for line in output if line.startswith("reader:")] == (
         [problem] if problem else []
+    )
+
+
+LOCK = """profile = "balanced"
+
+[models.reader]
+slug = "vendor/vision-1"
+supported_parameters = ["structured_outputs"]
+accepts_images = true
+prompt_price = "0"
+completion_price = "0"
+providers = ["zero"]
+"""
+RETAINING_BELOW = {
+    "model_id": "vendor/vision-1",
+    "tag": "zero/eu",
+    "safety_retention": True,
+    "supported_parameters": ["structured_outputs"],
+}
+
+
+@pytest.mark.parametrize(
+    ("zdr", "exit_code", "problem"),
+    [
+        (CATALOG.zdr_endpoints, 0, None),
+        (
+            [*CATALOG.zdr_endpoints, RETAINING_BELOW],
+            1,
+            "reader: vendor/vision-1 pinned endpoint zero now admits zero/eu,"
+            " which may retain data",
+        ),
+    ],
+    ids=["unchanged", "retaining below"],
+)
+def test_models_check_reverifies_the_lock_in_a_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    zdr: Any,
+    exit_code: int,
+    problem: str | None,
+) -> None:
+    configure(tmp_path, monkeypatch, "vendor/vision-1")
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"data": zdr})
+    )
+    monkeypatch.setattr(
+        "redpen.cli.recheck_providers",
+        functools.partial(recheck_providers, transport=transport),
+    )
+    lock = Workspace(tmp_path / "ws").config_lock_toml
+    lock.parent.mkdir()
+    lock.write_text(LOCK)
+
+    result = runner.invoke(app, ["models", "check", "--workspace", str(lock.parent)])
+
+    assert result.exit_code == exit_code
+    assert [line for line in result.output.splitlines() if "pinned" in line] == (
+        [f"{lock}: {problem}"] if problem else []
     )
