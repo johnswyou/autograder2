@@ -140,8 +140,14 @@ class Workspace:
     def scores_detail_csv(self) -> Path:
         return self.root / "out" / "scores_detail.csv"
 
-    def feedback_md(self, student_name: str) -> Path:
-        return self.root / "out" / "feedback" / f"{student_name}.md"
+    @property
+    def feedback_dir(self) -> Path:
+        return self.root / "out" / "feedback"
+
+    def feedback_md(self, student: str) -> Path:
+        """Named by the student key, never the display name: that comes from PDF
+        text or a file name, and is untrusted."""
+        return self.feedback_dir / f"{student}.md"
 
     @property
     def review_md(self) -> Path:
