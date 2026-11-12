@@ -26,6 +26,7 @@ def test_defaults_load_with_no_file(
     }
     assert config.profile == "balanced"
     assert config.image_budget == 1536
+    assert config.strict_privacy is True
 
 
 def test_file_overrides_a_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

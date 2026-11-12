@@ -8,6 +8,10 @@ profile = "balanced"
 # Longest image edge, in pixels, sent to a model.
 image_budget = 1536
 
+# Send student work only to endpoints with zero data retention that collect no
+# data. Set to false only for a model that has no such endpoint.
+strict_privacy = true
+
 # The model behind each role: an OpenRouter slug, or a ~author/family-latest
 # alias that is pinned to a concrete slug when an assignment is prepared.
 [models]

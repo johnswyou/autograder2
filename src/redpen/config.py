@@ -36,6 +36,8 @@ class Config(BaseModel):
     profile: Profile = "balanced"
     image_budget: PositiveInt = 1536
     """Longest image edge, in pixels, sent to a model."""
+    strict_privacy: bool = True
+    """Route only to endpoints with zero data retention and no data collection."""
 
 
 def load_config(path: Path = Path("redpen.toml")) -> Config:
