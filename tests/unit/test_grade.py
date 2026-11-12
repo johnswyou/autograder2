@@ -151,15 +151,19 @@ class Grader:
         await asyncio.sleep(self.delay(ids))
         value = self.answer(ids, before)
         # The model writes points as JSON numbers.
-        text = json.dumps(value.model_dump(), default=float)
-        return httpx.Response(
-            200,
-            json={
-                "model": MODEL.slug,
-                "choices": [{"message": {"content": text}}],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
-            },
-        )
+        return reply(json.dumps(value.model_dump(), default=float))
+
+
+def reply(text: str) -> httpx.Response:
+    """The model's answer `text`, as OpenRouter returns it."""
+    return httpx.Response(
+        200,
+        json={
+            "model": MODEL.slug,
+            "choices": [{"message": {"content": text}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
+        },
+    )
 
 
 def refuse(request: httpx.Request) -> httpx.Response:
@@ -497,6 +501,23 @@ def test_points_never_pass_through_float(tmp_path: Path) -> None:
     assert awards(records["Q4.b"]) == [Decimal("0.1"), Decimal("0.1")]
     # 0.1 + 0.2 in float is 0.30000000000000004.
     assert part_points(records["Q4.b"], key) == (Decimal("0.2"), Decimal("0.3"))
+
+
+def test_an_award_is_stored_as_the_key_writes_its_level(tmp_path: Path) -> None:
+    key = key_of(PARTS["Q4.b"])  # Q4.b.c1 is worth 2, Q4.b.c2 is worth 1
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, [reading("Q4.b")])
+    text = json.dumps({"grades": [full(key, "Q4.b").model_dump(mode="json")]})
+    # Points given as strings reach Decimal as written; a number such as 2.00 does
+    # not, since Pydantic reads it through float first.
+    text = text.replace('"awarded": "2"', '"awarded": "2.00"')
+    text = text.replace('"awarded": "1"', '"awarded": "-0"')
+
+    records = run(workspace, key, lambda request: reply(text))
+
+    assert [str(a) for a in awards(records["Q4.b"])] == ["2", "0"]
+    stored = workspace.grade_json(STUDENT, "Q4").read_text()
+    assert '"awarded": "2"' in stored and '"awarded": "0"' in stored
 
 
 def test_a_part_s_points_are_summed_by_code_from_the_record_and_the_key() -> None:

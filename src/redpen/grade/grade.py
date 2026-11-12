@@ -16,7 +16,7 @@ from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
 from redpen.schemas.common import Provenance, Schema
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
-from redpen.schemas.key import Key, KeyPart
+from redpen.schemas.key import Criterion, Key, KeyPart
 from redpen.schemas.reading import ProblemReadings, Reading, ReadingRecord
 from redpen.schemas.spec import CHOICE_TYPES
 from redpen.workspace import Workspace, read_model, write_model
@@ -133,8 +133,20 @@ async def grade_student(
             )
             by_id = {p.id: p for p in asked}
             for g in found.grades:
+                levels = {c.id: _levels(c) for c in by_id[g.part_id].criteria}
+                # Each award as the key writes the level the checks matched it to.
+                criteria = [
+                    c.model_copy(
+                        update={
+                            "awarded": next(x for x in levels[c.id] if x == c.awarded)
+                        }
+                    )
+                    for c in g.criteria
+                ]
                 # No computed answer check is given yet (task 4.4): nothing to overrule.
-                kept = g.model_copy(update={"code_overruled": None})
+                kept = g.model_copy(
+                    update={"criteria": criteria, "code_overruled": None}
+                )
                 records[g.part_id] = GradeRecord(
                     provenance=provenance(by_id[g.part_id], True), grade=kept
                 )
@@ -209,9 +221,7 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
         for c in g.criteria:
             if (want := criteria.get(c.id)) is None:
                 continue
-            levels = sorted(
-                {Decimal(0), want.points, *(x.points for x in want.partial)}
-            )
+            levels = _levels(want)
             if c.awarded not in levels:
                 wrong.append(
                     f"{c.id}: the award is one of {', '.join(map(number, levels))}"
@@ -238,6 +248,14 @@ def part_points(record: GradeRecord, key: Key) -> tuple[Decimal, Decimal]:
     [part] = [p for p in key.parts if p.id == record.grade.part_id]
     awarded = sum((c.awarded for c in record.grade.criteria), Decimal(0))
     return awarded, sum((c.points for c in part.criteria), Decimal(0))
+
+
+def _levels(criterion: Criterion) -> list[Decimal]:
+    """The awards `criterion` allows, as the key writes them: zero, its full points
+    and its partial levels."""
+    return sorted(
+        {Decimal(0), criterion.points, *(x.points for x in criterion.partial)}
+    )
 
 
 def _options(labels: Sequence[str]) -> set[str]:
