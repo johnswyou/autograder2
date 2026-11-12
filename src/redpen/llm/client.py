@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import hashlib
 import json
 import random
 import sqlite3
@@ -16,7 +15,7 @@ from typing import Any, NoReturn, Self
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from redpen.llm.cache import CallCache, cache_key
+from redpen.llm.cache import CallCache, cache_key, image_digest
 from redpen.llm.ledger import Ledger, Usage
 from redpen.llm.models import API_URL, ModelInfo
 from redpen.schemas.strict import strict_problems
@@ -343,7 +342,7 @@ def _messages(
 def _part(part: Part, digest: bool) -> dict[str, Any]:
     if isinstance(part, str):
         return {"type": "text", "text": part}
-    url = hashlib.sha256(part).hexdigest() if digest else _data_url(part)
+    url = image_digest(part) if digest else _data_url(part)
     return {"type": "image_url", "image_url": {"url": url}}
 
 

@@ -11,8 +11,8 @@ Return a JSON object with two fields, `items` and `shared_stems`.
 - `text`: the item's own printed text, complete, without the text of its parent. Write mathematics as plain text, such as "x^2 - 6x + 5" or "sqrt(2)/2". Keep units as printed. For a multiple-choice item, include every option with its label, such as "(A) 12 (B) 15 (C) 18".
 - `response_type`: what the student is asked to produce, one of the response types below. Null when the item asks for nothing itself, such as the introduction of a question whose sub-parts hold the questions.
 - `options`: for `multiple_choice` and `multiple_select`, the printed labels of the options in order, without brackets or punctuation, such as ["A", "B", "C", "D"]. Empty for every other type.
-- `band`: [top, bottom], the vertical extent of the item on this page, as fractions of the image height: 0 is the top edge of the image and 1 the bottom edge. It runs from the top of the item's label down to where the next item starts, so that it includes the empty space left below the item for its answer.
-- `figures`: the box [x0, y0, x1, y1] of each diagram, graph, table or picture printed as part of the item, as fractions of the image width and height measured from its top-left corner. An empty answer space is not a figure.
+- `band`: [top, bottom], the vertical extent of the item on this page, as fractions of the image height: 0 is the top edge of the image and 1 the bottom edge. It runs from the top of the item's label down to where the next item starts, so that it includes the empty space left below the item for its answer. The band of the last item on the page runs down to the bottom of the printed content.
+- `figures`: the box [x0, y0, x1, y1] of each diagram, graph, table or picture printed as part of the item, as fractions of the image width and height measured from its top-left corner. A printed mark that only shows where to draw or write, such as a dot, a set of empty axes or a blank line, is answer space and not a figure.
 - `continues_from_previous_page`: true when the item began on an earlier page: either it is the rest of a question whose start is on the previous page, printed here without a label, or it is a sub-part whose question is not printed on this page. Otherwise false.
 
 `shared_stems` lists passages printed for several questions or sub-parts at once: a passage such as "Questions 3 to 5 refer to the following table." together with what follows it, or a sentence printed between sub-parts that applies to every sub-part after it, such as "Express your answers in terms of a, b and c." A shared stem is not part of the text of the item printed after it. Empty when there is none. Each has these fields:
@@ -23,15 +23,15 @@ Return a JSON object with two fields, `items` and `shared_stems`.
 
 Response types. Choose the one that fits what will be checked in the student's final answer:
 
-- `multiple_choice`: choose one of the printed options.
-- `multiple_select`: choose every printed option that applies.
+- `multiple_choice`: choose one of the options, when the options carry printed labels (such as A to D) and the choice is the whole response.
+- `multiple_select`: choose every option that applies, under the same two conditions.
 - `numeric`: one number, with or without a unit, even when working is expected.
 - `symbolic`: one algebraic expression or equation, even when the steps that lead to it are expected too, as in "derive an expression for".
 - `short_text`: a word, a phrase or one short sentence.
-- `explanation`: reasoning in sentences: explain, justify, describe, compare.
+- `explanation`: reasoning in sentences: explain, justify, describe, compare. A choice that must be justified or worked, whether or not its options carry labels, is `explanation`.
 - `derivation`: only the steps can be checked, because the result is already given or there is none to find, as in "show that" or "prove".
 - `free_body_diagram`: a diagram of the forces acting on an object, drawn as labelled arrows.
 - `graph`: a sketch or plot on axes, or points or lines added to a printed graph.
-- `other`: anything else, such as a table to fill in or a labelled drawing. An item that asks for more than one final quantity, such as "find x and y", is `other` whatever kind each quantity is.
+- `other`: anything else, such as a table to fill in or a labelled drawing. An item that asks for more than one final quantity, such as "find x and y", is `other` whatever kind each quantity is. So is a choice among options that carry no printed labels, when nothing else is asked.
 
-The message may end with `missing_problem_numbers`. A first reading of the assignment found the questions numbered on either side of these, but not these. Look for them again on this page, and report them only if they are printed here.
+The message may end with `missing_problem_numbers`. A first reading of the assignment found the questions numbered on either side of these, but not these. Read the whole page again and return every item and shared stem on it, as you would without this list: the list only names the questions to look for with extra care. Include them only if they are printed on this page.

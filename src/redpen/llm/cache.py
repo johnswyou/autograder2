@@ -1,10 +1,38 @@
 """The call cache: a response, once obtained, is reused (design 10.3 and 11)."""
 
 import hashlib
+import io
 import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def image_digest(image: bytes) -> str:
+    """SHA-256 of a PNG's decoded pixels (mode, size, palette, transparency and raw
+    bytes), so that the same picture encoded again, as after a Pillow or zlib
+    update, keeps its key. Any other format, or a PNG that does not decode, is
+    keyed on its bytes."""
+    if image.startswith(PNG_SIGNATURE):
+        try:
+            with Image.open(io.BytesIO(image)) as decoded:
+                decoded.load()
+                header = (
+                    decoded.mode,
+                    decoded.size,
+                    decoded.getpalette(),
+                    decoded.info.get("transparency"),
+                )
+                pixels = repr(header).encode() + decoded.tobytes()
+        except Exception:  # an undecodable file is still keyed, on its bytes
+            pass
+        else:
+            return hashlib.sha256(pixels).hexdigest()
+    return hashlib.sha256(image).hexdigest()
 
 
 def cache_key(

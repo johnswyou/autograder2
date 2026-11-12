@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import io
 import json
 import math
 import sqlite3
@@ -12,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from redpen.llm.cache import CallCache
@@ -272,6 +274,47 @@ def test_changing_one_input_misses_the_cache(
 
     assert not result.from_cache
     assert len(server.requests) == 2
+
+
+def encoded(image: Image.Image, format: str, **options: Any) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format, **options)
+    return buffer.getvalue()
+
+
+PICTURE = Image.new("RGBA", (8, 8), (200, 30, 30, 255))
+ONE_PIXEL_OFF = PICTURE.copy()
+ONE_PIXEL_OFF.putpixel((3, 3), (200, 30, 31, 255))
+ALPHA_OFF = PICTURE.copy()
+ALPHA_OFF.putpixel((3, 3), (200, 30, 30, 128))
+JPEG = encoded(PICTURE.convert("RGB"), "JPEG")
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "requests"),
+    [
+        (
+            encoded(PICTURE, "PNG", compress_level=1),
+            encoded(PICTURE, "PNG", compress_level=9),
+            1,
+        ),
+        (encoded(PICTURE, "PNG"), encoded(ONE_PIXEL_OFF, "PNG"), 2),
+        (encoded(PICTURE, "PNG"), encoded(ALPHA_OFF, "PNG"), 2),
+        # Decoders ignore bytes after the end of a JPEG; the key does not.
+        (JPEG, JPEG + b"\x00", 2),
+    ],
+    ids=["png re-encoded", "png pixel", "png alpha", "jpeg bytes"],
+)
+def test_a_png_is_keyed_on_its_pixels_and_any_other_image_on_its_bytes(
+    tmp_path: Path, first: bytes, second: bytes, requests: int
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    server = Server('{"letter": "B"}')
+
+    run(db, server, ask(items=("item text", first)))
+    run(db, server, ask(items=("item text", second)))
+
+    assert len(server.requests) == requests
 
 
 def test_an_invalid_response_is_repaired_once(tmp_path: Path) -> None:
