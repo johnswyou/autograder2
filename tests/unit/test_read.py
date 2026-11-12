@@ -20,6 +20,7 @@ from redpen.grade.read import (
     Readings,
     problems,
     read_student,
+    settle_status,
     unit_images,
     units,
 )
@@ -363,13 +364,17 @@ def test_a_page_flagged_as_a_photo_is_corrected_only_when_it_is_not_mostly_blank
     images = unit_images(workspace, student, unit, pages, BUDGET)
 
     page = page_image(workspace, student, 1)
-    shown = prep.correct_contrast(page) if corrected else page
-    assert next(i for i in images.items if isinstance(i, bytes)) == prep.reduced_png(
-        shown, BUDGET
-    )
-    assert prep.reduced_png(page, BUDGET) != prep.reduced_png(
-        prep.correct_contrast(page), BUDGET
-    )  # the correction would change the page, so the test tells the two apart
+    with render.open_pdf(workspace.source_pdf(student)) as pdf:
+        [crop] = images.crops["Q1"]
+        region = render.render_region(pdf[0], "classkick", crop.box, BUDGET).image
+    sent = [i for i in images.items if isinstance(i, bytes)]
+    for image, png in [(page, sent[0]), (region, sent[1])]:
+        shown = prep.correct_contrast(image) if corrected else image
+        assert png == prep.reduced_png(shown, BUDGET)
+        # The correction would change the image, so the test tells the two apart.
+        assert prep.reduced_png(image, BUDGET) != prep.reduced_png(
+            prep.correct_contrast(image), BUDGET
+        )
 
 
 # --- checks ------------------------------------------------------------------------
@@ -388,10 +393,6 @@ def arrow(label: str) -> dict[str, Any]:
 
 
 UNREAD = "{}: an unreadable reading has no lines and an empty final answer"
-ILLEGIBLE = (
-    "{}: no letter or digit in it can be read, so its status is unreadable,"
-    " with no lines and an empty final answer"
-)
 
 
 PARTS = [p for p in SPEC.parts if p.id in ("Q1", "Q4.a", "Q4.b")]
@@ -481,49 +482,9 @@ GOOD = [
             [],
         ),
         (
-            [*GOOD[:2], reading("Q4.b", lines=["?? = ??", "?"], uncertain=[1, 2])],
-            [ILLEGIBLE.format("Q4.b")],
-        ),
-        (
-            [
-                GOOD[0],
-                reading("Q4.a", lines=[], elements=[arrow("?"), arrow("")]),
-                GOOD[2],
-            ],
-            [ILLEGIBLE.format("Q4.a")],
-        ),
-        (
-            [
-                GOOD[0],
-                reading("Q4.a", lines=[], elements=[arrow(""), arrow("")]),
-                GOOD[2],
-            ],
-            [],
-        ),
-        (
             [*GOOD[:2], reading("Q4.b", addressed_to_grader=[3])],
             ["Q4.b: line 3 is marked addressed to a grader, and there is no line 3"],
         ),
-        # A clear answer that is only a symbol is legible; a `?` marks what is not.
-        ([*GOOD[:2], reading("Q4.b", lines=["+"])], []),
-        ([*GOOD[:2], reading("Q4.b", lines=["→"])], []),
-        (
-            [
-                GOOD[0],
-                reading("Q4.a", lines=[], elements=[arrow("+"), arrow("−")]),
-                GOOD[2],
-            ],
-            [],
-        ),
-        (
-            [*GOOD[:2], reading("Q4.b", lines=["? = ??"], uncertain=[1])],
-            [ILLEGIBLE.format("Q4.b")],
-        ),
-        (
-            [*GOOD[:2], reading("Q4.b", lines=["?"], uncertain=[1])],
-            [ILLEGIBLE.format("Q4.b")],
-        ),
-        ([*GOOD[:2], reading("Q4.b", lines=["a = ?.?"], uncertain=[1])], []),
     ],
     ids=[
         "clean",
@@ -540,20 +501,101 @@ GOOD = [
         "unreadable with lines",
         "unreadable with an answer",
         "unreadable drawing",
-        "nothing legible but answered",
-        "illegible labels but answered",
-        "drawing with no writing",
         "addressed line missing",
-        "a line that is a plus sign",
-        "a line that is an arrow",
-        "labels that are signs",
-        "an equation of question marks",
-        "one question mark",
-        "a line partly read",
     ],
 )
 def test_each_check_catches_its_failure(found: list[Reading], wrong: list[str]) -> None:
     assert problems(PARTS, Readings(readings=found)) == wrong
+
+
+def unreadable(part_id: str, **changes: Any) -> Reading:
+    """What code makes of writing that holds a `?` and no letter or digit."""
+    fields: dict[str, Any] = {
+        "status": "unreadable",
+        "legibility": "poor",
+        "lines": [],
+        "uncertain": [],
+        "addressed_to_grader": [],
+    }
+    return reading(part_id, **(fields | changes))
+
+
+@pytest.mark.parametrize(
+    ("given", "settled"),
+    [
+        (reading("Q4.b", lines=["?"], uncertain=[1]), unreadable("Q4.b")),
+        (
+            reading(
+                "Q4.a",
+                lines=["? = ??"],
+                uncertain=[1],
+                addressed_to_grader=[1],
+                elements=[arrow("?"), arrow("")],
+            ),
+            unreadable("Q4.a", elements=[arrow("?"), arrow("")]),
+        ),
+        (
+            reading("Q4.b", status="unreadable", lines=["?", "??"], uncertain=[1, 2]),
+            unreadable("Q4.b"),
+        ),
+        (
+            reading("Q4.a", lines=[], elements=[arrow("??"), arrow("?")]),
+            unreadable("Q4.a", elements=[arrow("??"), arrow("?")]),
+        ),
+    ],
+    ids=[
+        "a line of ?",
+        "? = ?? beside a drawing",
+        "unreadable with ? lines",
+        "? labels",
+    ],
+)
+def test_writing_with_a_question_mark_and_no_letter_or_digit_is_made_unreadable(
+    given: Reading, settled: Reading
+) -> None:
+    assert settle_status(given) == settled
+    others = [r for r in GOOD if r.part_id != given.part_id]
+    assert problems(PARTS, Readings(readings=[*others, settled])) == []
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        reading("Q1", lines=["?"], uncertain=[1], final_answer=choose("C")),
+        reading(
+            "Q4.b", lines=["?"], final_answer=NOTHING.model_copy(update={"value": 2.0})
+        ),
+        reading("Q4.b", lines=["+"]),
+        reading("Q4.b", lines=["→"]),
+        reading("Q4.a", lines=[], elements=[arrow("+"), arrow("−")]),
+        reading("Q4.a", lines=[], elements=[arrow(""), arrow("")]),
+        reading("Q4.b", lines=["a = ?.?"], uncertain=[1], legibility="poor"),
+        reading("Q4.b", status="blank", lines=["?"]),
+    ],
+    ids=[
+        "a choice beside a scribble",
+        "a stated value",
+        "a plus sign",
+        "an arrow",
+        "labels that are signs",
+        "a drawing with no writing",
+        "a line partly read",
+        "blank",
+    ],
+)
+def test_a_stated_answer_clear_signs_and_partly_read_lines_are_left_alone(
+    given: Reading,
+) -> None:
+    assert settle_status(given) == given
+
+
+def test_an_unreadable_reading_with_a_legible_line_still_fails_the_check() -> None:
+    given = reading("Q4.b", status="unreadable", lines=["? = 4"], uncertain=[1])
+
+    assert settle_status(given) == given
+    assert problems(PARTS, Readings(readings=[*GOOD[:2], given])) == [
+        UNREAD.format("Q4.b")
+    ]
 
 
 # --- calls -------------------------------------------------------------------------
@@ -685,6 +727,37 @@ def test_a_unit_that_fails_its_checks_is_asked_once_more_with_the_failures(
         "text": json.dumps({"problems": ["Q4.c has no reading"]}),
     }
     assert records["Q4.c"].reading == reading("Q4.c")
+
+
+def test_a_part_of_question_marks_beside_a_legible_part_costs_one_call(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = mapped_fixture(
+        fixture_workspace, "ink-in-place", tmp_path / "ws"
+    )
+
+    def answer(ids: list[str], before: int) -> Readings:
+        return Readings(
+            readings=[
+                reading(i, lines=["??", "? = ?"], uncertain=[1, 2])
+                if i == "Q4.b"
+                else reading(i)
+                for i in ids
+            ]
+        )
+
+    reader = Reader(answer)
+    records = run(workspace, student, reader)
+
+    assert [r["ids"] for r in reader.requests].count(["Q4.a", "Q4.b", "Q4.c"]) == 1
+    assert records["Q4.b"].reading == unreadable("Q4.b")
+    assert records["Q4.a"].reading == reading("Q4.a")
+    stored = read_model(workspace.reading_json(student, "Q4"), ProblemReadings)
+    assert [r.reading.status for r in stored.records] == [
+        "answered",
+        "unreadable",
+        "answered",
+    ]
 
 
 def test_a_line_addressed_to_the_grader_is_kept_as_a_line_and_marked(

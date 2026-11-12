@@ -114,7 +114,7 @@ async def read_student(
                 params=PARAMS,
                 session_id=session,
             )
-            return result.value
+            return Readings(readings=[settle_status(r) for r in result.value.readings])
 
         found = await ask_checked(
             ask,
@@ -276,18 +276,32 @@ def problems(parts: Sequence[Part], found: Readings) -> list[str]:
                 f"{r.part_id}: an unreadable reading has no lines"
                 " and an empty final answer"
             )
-        # Writing that marks a character it cannot read (`?`) and reads no letter or
-        # digit is unreadable. Clear writing that is only a sign, such as `+` or an
-        # arrow, is not, and neither is a drawing with no writing at all.
-        written = [*r.lines, *(e.label for e in r.elements if e.label)]
-        legible = any(c.isalnum() for text in written for c in text)
-        unread = any("?" in text for text in written)
-        if unread and not legible and r.status != "unreadable":
-            wrong.append(
-                f"{r.part_id}: no letter or digit in it can be read, so its status"
-                " is unreadable, with no lines and an empty final answer"
-            )
     return list(dict.fromkeys(wrong))
+
+
+def settle_status(reading: Reading) -> Reading:
+    """`reading` made `unreadable` when the model marked a character it cannot read
+    (`?`) and read no letter or digit, in its lines and element labels, and stated
+    no final answer: each `?` is the model's own judgement, so the status follows
+    in code. It then has poor legibility and no lines; its elements and medium
+    stay. Clear writing that is only a sign, such as `+` or an arrow, a drawing
+    with no writing, a blank reading and a stated answer are left as they are."""
+    written = [*reading.lines, *(e.label for e in reading.elements if e.label)]
+    unread = any("?" in text for text in written)
+    legible = any(c.isalnum() for text in written for c in text)
+    if reading.status == "blank" or not unread or legible:
+        return reading
+    if reading.final_answer != NO_ANSWER:
+        return reading
+    return reading.model_copy(
+        update={
+            "status": "unreadable",
+            "legibility": "poor",
+            "lines": [],
+            "uncertain": [],
+            "addressed_to_grader": [],
+        }
+    )
 
 
 def problem_of(part_id: str) -> str:
