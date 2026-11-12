@@ -3,16 +3,20 @@
 The fixture submissions are checked against their truth files in test_ingest.py.
 """
 
+from pathlib import Path
+
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
 from PIL import Image, ImageChops, ImageFilter, ImageStat
+from reportlab.pdfgen.canvas import Canvas
 
 from redpen.imaging.prep import crop
 from redpen.imaging.render import (
     DPI,
     MAX_EDGE,
     classkick_sidebars,
+    open_pdf,
     render_page,
     render_region,
     sidebar,
@@ -169,3 +173,36 @@ def test_native_resolution_is_the_largest_image_s_not_a_small_sharp_one() -> Non
     place(pdf, page, 300, 0.5)  # 600 ppi, a small logo
 
     assert render_page(page, "other").native_ppi == pytest.approx(100)
+
+
+def test_an_answer_typed_into_a_form_field_shows_in_page_and_region(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "form.pdf"
+    canvas = Canvas(str(path), pagesize=(612, 792))
+    canvas.drawString(72, 750, "Q1. What is 2 + 2?")
+    canvas.acroForm.textfield(  # pyright: ignore[reportUnknownMemberType]
+        name="q1",
+        value="FOUR",
+        x=72,
+        y=680,
+        width=300,
+        height=40,
+        fontSize=20,
+        borderWidth=0,
+        fillColor=None,
+    )
+    canvas.save()
+    field = [72 / 612, (792 - 720) / 792, 372 / 612, (792 - 680) / 792]
+
+    def darkest(image: Image.Image) -> int:
+        return ImageStat.Stat(image.convert("L")).extrema[0][0]
+
+    pdf = open_pdf(path)
+    page = pdf[0]
+
+    assert darkest(crop(render_page(page, "other").image, field)[0]) < 128
+    assert darkest(render_region(page, "other", field, 600).image) < 128
+    # Without the form environment the field renders empty.
+    bare = render_page(pdfium.PdfDocument(path)[0], "other")
+    assert darkest(crop(bare.image, field)[0]) > 200

@@ -18,6 +18,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import hypot
+from pathlib import Path
 from typing import Literal
 
 import pypdfium2 as pdfium
@@ -72,6 +73,14 @@ class Region:
     # Image pixels per native pixel, so above 1 holds no new detail. None on a page
     # with no image, whose vector content has no ceiling.
     scale: float | None
+
+
+def open_pdf(source: Path | bytes) -> pdfium.PdfDocument:
+    """Open a PDF so that filled form fields render: pdfium draws them only through
+    a form environment, which must exist before any page is loaded."""
+    pdf = pdfium.PdfDocument(source)
+    pdf.init_forms()
+    return pdf
 
 
 def sidebar(page: pdfium.PdfPage) -> Sidebar | None:
