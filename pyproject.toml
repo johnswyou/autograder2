@@ -28,8 +28,8 @@ strict = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib", "-m", "not live"]
-markers = ["live: makes a paid OpenRouter call; run only with -m live"]
+addopts = ["--import-mode=importlib"]
+markers = ["live: makes a paid OpenRouter call; skipped unless REDPEN_LIVE=1"]
 filterwarnings = ["error"]
 
 [dependency-groups]

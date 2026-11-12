@@ -1,7 +1,9 @@
-"""One paid call through the real gateway. Run with `uv run pytest -m live -s`."""
+"""Paid calls through the real gateway. Run with `REDPEN_LIVE=1 uv run pytest -s
+tests/live`."""
 
 import asyncio
 import io
+import os
 import sqlite3
 from collections.abc import Awaitable
 from contextlib import closing
@@ -17,7 +19,12 @@ from redpen.llm.ledger import Ledger
 from redpen.llm.models import fetch_catalog
 from redpen.schemas.grade import Grade
 
-pytestmark = pytest.mark.live
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("REDPEN_LIVE") != "1", reason="paid; set REDPEN_LIVE=1"
+    ),
+]
 
 # The cheapest model found on 12 November 2026 with image input, structured outputs
 # and an endpoint that retains nothing.
