@@ -121,7 +121,7 @@ async def parse(
         raise SpecError(
             f"the spec of {workspace.blank_pdf} fails its checks: {'; '.join(failures)}"
         )
-    spec = with_text_bands(spec, pages)
+    spec = with_text_bands(spec, pages, results)
     write_model(workspace.spec_json, spec)
     return spec
 
@@ -178,12 +178,15 @@ def page_for_missing(spec: Spec, number: int) -> int:
     return min(last + 1, first)
 
 
-def with_text_bands(spec: Spec, pages: Sequence[render.Page]) -> Spec:
+def with_text_bands(
+    spec: Spec, pages: Sequence[render.Page], results: Sequence[PageParse]
+) -> Spec:
     """`spec` with the band of each part whose label is found in its home page's
-    text layer running from that label to the next part's on the page, or to the
-    bottom of the printed content. Other parts keep the model's estimate."""
+    text layer running from that label to the next label on the page, or to the
+    bottom of the printed content. The next label can be a part's or that of an
+    introduction read on the page. Other parts keep the model's estimate."""
     parts = list(spec.parts)
-    for number, page in enumerate(pages, 1):
+    for number, (page, found) in enumerate(zip(pages, results, strict=True), 1):
         if not page.text:
             continue
         here = [i for i, part in enumerate(parts) if part.home_page == number]
@@ -193,6 +196,10 @@ def with_text_bands(spec: Spec, pages: Sequence[render.Page]) -> Spec:
         starts = [
             top if top is not None else parts[i].band[0] for i, top in tops.items()
         ]
+        for item in found.items:
+            if item.response_type is None:
+                top = _label_top(item.label, item.band[0], page.text)
+                starts += [] if top is None else [top]
         end = _content_bottom(page.image)
         for i, top in tops.items():
             if top is None:

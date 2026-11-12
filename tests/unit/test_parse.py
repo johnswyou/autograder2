@@ -22,6 +22,7 @@ from redpen.prepare.parse import (
     parse,
     with_text_bands,
 )
+from redpen.schemas.common import ResponseType
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
@@ -120,19 +121,27 @@ def test_a_band_runs_from_its_printed_label_to_the_next() -> None:
             part("Q4", "4", band=[0.8, 0.9]),  # not in the text layer
         ]
     )
+    intros = [item("2.", None, [0.28, 0.3]), item("3.", None, [0.5, 0.55])]
 
-    banded = with_text_bands(spec, [page])
+    banded = with_text_bands(spec, [page], [PageParse(items=intros, shared_stems=[])])
 
     assert [p.band for p in banded.parts] == [
-        [0.10, 0.35],
+        [0.10, 0.30],
         [0.35, 0.45],
-        [0.45, 0.60],
+        [0.45, 0.55],
         [0.60, 0.8],
         [0.8, 0.9],
     ]
 
 
-# The label of each part of the fixture as printed on its home page.
+# The labels printed on each page of the fixture, top to bottom, and the label of
+# each part as printed on its home page.
+LABELS = {
+    1: ["1.", "2.", "3."],
+    2: ["4.", "(a)", "(b)"],
+    3: ["(c)", "5.", "(a)"],
+    4: ["(b)", "(c)"],
+}
 PRINTED = {
     "Q1": "1.",
     "Q2": "2.",
@@ -153,19 +162,23 @@ def test_each_band_of_the_vector_blank_starts_at_its_printed_label() -> None:
     spec = Spec(
         parts=[part(t["id"], t["label"], t["home_page"], band=[0, 1]) for t in truth]
     )
+    intros = {2: [item("4.", None, [0.08, 0.3])], 3: [item("5.", None, [0.7, 0.73])]}
+    read = [PageParse(items=intros.get(n, []), shared_stems=[]) for n in LABELS]
 
-    banded = with_text_bands(spec, pages)
+    banded = with_text_bands(spec, pages, read)
 
     assert [p.id for p in banded.parts] == list(PRINTED)
     for p in banded.parts:
-        [span] = [s for s in pages[p.home_page - 1].text if s.text == PRINTED[p.id]]
-        assert p.band[0] == span.box[1]
-    for a, b in zip(banded.parts, banded.parts[1:], strict=False):
-        if a.home_page == b.home_page:
-            assert a.band[1] == b.band[0]
+        text = pages[p.home_page - 1].text
+        labels = LABELS[p.home_page]
+        [top] = [s.box[1] for s in text if s.text == PRINTED[p.id]]
+        after = labels[labels.index(PRINTED[p.id]) + 1 :]
+        assert p.band[0] == top
+        if after:
+            [bottom] = [s.box[1] for s in text if s.text == after[0]]
+            assert p.band[1] == bottom
         else:  # the last part on a page runs to its lowest ink, the page number
-            page = pages[a.home_page - 1]
-            assert a.band[1] >= max(s.box[3] for s in page.text) > a.band[0]
+            assert p.band[1] >= max(s.box[3] for s in text)
 
 
 class Server:
@@ -211,14 +224,18 @@ class Server:
         )
 
 
-def item(label: str) -> PageItem:
+def item(
+    label: str,
+    response_type: ResponseType | None = "numeric",
+    band: list[float] | None = None,
+) -> PageItem:
     return PageItem(
         label=label,
         parent_label="",
         text="Find it.",
-        response_type="numeric",
+        response_type=response_type,
         options=[],
-        band=[0.1, 0.2],
+        band=band or [0.1, 0.2],
         figures=[],
         continues_from_previous_page=False,
     )
