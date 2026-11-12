@@ -63,33 +63,57 @@ class Catalog:
         """Endpoint slugs of `slug` that keep nothing and accept a JSON schema.
 
         An endpoint missing from the ZDR list retains data, and `zdr: true` keeps
-        requests off it. A slug in `only` matches its own endpoint and every one
-        below it (`azure` matches `azure/eu`), so a slug that would match a Safety
-        Retention endpoint is left out.
+        requests off it. A slug that would also match an endpoint that may retain
+        is left out.
         """
-        endpoints = [e for e in self.zdr_endpoints if e["model_id"] == slug]
-        retaining = [f"{e['tag']}/" for e in endpoints if e["safety_retention"]]
+        keeping_nothing, retaining = _split(self.zdr_endpoints, slug)
         return frozenset(
-            e["tag"]
-            for e in endpoints
-            if "structured_outputs" in e["supported_parameters"]
-            and not any(tag.startswith(f"{e['tag']}/") for tag in retaining)
+            tag
+            for tag, endpoint in keeping_nothing.items()
+            if "structured_outputs" in endpoint.get("supported_parameters", ())
+            and not any(_matches(tag, other) for other in retaining)
         )
+
+
+def _split(
+    zdr_endpoints: Sequence[Mapping[str, Any]], slug: str
+) -> tuple[dict[str, Mapping[str, Any]], list[str]]:
+    """`slug`'s endpoints in the ZDR list that keep nothing, by tag, and the tags of
+    those that may retain: anything but an explicit `safety_retention: false`.
+    An entry with no tag is skipped, since no slug in `only` can be told from it."""
+    tagged = [e for e in zdr_endpoints if e.get("model_id") == slug and e.get("tag")]
+    keeping_nothing = {
+        e["tag"]: e for e in tagged if e.get("safety_retention") is False
+    }
+    retaining = [e["tag"] for e in tagged if e.get("safety_retention") is not False]
+    return keeping_nothing, retaining
+
+
+def _matches(slug: str, tag: str) -> bool:
+    """Whether `slug` in `only` admits endpoint `tag`: it matches its own endpoint
+    and every one below it (`azure` matches `azure/eu`)."""
+    return f"{tag}/".startswith(f"{slug}/")
 
 
 async def fetch_catalog(
     api_key: str, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> Catalog:
     """The models and the ZDR endpoints OpenRouter lists now. Listing is free."""
-    async with httpx.AsyncClient(
+    async with _client(api_key, transport) as http:
+        models = await _data(http, "/models")
+        zdr_endpoints = await _data(http, "/endpoints/zdr")
+    return Catalog({model["id"]: model for model in models}, zdr_endpoints)
+
+
+def _client(
+    api_key: str, transport: httpx.AsyncBaseTransport | None
+) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
         base_url=API_URL,
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=60,
         transport=transport,
-    ) as http:
-        models = await _data(http, "/models")
-        zdr_endpoints = await _data(http, "/endpoints/zdr")
-    return Catalog({model["id"]: model for model in models}, zdr_endpoints)
+    )
 
 
 async def _data(http: httpx.AsyncClient, path: str) -> list[dict[str, Any]]:

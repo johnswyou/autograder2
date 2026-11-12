@@ -36,7 +36,7 @@ def model(
 def endpoint(
     slug: str,
     tag: str,
-    safety_retention: bool = False,
+    safety_retention: bool | None = False,
     params: tuple[str, ...] = ("max_tokens", "structured_outputs"),
 ) -> dict[str, Any]:
     """An entry of `GET /api/v1/endpoints/zdr`."""
@@ -48,12 +48,18 @@ def endpoint(
     }
 
 
+def without(key: str, entry: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in entry.items() if k != key}
+
+
 MODELS = [
     model("~vendor/vision-latest", alias_of="vendor/vision-2"),
     model("vendor/vision-2"),
     model("vendor/text-1", inputs=("text",)),
     model("vendor/loose-1", params=("max_tokens",)),
     model("vendor/kept-1"),
+    model("vendor/null-1"),
+    model("vendor/unflagged-1"),
 ]
 # The provider "retainer" also serves vendor/vision-2. It keeps data, so it is not
 # in the ZDR list at all.
@@ -66,6 +72,11 @@ ZDR_ENDPOINTS = [
     endpoint("vendor/text-1", "zero"),
     endpoint("vendor/loose-1", "zero"),
     endpoint("vendor/kept-1", "safety", safety_retention=True),
+    # Anything but an explicit false may retain: a null flag, or none at all.
+    endpoint("vendor/null-1", "zero", safety_retention=None),
+    without("safety_retention", endpoint("vendor/unflagged-1", "zero")),
+    # An entry with no tag cannot be named in `only`, so it is skipped.
+    without("tag", endpoint("vendor/vision-2", "zero")),
 ]
 
 
@@ -119,6 +130,11 @@ def test_an_alias_resolves_to_its_concrete_model() -> None:
 
 def test_only_endpoints_that_retain_nothing_are_pinned() -> None:
     assert resolve("~vendor/vision-latest").providers == {"zero"}
+
+
+@pytest.mark.parametrize("slug", ["vendor/null-1", "vendor/unflagged-1"])
+def test_a_null_or_missing_retention_flag_counts_as_retaining(slug: str) -> None:
+    assert resolve(slug).providers == frozenset()
 
 
 def test_relaxed_privacy_pins_no_providers_and_needs_none() -> None:
