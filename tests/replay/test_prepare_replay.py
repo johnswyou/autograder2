@@ -10,7 +10,6 @@ import os
 import re
 import shutil
 from collections.abc import Callable
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +26,6 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo
 from redpen.prepare.key import load_key
 from redpen.prepare.parse import CHOICE_TYPES
 from redpen.schemas.common import DiagramElement
@@ -35,33 +33,8 @@ from redpen.schemas.key import Answer, Key
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
+from tests.pinned import SOLVER
 
-# ~anthropic/claude-opus-latest as `pin` resolved it with strict privacy on
-# 12 November 2026.
-SOLVER = ModelInfo(
-    slug="anthropic/claude-opus-5.5",
-    supported_parameters=frozenset(
-        {
-            "include_reasoning",
-            "max_completion_tokens",
-            "max_tokens",
-            "reasoning",
-            "reasoning_effort",
-            "response_format",
-            "stop",
-            "structured_outputs",
-            "tool_choice",
-            "tools",
-            "verbosity",
-        }
-    ),
-    accepts_images=True,
-    prompt_price=Decimal("0.000004"),
-    completion_price=Decimal("0.00002"),
-    providers=frozenset(
-        {"google-vertex/europe", "google-vertex/global", "google-vertex/us"}
-    ),
-)
 TRUTH = Key.model_validate_json((FIXTURES / "key.json").read_text())
 UNITS = pint.UnitRegistry()
 X = Symbol("x")

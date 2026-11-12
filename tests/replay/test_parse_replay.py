@@ -10,7 +10,6 @@ import shutil
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
-from decimal import Decimal
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -22,40 +21,15 @@ from redpen.cli import app
 from redpen.config import Config, Models, read_lock
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
-from redpen.llm.models import Catalog, ModelInfo
+from redpen.llm.models import Catalog
 from redpen.prepare.key import load_key, save_key
 from redpen.prepare.parse import parse
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
+from tests.pinned import PARSER
 
-# ~anthropic/claude-sonnet-latest as `pin` resolved it with strict privacy on
-# 12 November 2026.
-MODEL = ModelInfo(
-    slug="anthropic/claude-sonnet-5.5",
-    supported_parameters=frozenset(
-        {
-            "include_reasoning",
-            "max_completion_tokens",
-            "max_tokens",
-            "reasoning",
-            "reasoning_effort",
-            "response_format",
-            "stop",
-            "structured_outputs",
-            "tool_choice",
-            "tools",
-            "verbosity",
-        }
-    ),
-    accepts_images=True,
-    prompt_price=Decimal("0.000002"),
-    completion_price=Decimal("0.00001"),
-    providers=frozenset(
-        {"google-vertex/europe", "google-vertex/global", "google-vertex/us"}
-    ),
-)
 TRUTH: list[dict[str, Any]] = json.loads((FIXTURES / "key.json").read_text())["parts"]
 
 
@@ -86,7 +60,7 @@ def test_the_fixture_blank_parses_into_the_parts_of_its_key(
 
     async def main() -> Spec:
         async with replay(f"parse_{blank.removesuffix('.pdf')}") as gateway:
-            return await parse(workspace, gateway, MODEL, Config().image_budget)
+            return await parse(workspace, gateway, PARSER, Config().image_budget)
 
     spec = asyncio.run(main())
 
@@ -95,30 +69,30 @@ def test_the_fixture_blank_parses_into_the_parts_of_its_key(
 
 
 def catalog() -> Catalog:
-    """OpenRouter listing MODEL behind every default role."""
+    """OpenRouter listing PARSER behind every default role."""
     entry = {
-        "id": MODEL.slug,
+        "id": PARSER.slug,
         "architecture": {"input_modalities": ["text", "image"]},
-        "supported_parameters": sorted(MODEL.supported_parameters),
+        "supported_parameters": sorted(PARSER.supported_parameters),
         "pricing": {
-            "prompt": str(MODEL.prompt_price),
-            "completion": str(MODEL.completion_price),
+            "prompt": str(PARSER.prompt_price),
+            "completion": str(PARSER.completion_price),
         },
     }
     aliases = {
-        name: {"id": name, "alias_target": {"slug": MODEL.slug}}
+        name: {"id": name, "alias_target": {"slug": PARSER.slug}}
         for name in Models().model_dump().values()
     }
     endpoints = [
         {
-            "model_id": MODEL.slug,
+            "model_id": PARSER.slug,
             "tag": tag,
             "safety_retention": False,
             "supported_parameters": ["structured_outputs"],
         }
-        for tag in MODEL.providers
+        for tag in PARSER.providers
     ]
-    return Catalog({**aliases, MODEL.slug: entry}, endpoints)
+    return Catalog({**aliases, PARSER.slug: entry}, endpoints)
 
 
 def recorded(db_path: Path, api_key: str, **options: Any) -> Gateway:
@@ -166,7 +140,7 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     assert workspace.blank_pdf.read_bytes() == Path("blank.pdf").read_bytes()
     assert all(workspace.key_page(n).exists() for n in (1, 2, 3, 4))
     assert not workspace.key_page(5).exists()
-    assert read_lock(workspace.config_lock_toml).models["parser"] == MODEL
+    assert read_lock(workspace.config_lock_toml).models["parser"] == PARSER
     spec = read_model(workspace.spec_json, Spec)
     assert_matches_the_truth(spec)
     assert "Pages: 4\nProblems: 5\nParts: 9\n" in result.output
