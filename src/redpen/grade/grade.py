@@ -38,11 +38,11 @@ async def grade_student(
     model: ModelInfo,
 ) -> dict[str, GradeRecord]:
     """Grade `student` from their stored readings and return each graded part's
-    record, by part id. A part read as unreadable gets none. Each top-level
-    problem's file is written as soon as it is graded. The problems run
-    concurrently; when one still fails its checks after one more call, `StageError`
-    is raised once every other problem has finished, and that problem is left with
-    no file, not even an earlier one."""
+    record, by part id. A part read as unreadable gets none, and so does a choice
+    part answered with no option read. Each top-level problem's file is written as
+    soon as it is graded. The problems run concurrently; when one still fails its
+    checks after one more call, `StageError` is raised once every other problem has
+    finished, and that problem is left with no file, not even an earlier one."""
     by_problem: defaultdict[str, list[KeyPart]] = defaultdict(list)
     for part in key.parts:
         by_problem[problem_of(part.id)].append(part)
@@ -71,9 +71,17 @@ async def grade_student(
         asked: list[KeyPart] = []
         for part in parts:
             reading = mine[part.id].reading
-            if reading.status == "unreadable":
-                continue  # the score is withheld, never zero (design 9)
-            if reading.status == "blank" or part.response_type in CHOICE_TYPES:
+            choice = part.response_type in CHOICE_TYPES
+            # Withheld, never zero (design 9): work that cannot be read, and a choice
+            # part answered with no option read, which no grader that knows the key
+            # may settle (design 7.3).
+            if reading.status == "unreadable" or (
+                choice
+                and reading.status == "answered"
+                and not reading.final_answer.choices
+            ):
+                continue
+            if reading.status == "blank" or choice:
                 records[part.id] = GradeRecord(
                     provenance=provenance(part, False), grade=by_code(part, reading)
                 )

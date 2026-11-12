@@ -35,6 +35,7 @@ class GradeRecord(Schema):
     grade: Grade
 
 
-# A part read as unreadable has no record: its score is withheld, never zero.
+# A part read as unreadable has no record, nor has a choice part answered with no
+# option read: its score is withheld, never zero.
 class ProblemGrades(Schema):
     records: list[GradeRecord]

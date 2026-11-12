@@ -207,7 +207,6 @@ def by_code(part: KeyPart) -> Provenance:
         ("multiple_choice", ["C"], ["c"], True),
         ("multiple_choice", ["C"], [" C "], True),
         ("multiple_choice", ["C"], ["C", "D"], False),
-        ("multiple_choice", ["C"], [], False),
         ("multiple_select", ["A", "C"], ["C", "A"], True),
         ("multiple_select", ["A", "C"], ["A"], False),
     ],
@@ -217,7 +216,6 @@ def by_code(part: KeyPart) -> Provenance:
         "lower-case letter",
         "surrounding spaces",
         "two letters where one is expected",
-        "none chosen",
         "multiple select in another order",
         "multiple select missing one",
     ],
@@ -249,6 +247,31 @@ def test_a_choice_part_earns_full_points_only_for_the_key_s_set_of_options(
     assert records["Q1"].provenance == by_code(q1)
     stored = read_model(workspace.grade_json(STUDENT, "Q1"), ProblemGrades)
     assert stored.records == [records["Q1"]]
+
+
+def test_a_choice_part_with_no_option_read_is_withheld_and_a_blank_one_is_zero(
+    tmp_path: Path,
+) -> None:
+    key = key_of(PARTS["Q1"], PARTS["Q2"], PARTS["Q3"])
+    workspace = Workspace(tmp_path / "ws")
+    chosen = FinalAnswer(choices=["B"], value=None, unit=None, expression=None)
+    # Q1: something is written beside the question, and no option is selected.
+    store(
+        workspace,
+        [
+            reading("Q1", lines=["a note"]),
+            blank("Q2"),
+            reading("Q3", final_answer=chosen),
+        ],
+    )
+
+    records = run(workspace, key, refuse)
+
+    assert list(records) == ["Q2", "Q3"]
+    assert awards(records["Q2"]) == [Decimal(0)]
+    assert awards(records["Q3"]) == [Decimal(1)]
+    q1 = read_model(workspace.grade_json(STUDENT, "Q1"), ProblemGrades)
+    assert q1.records == []
 
 
 def test_a_blank_part_scores_zero_on_every_criterion_and_unreadable_gets_no_grade(
