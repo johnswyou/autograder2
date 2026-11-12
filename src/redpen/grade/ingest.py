@@ -222,10 +222,10 @@ def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRec
         if record.student_name == submission.name and all(i.is_file() for i in images):
             return record
 
-    # The record is written last, so a run cut short is redone in full next time.
-    record_path.unlink(missing_ok=True)
-    shutil.rmtree(workspace.student_page(key, 1).parent, ignore_errors=True)
-    source.parent.mkdir(parents=True, exist_ok=True)
+    # Everything in the directory derives from source.pdf, so none of it is kept, and
+    # the record is written last, so a run cut short is redone in full next time.
+    shutil.rmtree(workspace.student_dir(key), ignore_errors=True)
+    source.parent.mkdir(parents=True)
     source.write_bytes(submission.data)
     pages: list[IngestPage] = []
     for number, page in enumerate(submission.pdf, 1):

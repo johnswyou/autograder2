@@ -212,6 +212,24 @@ def test_an_unchanged_submission_is_not_rendered_again(tmp_path: Path) -> None:
     assert page.stat().st_mtime_ns == written
 
 
+def test_a_changed_submission_leaves_nothing_of_the_old_one(tmp_path: Path) -> None:
+    source = folder(tmp_path, {OTHER.name: OTHER})
+    workspace = Workspace(tmp_path / "ws")
+    [record] = ingest(source, workspace).students
+    stale = workspace.map_json(record.student_key)
+    stale.write_text("{}")
+    resubmitted = Canvas(str(source / OTHER.name))  # same file name, one page
+    resubmitted.drawString(72, 720, "resubmitted")
+    resubmitted.save()
+
+    [changed] = ingest(source, workspace).students
+
+    assert changed.student_key == record.student_key
+    assert len(changed.pages) == 1 < len(record.pages)
+    assert not stale.exists()
+    assert len(list((stale.parent / "pages").iterdir())) == 1
+
+
 @pytest.mark.skipif(
     not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
 )
