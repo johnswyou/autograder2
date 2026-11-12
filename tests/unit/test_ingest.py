@@ -2,8 +2,10 @@
 
 import os
 import shutil
+import struct
 import tempfile
 import zipfile
+from hashlib import sha256
 from pathlib import Path
 
 import pypdfium2 as pdfium
@@ -13,7 +15,8 @@ from PIL import Image, ImageChops
 from reportlab.pdfgen.canvas import Canvas
 
 from redpen.grade.ingest import IngestSummary, ingest
-from redpen.workspace import Workspace
+from redpen.schemas.submission import IngestRecord
+from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import SUBMISSIONS, truth_of
 
 OTHER = next(p for p in SUBMISSIONS if truth_of(p).source_kind == "other")
@@ -23,7 +26,7 @@ CLASSKICK = [p for p in SUBMISSIONS if truth_of(p).source_kind == "classkick"]
 def folder(root: Path, files: dict[str, Path | bytes]) -> Path:
     """A folder under `root` holding each file, copied or written, under its name."""
     path = root / "submissions"
-    path.mkdir()
+    path.mkdir(parents=True)
     for name, content in files.items():
         if isinstance(content, Path):
             shutil.copyfile(content, path / name)
@@ -138,6 +141,34 @@ def test_a_zip_member_that_cannot_be_read_is_reported_and_skipped(
     assert "crc" in failure.reason.lower()
 
 
+def declare_sizes(archive: Path, sizes: list[int]) -> None:
+    """Rewrite the uncompressed size the ZIP's central directory gives each of its
+    first members, in order."""
+    data = bytearray(archive.read_bytes())
+    at = struct.unpack("<I", data[-6:-2])[0]  # where the central directory starts
+    for size in sizes:
+        at = data.index(b"PK\x01\x02", at)
+        data[at + 24 : at + 28] = struct.pack("<I", size)
+        at += 4
+    archive.write_bytes(data)
+
+
+def test_an_oversized_zip_member_is_skipped_and_reported(tmp_path: Path) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("Title - Huge.pdf", b"%PDF-1.4 declared as 300 MB")
+        zipped.writestr("Title - Liar.pdf", OTHER.read_bytes())
+        zipped.writestr(OTHER.name, OTHER.read_bytes())
+    declare_sizes(archive, [300 * 2**20, 100])  # Liar holds far more than 100 bytes
+
+    summary = ingest(archive, Workspace(tmp_path / "ws"))
+
+    assert [r.student_name for r in summary.students] == [truth_of(OTHER).student_name]
+    reasons = {f.file: f.reason for f in summary.failed}
+    assert reasons["Title - Huge.pdf"] == "Over 200 MB uncompressed."
+    assert "crc" in reasons["Title - Liar.pdf"].lower()  # read stopped at 100 bytes
+
+
 def test_of_two_files_for_one_student_the_newer_is_used(tmp_path: Path) -> None:
     name = truth_of(CLASSKICK[0]).student_name  # from the Classkick sidebar
     renamed = f"Resubmitted - {name}.pdf"  # from the file name
@@ -161,26 +192,44 @@ def test_a_roster_fixes_spellings_and_reports_both_kinds_of_mismatch(
     roster = tmp_path / "roster.csv"
     roster.write_text(f"{spelled},period 2\nNobody Here,period 3\n")
     source = folder(tmp_path, {CLASSKICK[0].name: CLASSKICK[0], OTHER.name: OTHER})
+    workspace = Workspace(tmp_path / "ws")
+    keys = {r.student_key for r in ingest(source, workspace).students}
+    pages = sorted(workspace.students_dir.rglob("*.png"))
+    written = [page.stat().st_mtime_ns for page in pages]
 
-    summary = ingest(source, Workspace(tmp_path / "ws"), roster)
+    summary = ingest(source, workspace, roster)
 
     assert sorted(r.student_name for r in summary.students) == sorted([spelled, other])
     assert summary.not_on_roster == [other]
     assert summary.missing_from_roster == ["Nobody Here"]
+    # A roster moves no one and re-renders nothing; the record takes its spelling.
+    assert {r.student_key for r in summary.students} == keys
+    assert [page.stat().st_mtime_ns for page in pages] == written
+    for record in summary.students:
+        on_disk = read_model(workspace.ingest_json(record.student_key), IngestRecord)
+        assert on_disk.student_name == record.student_name
 
 
-def test_names_that_would_share_a_key_get_different_keys(tmp_path: Path) -> None:
+def test_a_key_depends_on_its_own_name_alone(tmp_path: Path) -> None:
+    name = truth_of(OTHER).student_name
+    alone = ingest(
+        folder(tmp_path / "a", {OTHER.name: OTHER}), Workspace(tmp_path / "a")
+    )
     files: dict[str, Path | bytes] = {
+        OTHER.name: OTHER,
         "Title - José Núñez.pdf": OTHER,
-        "Title - Jose Nunez.pdf": OTHER,
+        "Title - Jose Nunez.pdf": OTHER,  # slugs as the name above does
     }
 
-    summary = ingest(folder(tmp_path, files), Workspace(tmp_path / "ws"))
+    crowd = ingest(folder(tmp_path / "b", files), Workspace(tmp_path / "b"))
 
-    keys = {r.student_name: r.student_key for r in summary.students}
-    assert set(keys) == {"José Núñez", "Jose Nunez"}
-    assert keys["Jose Nunez"] == "Jose_Nunez"
+    keys = {r.student_name: r.student_key for r in crowd.students}
+    digest = sha256(name.encode()).hexdigest()[:6]
+    assert keys[name] == alone.students[0].student_key
+    assert keys[name] == f"{name.replace(' ', '_')}-{digest}"
+    assert keys["José Núñez"] != keys["Jose Nunez"]
     assert keys["José Núñez"].startswith("Jose_Nunez-")
+    assert keys["Jose Nunez"].startswith("Jose_Nunez-")
 
 
 def test_an_encrypted_or_unreadable_pdf_is_reported_and_skipped(

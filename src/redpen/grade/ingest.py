@@ -42,7 +42,8 @@ class IngestSummary(Schema):
     missing_from_roster: list[str]
     ignored_files: int  # files that are not PDFs
     unsafe_members: list[str]  # ZIP members skipped for their names
-    failed: list[Failure]  # PDFs that could not be read, and why
+    # PDFs that could not be read, and ZIP members over the size limit, and why.
+    failed: list[Failure]
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,8 @@ class _Submission:
     modified: tuple[float, ...]
     pdf: pdfium.PdfDocument
     kind: SourceKind
-    name: str
+    given: str  # the name as the submission gives it
+    name: str  # the name shown: the roster's spelling when it has one
 
 
 def ingest(
@@ -64,8 +66,10 @@ def ingest(
     the file name after its last " - ", else the file stem. With a roster CSV
     (names in the first column), a name that matches a roster name ignoring case
     and spacing takes the roster's spelling. Of two files for one student the most
-    recently modified is used. A student whose `source.pdf` is unchanged and whose
-    files are all there is not rendered again.
+    recently modified is used. The student key comes from the name as the submission
+    gives it, before any roster spelling, so it is the same in every run. A student
+    whose `source.pdf` is unchanged and whose files are all there is not rendered
+    again.
     """
     files, ignored, unsafe, failed = _read(source)
     spelling: dict[str, str] = {}
@@ -85,10 +89,10 @@ def ingest(
         if len(pdf) == 0:
             failed.append(Failure(file=file, reason="The PDF has no pages."))
             continue
-        name = _name(file, sidebars)
-        name = spelling.get(_fold(name), name)
+        given = _name(file, sidebars)
+        name = spelling.get(_fold(given), given)
         kind: SourceKind = "classkick" if sidebars else "other"
-        submission = _Submission(file, data, modified, pdf, kind, name)
+        submission = _Submission(file, data, modified, pdf, kind, given, name)
         groups.setdefault(_fold(name), []).append(submission)
 
     chosen: list[_Submission] = []
@@ -102,11 +106,10 @@ def ingest(
                 Duplicate(student_name=newest.name, used=newest.file, dropped=dropped)
             )
 
-    keys = _keys([s.name for s in chosen])
     students: list[IngestRecord] = []
-    for submission in sorted(chosen, key=lambda s: keys[s.name]):
+    for submission in sorted(chosen, key=lambda s: _key(s.given)):
         try:
-            students.append(_write(workspace, keys[submission.name], submission))
+            students.append(_write(workspace, _key(submission.given), submission))
         except pdfium.PdfiumError as error:
             failed.append(Failure(file=submission.file, reason=str(error)))
 
@@ -128,6 +131,8 @@ def ingest(
 # only compared within one source, so a ZIP's zeroed dates need no conversion.
 type _File = tuple[str, bytes, tuple[float, ...]]
 
+MAX_MEMBER_BYTES = 200 * 2**20  # a PDF member of a ZIP, uncompressed
+
 # What reading one ZIP member can raise: encrypted, corrupt, truncated or unsupported.
 _UNREADABLE = (
     RuntimeError,
@@ -140,7 +145,7 @@ _UNREADABLE = (
 
 def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
     """Each PDF in `source`; the number of other files; the ZIP members skipped for
-    their names; and the ZIP members that could not be read."""
+    their names; and the ZIP members too large or impossible to read."""
     found: list[_File] = []
     ignored = 0
     unsafe: list[str] = []
@@ -166,8 +171,13 @@ def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
                 unsafe.append(member.filename)
             elif not _is_pdf(name):
                 ignored += 1
+            elif member.file_size > MAX_MEMBER_BYTES:
+                reason = f"Over {MAX_MEMBER_BYTES // 2**20} MB uncompressed."
+                failed.append(Failure(file=name, reason=reason))
             else:
                 try:
+                    # zipfile stops at the declared size, and a member that holds
+                    # more then fails its CRC check.
                     found.append((name, archive.read(member), member.date_time))
                 except _UNREADABLE as error:
                     failed.append(Failure(file=name, reason=str(error)))
@@ -193,20 +203,12 @@ def _fold(name: str) -> str:
     return "".join(name.split()).casefold()
 
 
-def _keys(names: list[str]) -> dict[str, str]:
-    """A directory name for each student name, matching the StudentKey pattern. Two
-    names that would share one get a short suffix from a hash of the name."""
-    keys: dict[str, str] = {}
-    taken: set[str] = set()  # casefolded, for case-insensitive file systems
-    for name in sorted(names):
-        plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
-        base = re.sub(r"[^A-Za-z0-9-]+", "_", plain)[:60].strip("_-") or "student"
-        key, digest, length = base, sha256(name.encode()).hexdigest(), 6
-        while key.casefold() in taken:
-            key, length = f"{base}-{digest[:length]}", length + 1
-        taken.add(key.casefold())
-        keys[name] = key
-    return keys
+def _key(given: str) -> str:
+    """A directory name for a student that depends on this one name only: a slug of
+    it and six hex digits of its hash, matching the StudentKey pattern."""
+    plain = unicodedata.normalize("NFKD", given).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^A-Za-z0-9-]+", "_", plain)[:60].strip("_-") or "student"
+    return f"{slug}-{sha256(given.encode()).hexdigest()[:6]}"
 
 
 def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRecord:
@@ -218,8 +220,10 @@ def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRec
         and source.read_bytes() == submission.data
     ):
         record = read_model(record_path, IngestRecord)
-        images = [workspace.student_page(key, p.number) for p in record.pages]
-        if record.student_name == submission.name and all(i.is_file() for i in images):
+        if all(workspace.student_page(key, p.number).is_file() for p in record.pages):
+            if record.student_name != submission.name:  # a roster now spells it
+                record = record.model_copy(update={"student_name": submission.name})
+                write_model(record_path, record)
             return record
 
     # Everything in the directory derives from source.pdf, so none of it is kept, and
