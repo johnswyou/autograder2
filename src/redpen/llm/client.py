@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import contextlib
 import hashlib
 import json
 import random
@@ -60,7 +59,8 @@ class FatalError(Exception):
 
 
 class ResponseValidationError(Exception):
-    """The response failed validation, and so did the one repair attempt."""
+    """The response failed validation, and so did the one repair attempt. Or a
+    stored response no longer validates."""
 
 
 @dataclass(frozen=True)
@@ -154,9 +154,9 @@ class Gateway:
         The cache breakpoint sits between `shared` and `items`. A parameter in
         `params` is sent only if `model` supports it. `role` labels the ledger rows.
         """
+        name = response_model.__name__
         schema = response_model.model_json_schema()
         if problems := strict_problems(schema):
-            name = response_model.__name__
             raise ValueError(f"{name} is not a strict schema: {'; '.join(problems)}")
         provider: dict[str, Any] = {"require_parameters": True}
         if self._strict_privacy:
@@ -177,10 +177,15 @@ class Gateway:
         key = cache_key(model.slug, keyed, schema, sent, prompt_version)
         if (raw := self._cache.get(key)) is not None:
             response = json.loads(raw)
-            # A cached response the model no longer accepts is fetched again.
-            with contextlib.suppress(ValidationError):
+            try:
                 value = response_model.model_validate_json(_content(response))
-                return Result(value, response["model"], _usage(response, model), True)
+            except ValidationError as error:
+                # Fetching it again could change a grade (design 10.3).
+                raise ResponseValidationError(
+                    f"the stored {name} for role {role} no longer validates"
+                    f" ({_locations(error)}). Bump prompt version {prompt_version}."
+                ) from None
+            return Result(value, response["model"], _usage(response, model), True)
 
         body: dict[str, Any] = {
             **sent,
@@ -189,7 +194,7 @@ class Gateway:
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": response_model.__name__,
+                    "name": name,
                     "strict": True,
                     "schema": without_validation_keywords(schema),
                 },
@@ -213,10 +218,12 @@ class Gateway:
             try:
                 value = response_model.model_validate_json(_content(response))
             except ValidationError as again:
+                # `from None`: Pydantic's own text quotes the output, which comes
+                # from student work.
                 raise ResponseValidationError(
-                    f"{model.slug} returned an invalid {response_model.__name__}"
-                    f" twice: {again}"
-                ) from again
+                    f"{model.slug} returned an invalid {name} twice"
+                    f" ({_locations(again)})"
+                ) from None
         self._cache.put(key, json.dumps(response))
         return Result(value, response["model"], _usage(response, model), False)
 
@@ -241,21 +248,25 @@ class Gateway:
                 reply = await self._http.post("/chat/completions", json=body)
             except httpx.TransportError as error:
                 raise RetryableError(f"{model.slug}: {error!r}") from error
-        if reply.status_code != 200:
-            _raise_for(
-                reply.status_code,
-                f"{model.slug}: HTTP {reply.status_code}: {reply.text[:500]}",
-            )
         try:
             response: dict[str, Any] = reply.json()
         except ValueError as error:
-            raise RetryableError(f"{model.slug}: the response is not JSON") from error
+            if reply.status_code == 200:
+                raise RetryableError(
+                    f"{model.slug}: the response is not JSON"
+                ) from error
+            response = {}
+        if (code := reply.status_code) != 200:
+            _raise_for(
+                code, f"{model.slug}: HTTP {code}{_message(response.get('error'))}"
+            )
         self._ledger.record(role, model.slug, _usage(response, model))
         # A provider failure can arrive inside a 200 response.
         choice = _first_choice(response)
         failure: dict[str, Any] = response.get("error") or choice.get("error") or {}
         if failure or choice.get("finish_reason") == "error":
-            _raise_for(failure.get("code", 502), f"{model.slug}: {failure or choice}")
+            code = failure.get("code", 502)
+            _raise_for(code, f"{model.slug}: error {code}{_message(failure)}")
         if response.get("model") != model.slug:
             raise FatalError(
                 f"asked for {model.slug}, served by {response.get('model')}"
@@ -274,6 +285,23 @@ class Gateway:
 def _raise_for(code: int, message: str) -> NoReturn:
     transient = code in (408, 429) or code >= 500
     raise (RetryableError if transient else FatalError)(message)
+
+
+# Exception text never quotes a response: model output is derived from student work.
+
+
+def _message(failure: dict[str, Any] | None) -> str:
+    """`: ` and the start of an OpenRouter error's message, or "" if it has none."""
+    message = (failure or {}).get("message")
+    return f": {str(message)[:200]}" if message else ""
+
+
+def _locations(error: ValidationError) -> str:
+    """Each failure's type and field location, without the value."""
+    return "; ".join(
+        e["type"] + (f" at {'.'.join(map(str, e['loc']))}" if e["loc"] else "")
+        for e in error.errors()
+    )
 
 
 def _messages(

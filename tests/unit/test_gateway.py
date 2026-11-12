@@ -3,6 +3,7 @@ import base64
 import json
 import math
 import sqlite3
+import traceback
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import closing
 from decimal import Decimal
@@ -408,3 +409,63 @@ def test_strict_privacy_refuses_a_model_with_no_pinned_provider(
     with pytest.raises(ValueError, match="no pinned endpoint that retains nothing"):
         run(tmp_path / "cache.sqlite", server, ask(model=unpinned))
     assert server.requests == []
+
+
+def test_a_stored_response_that_no_longer_validates_raises_without_a_request(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    server = Server('{"letter": "B"}')
+    run(db, server, ask())
+    stale = completion('{"letter": "bb"}').json()
+    with closing(sqlite3.connect(db, autocommit=True)) as connection:
+        connection.execute("UPDATE calls SET response = ?", (json.dumps(stale),))
+
+    with pytest.raises(
+        ResponseValidationError, match="Bump prompt version v1"
+    ) as error:
+        run(db, server, ask())
+    assert len(server.requests) == 1
+    assert "bb" not in str(error.value)
+
+
+SECRET = "the student wrote that the answer is 42"
+
+
+@pytest.mark.parametrize(
+    ("reply", "raised"),
+    [
+        (json.dumps({"letter": SECRET}), ResponseValidationError),
+        (
+            httpx.Response(
+                400,
+                json={"error": {"code": 400, "message": "Bad", "metadata": SECRET}},
+            ),
+            FatalError,
+        ),
+        (
+            httpx.Response(
+                200,
+                json={
+                    "model": MODEL.slug,
+                    "choices": [
+                        {
+                            "message": {"content": SECRET},
+                            "finish_reason": "error",
+                            "error": {"code": 400, "metadata": {"raw": SECRET}},
+                        }
+                    ],
+                },
+            ),
+            FatalError,
+        ),
+    ],
+    ids=["invalid twice", "HTTP error", "error inside a 200"],
+)
+def test_an_error_does_not_quote_the_response(
+    tmp_path: Path, reply: str | httpx.Response, raised: type[Exception]
+) -> None:
+    with pytest.raises(raised) as error:
+        run(tmp_path / "cache.sqlite", Server(reply), ask())
+
+    assert SECRET not in "".join(traceback.format_exception(error.value))
