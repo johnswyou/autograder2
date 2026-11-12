@@ -23,7 +23,7 @@ from redpen.config import Config, Models, read_lock
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, ModelInfo
-from redpen.prepare.key import load_key
+from redpen.prepare.key import load_key, save_key
 from redpen.prepare.parse import parse
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
@@ -206,3 +206,27 @@ def test_prepare_after_a_file_it_cannot_open_works_in_the_same_workspace(
     assert refused.exit_code == 1
     assert result.exit_code == 0, result.output
     assert_matches_the_truth(read_model(Workspace(Path("ws")).spec_json, Spec))
+
+
+def test_prepare_parses_again_when_the_key_exists_but_the_spec_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fetch_catalog(api_key: str, **options: object) -> Catalog:
+        return catalog()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("redpen.cli.Gateway", recorded)
+    monkeypatch.setattr("redpen.cli._key", refuse)
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    workspace = Workspace(Path("ws"))
+    save_key(workspace.key_yaml, TRUTH_KEY)
+    written = workspace.key_yaml.read_bytes()
+
+    result = CliRunner().invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    assert_matches_the_truth(read_model(workspace.spec_json, Spec))
+    assert workspace.key_yaml.read_bytes() == written
+    assert "ws/key/key.yaml has no problem and is left as it is." in result.output

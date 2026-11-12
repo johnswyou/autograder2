@@ -495,5 +495,6 @@ def test_key_check_passes_a_clean_key_and_render_writes_the_markdown(
     assert checked.exit_code == 0, checked.output
     assert "Total points: 16\n  page 1: 3\n  page 2: 5\n" in checked.output
     assert rendered.exit_code == 0, rendered.output
+    assert rendered.output == f"Wrote {workspace.solutions_md} and rubric.md\n"
     assert workspace.solutions_md.read_text() == solutions_md(KEY)
     assert workspace.rubric_md.read_text() == rubric_md(KEY)

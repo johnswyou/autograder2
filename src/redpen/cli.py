@@ -179,9 +179,14 @@ def prepare(
     typer.echo(f"Parts: {len(spec.parts)}")
     for response_type, count in sorted(types.items()):
         typer.echo(f"  {response_type}: {count}")
-    # The instructor may have edited it: it is never overwritten.
+    # The instructor may have edited it: it is checked, never overwritten.
     if ws.key_yaml.exists():
-        typer.echo(f"{ws.key_yaml} exists, so it is left as it is.")
+        _, problems = examine(ws.key_yaml, spec)
+        for problem in problems:
+            typer.echo(problem)
+        if problems:
+            _fail(f"{ws.key_yaml} has problems and is left as it is.")
+        typer.echo(f"{ws.key_yaml} has no problem and is left as it is.")
         return
     try:
         key = asyncio.run(_key(ws, config, lock, api_key, spec))
@@ -267,6 +272,7 @@ def key_render(workspace: KeyWorkspace) -> None:
     except (OSError, YAMLError, ValidationError):
         _fail(f"{ws.key_yaml} does not load. `redpen key check` lists its problems.")
     write_markdown(ws, key)
+    typer.echo(f"Wrote {ws.solutions_md} and {ws.rubric_md.name}")
 
 
 @app.command()

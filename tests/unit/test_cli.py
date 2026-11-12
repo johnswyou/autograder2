@@ -1,6 +1,7 @@
 import functools
 import logging
 import shutil
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -14,9 +15,11 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.config import Models
 from redpen.llm.models import Catalog, recheck_providers
+from redpen.prepare.key import save_key
+from redpen.schemas.key import Criterion, Key, KeyPart, Policies
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, write_model
-from tests.fixture_truth import FIXTURES
+from tests.fixture_truth import FIXTURES, answer
 
 runner = CliRunner()
 
@@ -185,7 +188,7 @@ def test_prepare_checks_a_spec_it_reuses(
     shutil.copy("blank.pdf", workspace.blank_pdf)
     workspace.config_lock_toml.write_text(LOCK)
     write_model(workspace.spec_json, reused_spec(home_of_q3))
-    workspace.key_yaml.write_text("")  # so that prepare stops after the spec
+    save_key(workspace.key_yaml, key_of(reused_spec(2)))  # prepare stops at the key
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
@@ -197,8 +200,59 @@ def refuse(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError("prepare reached for OpenRouter")
 
 
-def test_prepare_leaves_an_existing_key_as_it_is_and_calls_no_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def key_of(spec: Spec) -> Key:
+    """A valid key for `spec`: one criterion per part."""
+    return Key(
+        policies=Policies(),
+        parts=[
+            KeyPart(
+                id=p.id,
+                label=p.label,
+                home_page=p.home_page,
+                response_type=p.response_type,
+                depends_on=[],
+                state="unverified",
+                prompt=p.prompt,
+                answer=answer(value=1.0),
+                solution="x = 1",
+                criteria=[
+                    Criterion(
+                        id=f"{p.id}.c1",
+                        points=Decimal(1),
+                        kind="final_answer",
+                        requirement="States x = 1.",
+                        partial=[],
+                        carry_forward=False,
+                    )
+                ],
+                common_errors=[],
+            )
+            for p in spec.parts
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("parts", "exit_code", "lines"),
+    [
+        (5, 0, ["ws/key/key.yaml has no problem and is left as it is."]),
+        (
+            4,
+            1,
+            [
+                "Q5 is in the spec but not in the key",
+                "ws/key/key.yaml has problems and is left as it is.",
+            ],
+        ),
+    ],
+    ids=["no problem", "a problem"],
+)
+def test_prepare_checks_an_existing_key_leaves_it_as_it_is_and_calls_no_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parts: int,
+    exit_code: int,
+    lines: list[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -209,14 +263,22 @@ def test_prepare_leaves_an_existing_key_as_it_is_and_calls_no_model(
     workspace.blank_pdf.parent.mkdir(parents=True)
     shutil.copy("blank.pdf", workspace.blank_pdf)
     workspace.config_lock_toml.write_text(LOCK)
-    shutil.copy(FIXTURES / "spec.json", workspace.spec_json)
-    edited = b"# Edited by hand.\nparts: []\n"
+    first = reused_spec(2).parts[0]
+    spec = Spec(
+        parts=[
+            first.model_copy(update={"id": f"Q{n}", "label": str(n)})
+            for n in range(1, 6)
+        ]
+    )
+    write_model(workspace.spec_json, spec)
+    save_key(workspace.key_yaml, key_of(Spec(parts=spec.parts[:parts])))
+    edited = b"# Edited by hand.\n" + workspace.key_yaml.read_bytes()
     workspace.key_yaml.write_bytes(edited)
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
-    assert result.exit_code == 0, result.output
-    assert "ws/key/key.yaml exists, so it is left as it is." in result.output
+    assert result.exit_code == exit_code, result.output
+    assert result.output.splitlines()[-len(lines) :] == lines
     assert workspace.key_yaml.read_bytes() == edited
     assert not workspace.solutions_md.exists()
 
