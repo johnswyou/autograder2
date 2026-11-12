@@ -115,6 +115,7 @@ READING: dict[str, Any] = {
     "final_answer": {"choices": [], "value": 6.6, "unit": "m/s^2", "expression": None},
     "elements": [],
     "uncertain": [],
+    "addressed_to_grader": [],
     "legibility": "clear",
 }
 

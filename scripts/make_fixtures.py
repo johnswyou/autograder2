@@ -1404,6 +1404,7 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
             "final_answer": nothing,
             "elements": [],
             "uncertain": [],
+            "addressed_to_grader": [],
             "legibility": None,
         }
         if work and unreadable:

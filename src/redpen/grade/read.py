@@ -246,11 +246,15 @@ def problems(parts: Sequence[Part], found: Readings) -> list[str]:
     for r in found.readings:
         if (part := wanted.get(r.part_id)) is None:
             continue
-        wrong += [
-            f"{r.part_id}: line {n} is marked uncertain, and there is no line {n}"
-            for n in r.uncertain
-            if n > len(r.lines)
-        ]
+        for marked, numbers in (
+            ("uncertain", r.uncertain),
+            ("addressed to a grader", r.addressed_to_grader),
+        ):
+            wrong += [
+                f"{r.part_id}: line {n} is marked {marked}, and there is no line {n}"
+                for n in numbers
+                if n > len(r.lines)
+            ]
         choices = r.final_answer.choices
         if choices and not part.options:
             wrong.append(
@@ -266,6 +270,20 @@ def problems(parts: Sequence[Part], found: Readings) -> list[str]:
             wrong.append(
                 f"{r.part_id}: a blank reading has no lines, no elements"
                 " and an empty final answer"
+            )
+        if r.status == "unreadable" and (r.lines or r.final_answer != NO_ANSWER):
+            wrong.append(
+                f"{r.part_id}: an unreadable reading has no lines"
+                " and an empty final answer"
+            )
+        # Writing of which not one letter or digit is read is unreadable. A drawing
+        # with no writing at all (no lines, every label empty) is not.
+        written = [*r.lines, *(e.label for e in r.elements if e.label)]
+        legible = any(c.isalnum() for text in written for c in text)
+        if written and not legible and r.status != "unreadable":
+            wrong.append(
+                f"{r.part_id}: no letter or digit in it can be read, so its status"
+                " is unreadable, with no lines and an empty final answer"
             )
     return list(dict.fromkeys(wrong))
 
@@ -307,6 +325,7 @@ def _blank(part_id: str) -> ReadingRecord:
             final_answer=NO_ANSWER,
             elements=[],
             uncertain=[],
+            addressed_to_grader=[],
             legibility=None,
         ),
         crops=[],

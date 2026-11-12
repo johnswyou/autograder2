@@ -136,6 +136,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": "clear"
     },
     {
@@ -151,6 +152,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": null
     },
     {
@@ -168,6 +170,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": "clear"
     },
     {
@@ -202,6 +205,7 @@
         }
       ],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": "clear"
     },
     {
@@ -221,6 +225,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": "clear"
     },
     {
@@ -236,6 +241,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": null
     },
     {
@@ -254,6 +260,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": "clear"
     },
     {
@@ -269,6 +276,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": null
     },
     {
@@ -284,6 +292,7 @@
       },
       "elements": [],
       "uncertain": [],
+      "addressed_to_grader": [],
       "legibility": null
     }
   ],

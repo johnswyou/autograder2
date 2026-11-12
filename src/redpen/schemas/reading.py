@@ -30,6 +30,9 @@ class Reading(Schema):
     elements: list[DiagramElement]
     # Numbers, counting from 1, of the lines the reader is unsure of.
     uncertain: list[PositiveInt]
+    # Numbers, counting from 1, of the lines that speak to a reader or a grader or
+    # give instructions (design 14.2). Each is still transcribed as a line.
+    addressed_to_grader: list[PositiveInt]
     legibility: Literal["clear", "poor"] | None
 
 

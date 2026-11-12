@@ -93,6 +93,7 @@ def test_each_fixture_reads_as_its_truth_says(
     for want in truth.readings:
         got = records[want.part_id].reading
         kind = TYPES[want.part_id]
+        assert got.status == want.status, (want.part_id, got.status)
         if want.status != "answered":
             continue
         if kind in CHOICE_TYPES:
