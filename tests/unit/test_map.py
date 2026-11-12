@@ -293,6 +293,17 @@ def test_the_map_keeps_one_of_each_repeat(repeated: dict[str, Any]) -> None:
     assert to_map(GOOD.model_copy(update=repeated), BLOCKS) == to_map(GOOD, BLOCKS)
 
 
+def test_a_part_and_block_named_twice_keep_the_work_entry_the_checks_counted() -> None:
+    twice = [entry("Q1", "p1.b1", "continuation"), entry("Q1", "p1.b1")]
+    found = GOOD.model_copy(update={"entries": [*twice, GOOD.entries[1]]})
+
+    assert problems(SPEC, BLOCKS, found) == []
+    assert [(e.part_id, e.role) for e in to_map(found, BLOCKS).entries] == [
+        ("Q1", "work"),
+        ("Q2.a", "work"),
+    ]
+
+
 def two_pages(image: Image.Image) -> Inventory:
     """Page 1 (100 px wide) holds two blocks, page 2 (120 px wide) one."""
     boxes = {

@@ -257,10 +257,13 @@ def _is_part_id(text: str) -> bool:
 def to_map(found: Resolution, blocks: Mapping[str, PageBlock]) -> Map:
     """The map `found` describes, with each block's page and box looked up, and a
     part and block named twice, a part unanswered twice or a block set aside twice
-    kept once (the first)."""
+    kept once: the first, or for a part and block the first with role `work`, which
+    is what the checks counted."""
     entries: dict[tuple[str, str], Entry] = {}
     for e in found.entries:
-        entries.setdefault((e.part_id, e.block_id), e)
+        kept = entries.setdefault((e.part_id, e.block_id), e)
+        if e.role == "work" and kept.role != "work":
+            entries[(e.part_id, e.block_id)] = e
     aside: dict[str, Aside] = {}
     for a in found.set_aside:
         aside.setdefault(a.block_id, a)
