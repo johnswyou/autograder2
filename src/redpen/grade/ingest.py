@@ -89,8 +89,8 @@ def ingest(
         try:
             pdf = open_pdf(data)
             sidebars = classkick_sidebars(pdf)
-        except pdfium.PdfiumError as error:
-            failed.append(Failure(file=file, reason=str(error)))
+        except Exception as error:  # a hostile PDF fails its own student, not the run
+            failed.append(_failure(file, error))
             continue
         if len(pdf) == 0:
             failed.append(Failure(file=file, reason="The PDF has no pages."))
@@ -112,12 +112,21 @@ def ingest(
                 Duplicate(student_name=newest.name, used=newest.file, dropped=dropped)
             )
 
+    by_key: dict[str, list[_Submission]] = {}
+    for submission in chosen:
+        by_key.setdefault(_key(submission.given), []).append(submission)
     students: list[IngestRecord] = []
-    for submission in sorted(chosen, key=lambda s: _key(s.given)):
+    for key, sharing in sorted(by_key.items()):
+        _STUDENT_KEY.validate_python(key)  # a bad key is a bug: stop before deleting
+        if len(sharing) > 1:  # writing one would delete the other's folder
+            files = ", ".join(s.file for s in sharing)
+            reason = f"The student key {key} is shared by {files}."
+            failed.extend(Failure(file=s.file, reason=reason) for s in sharing)
+            continue
         try:
-            students.append(_write(workspace, _key(submission.given), submission))
-        except (pdfium.PdfiumError, OSError) as error:  # OSError: clearing its folder
-            failed.append(Failure(file=submission.file, reason=str(error)))
+            students.append(_write(workspace, key, sharing[0]))
+        except Exception as error:  # a hostile PDF fails its own student, not the run
+            failed.append(_failure(sharing[0].file, error))
 
     return IngestSummary(
         students=students,
@@ -138,6 +147,11 @@ def ingest(
 type _File = tuple[str, bytes, tuple[float, ...]]
 
 MAX_MEMBER_BYTES = 200 * 2**20  # a PDF member of a ZIP, uncompressed
+
+# The compressions whose reads zipfile bounds: read(n) on a deflate member asks the
+# decompressor for at most max(n, 4096) bytes a step, while bzip2 and LZMA members
+# are decompressed with no limit (CPython's ZipExtFile._read1).
+_BOUNDED = (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
 
 _STUDENT_KEY = TypeAdapter(StudentKey)
 
@@ -172,16 +186,24 @@ def _read(source: Path) -> tuple[list[_File], int, list[str], list[Failure]]:
                 unsafe.append(member.filename)
             elif not _is_pdf(name):
                 ignored += 1
+            elif member.compress_type not in _BOUNDED:
+                reason = "Compressed other than by deflate, which is not read here."
+                failed.append(Failure(file=name, reason=reason))
             elif member.file_size > MAX_MEMBER_BYTES:
                 reason = f"Over {MAX_MEMBER_BYTES // 2**20} MB uncompressed."
                 failed.append(Failure(file=name, reason=reason))
             else:
                 try:
-                    # zipfile stops at the declared size, and a member that holds
-                    # more then fails its CRC check.
-                    found.append((name, archive.read(member), member.date_time))
-                except Exception as error:  # each codec fails its own way
-                    failed.append(Failure(file=name, reason=str(error)))
+                    with archive.open(member) as stream:
+                        data = stream.read(member.file_size + 1)
+                except Exception as error:  # encrypted, corrupt, truncated
+                    failed.append(_failure(name, error))
+                    continue
+                if len(data) > member.file_size:
+                    reason = "Holds more than the ZIP declares."
+                    failed.append(Failure(file=name, reason=reason))
+                else:
+                    found.append((name, data, member.date_time))
     return sorted(found), ignored, unsafe, failed
 
 
@@ -218,22 +240,26 @@ def _key(given: str) -> str:
 
 
 def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRecord:
-    _STUDENT_KEY.validate_python(key)  # before anything under it is deleted
     record_path = workspace.ingest_json(key)
     source = workspace.source_pdf(key)
-    record = _kept(workspace, key, submission.data)
-    if record is not None:
-        if record.student_name != submission.name:  # a roster now spells it
-            record = record.model_copy(update={"student_name": submission.name})
-            write_model(record_path, record)
-        return record
-
-    # Everything in the directory derives from source.pdf, so none of it is kept, and
-    # the record is written last, so a run cut short is redone in full next time.
-    if workspace.student_dir(key).exists():
-        shutil.rmtree(workspace.student_dir(key))
-    source.parent.mkdir(parents=True)
-    source.write_bytes(submission.data)
+    if source.is_file() and source.read_bytes() == submission.data:
+        record = _kept(workspace, key)
+        if record is not None:
+            if record.student_name != submission.name:  # a roster now spells it
+                record = record.model_copy(update={"student_name": submission.name})
+                write_model(record_path, record)
+            return record
+        # The same submission with a stale or missing record or page: the pages are
+        # redone in place and nothing else in the directory is touched.
+        record_path.unlink(missing_ok=True)
+    else:
+        # A new or changed submission: everything in the directory derived from the
+        # old one, so none of it is kept.
+        if workspace.student_dir(key).exists():
+            shutil.rmtree(workspace.student_dir(key))
+        source.parent.mkdir(parents=True)
+        source.write_bytes(submission.data)
+    # The record is written last, so a run cut short is redone next time.
     pages: list[IngestPage] = []
     for number, page in enumerate(submission.pdf, 1):
         rendered = render_page(page, submission.kind)
@@ -260,15 +286,15 @@ def _write(workspace: Workspace, key: str, submission: _Submission) -> IngestRec
     return record
 
 
-def _kept(workspace: Workspace, key: str, data: bytes) -> IngestRecord | None:
-    """The student's record if their source.pdf is `data` and all their files are
-    there; None if they must be redone, as with a record that no longer validates."""
-    record_path, source = workspace.ingest_json(key), workspace.source_pdf(key)
-    if not (record_path.is_file() and source.is_file() and source.read_bytes() == data):
-        return None
+def _kept(workspace: Workspace, key: str) -> IngestRecord | None:
+    """The student's record if it validates and every page it lists is there."""
     try:
-        record = read_model(record_path, IngestRecord)
-    except ValidationError:
+        record = read_model(workspace.ingest_json(key), IngestRecord)
+    except (OSError, ValidationError):  # missing, or written by an older schema
         return None
     pages = [workspace.student_page(key, p.number) for p in record.pages]
     return record if all(page.is_file() for page in pages) else None
+
+
+def _failure(file: str, error: Exception) -> Failure:
+    return Failure(file=file, reason=f"{type(error).__name__}: {error}")

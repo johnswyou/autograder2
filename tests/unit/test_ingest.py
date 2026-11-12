@@ -4,6 +4,7 @@ import os
 import shutil
 import struct
 import tempfile
+import tracemalloc
 import unicodedata
 import zipfile
 from hashlib import sha256
@@ -196,10 +197,10 @@ def corrupt(archive: Path, name: str) -> None:
 
 @pytest.mark.parametrize(
     "compression",
-    [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA],
-    ids=["stored", "deflated", "bzip2", "lzma"],
+    [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED],
+    ids=["stored", "deflated"],
 )
-def test_a_corrupt_zip_member_of_any_compression_is_reported_and_skipped(
+def test_a_corrupt_zip_member_is_reported_and_skipped(
     tmp_path: Path, compression: int
 ) -> None:
     archive = tmp_path / "submissions.zip"
@@ -276,14 +277,100 @@ def test_the_decomposed_and_composed_forms_of_a_name_are_one_student(
     assert alone.students[0].student_key == record.student_key
 
 
-def test_a_record_that_no_longer_validates_is_redone(tmp_path: Path) -> None:
+def test_a_deflate_member_holding_more_than_it_declares_is_not_inflated(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zipped:
+        with zipped.open("Title - Bomb.pdf", "w") as member:
+            for _ in range(50):
+                member.write(bytes(2**20))  # 50 MB of zeros, about 50 KB deflated
+    declare_sizes(archive, [100])
+
+    tracemalloc.start()
+    try:
+        summary = ingest(archive, Workspace(tmp_path / "ws"))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert [f.file for f in summary.failed] == ["Title - Bomb.pdf"]
+    assert peak < 4 * 2**20
+
+
+@pytest.mark.parametrize(
+    "compression", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA], ids=["bzip2", "lzma"]
+)
+def test_a_member_compressed_other_than_by_deflate_is_skipped_and_reported(
+    tmp_path: Path, compression: int
+) -> None:
+    archive = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr(OTHER.name, OTHER.read_bytes(), compression)
+
+    summary = ingest(archive, Workspace(tmp_path / "ws"))
+
+    assert summary.students == []
+    [failure] = summary.failed
+    assert failure.file == OTHER.name
+    assert "deflate" in failure.reason
+
+
+@pytest.mark.parametrize("record", ["stale", "missing"])
+def test_the_same_submission_with_a_bad_record_keeps_later_work(
+    tmp_path: Path, record: str
+) -> None:
     source = folder(tmp_path, {OTHER.name: OTHER})
     workspace = Workspace(tmp_path / "ws")
-    [record] = ingest(source, workspace).students
-    workspace.ingest_json(record.student_key).write_text('{"student_name": "old"}')
+    [first] = ingest(source, workspace).students
+    grade = workspace.grade_json(first.student_key, "Q1")  # a later stage's work
+    grade.parent.mkdir()
+    grade.write_text("{}")
+    path = workspace.ingest_json(first.student_key)
+    if record == "stale":
+        path.write_text('{"student_name": "old"}')
+    else:
+        path.unlink()
 
-    assert ingest(source, workspace).students == [record]
-    assert read_model(workspace.ingest_json(record.student_key), IngestRecord) == record
+    assert ingest(source, workspace).students == [first]
+    assert read_model(path, IngestRecord) == first
+    assert grade.exists()
+
+
+def test_a_pdf_with_a_page_of_zero_size_fails_that_student_alone(
+    tmp_path: Path,
+) -> None:
+    pdf = pdfium.PdfDocument.new()
+    page = pdf.new_page(612, 792)
+    page.set_cropbox(1000, 1000, 1100, 1100)  # outside the media box: 0 x 0
+    hostile = tmp_path / "hostile.pdf"
+    pdf.save(hostile)
+    files: dict[str, Path | bytes] = {"Title - Zero.pdf": hostile, OTHER.name: OTHER}
+
+    summary = ingest(folder(tmp_path, files), Workspace(tmp_path / "ws"))
+
+    assert [r.student_name for r in summary.students] == [truth_of(OTHER).student_name]
+    [failure] = summary.failed
+    assert failure.file == "Title - Zero.pdf"
+    assert "ZeroDivisionError" in failure.reason
+
+
+def test_two_students_with_one_key_are_reported_and_neither_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ingest_module, "_key", lambda given: "Same-000000")
+    files: dict[str, Path | bytes] = {
+        "Title - Ann.pdf": OTHER,
+        "Title - Bea.pdf": OTHER,
+    }
+    workspace = Workspace(tmp_path / "ws")
+
+    summary = ingest(folder(tmp_path, files), workspace)
+
+    assert summary.students == []
+    assert sorted(f.file for f in summary.failed) == sorted(files)
+    assert all("Same-000000" in f.reason for f in summary.failed)
+    assert not workspace.student_dir("Same-000000").exists()
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can delete a read-only folder")
