@@ -7,6 +7,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
+from pydantic import BaseModel
+
+
+def write_model(path: Path, model: BaseModel) -> None:
+    """Write `model` to `path` as JSON, replacing any earlier file in one step."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    partial.replace(path)
+
+
+def read_model[M: BaseModel](path: Path, model: type[M]) -> M:
+    return model.model_validate_json(path.read_bytes())
+
 
 @dataclass(frozen=True)
 class Workspace:
@@ -66,6 +80,9 @@ class Workspace:
     def student_page(self, student: str, number: int) -> Path:
         """Rendering of page `number` of the student's submission, counting from 1."""
         return self.student_dir(student) / "pages" / f"p{number:02d}.png"
+
+    def ingest_json(self, student: str) -> Path:
+        return self.student_dir(student) / "ingest.json"
 
     def fingerprint_json(self, student: str) -> Path:
         return self.student_dir(student) / "fingerprint.json"

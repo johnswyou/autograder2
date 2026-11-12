@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from redpen.workspace import Workspace
+from redpen.schemas.submission import IngestPage, IngestRecord
+from redpen.workspace import Workspace, read_model, write_model
 
 
 def test_paths_follow_the_design_layout() -> None:
@@ -38,3 +39,19 @@ def test_workspace_option_overrides_the_default() -> None:
     ws = Workspace.for_blank(Path("/term/unit4/forces.pdf"), Path("/elsewhere/ws"))
 
     assert ws.root == Path("/elsewhere/ws")
+
+
+def test_a_model_written_to_json_reads_back_equal(tmp_path: Path) -> None:
+    page = IngestPage(
+        number=1, width_px=10, height_px=20, slide_number=None, native_ppi=None
+    )
+    record = IngestRecord(
+        student_name="Zoë Ng", student_key="Zoe_Ng", source_kind="other", pages=[page]
+    )
+    path = tmp_path / "students" / "Zoe_Ng" / "ingest.json"
+
+    write_model(path, record)
+    write_model(path, record)  # replaces the earlier file
+
+    assert read_model(path, IngestRecord) == record
+    assert [p.name for p in path.parent.iterdir()] == ["ingest.json"]
