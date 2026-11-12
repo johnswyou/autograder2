@@ -16,7 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from redpen.grade.ingest import IngestSummary
@@ -331,7 +331,7 @@ def test_the_low_resolution_student_is_flagged_on_every_part(built: Built) -> No
 
 
 def test_an_unverified_key_part_makes_every_student_provisional_and_none_incomplete(
-    built: Built,
+    built: Built, tmp_path: Path
 ) -> None:
     unverified = KEY.model_copy(
         update={
@@ -354,6 +354,13 @@ def test_an_unverified_key_part_makes_every_student_provisional_and_none_incompl
         else:
             assert after == "provisional"
     assert sum(status(unverified, s, raised) == "incomplete" for s in stored) == 1
+    # The key's flag is counted on each student's row.
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    write_report(workspace, unverified, [student])
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("provisional", "1")
+    assert "| key_unverified | high | 1 |" in workspace.run_report_md.read_text()
 
 
 def copy_student(
@@ -712,67 +719,50 @@ def test_the_report_is_the_same_when_written_again(
     assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == before
 
 
-@st.composite
-def graded_keys(draw: st.DrawFn) -> tuple[Key, list[GradeRecord]]:
-    """A key with parts on random pages and criteria worth random multiples of a
-    random step, and a random valid award on every criterion."""
-    step = draw(
-        st.sampled_from(
-            [
-                Decimal("0.1"),
-                Decimal("0.25"),
-                Decimal("0.5"),
-                Decimal("1"),
-                Decimal("2"),
-            ]
+def key_part(id: str, page: int, points: Sequence[Decimal]) -> KeyPart:
+    criteria = [
+        Criterion(
+            id=f"{id}.c{n}",
+            points=worth,
+            kind="method",
+            requirement="r",
+            partial=[],
+            carry_forward=False,
         )
+        for n, worth in enumerate(points, 1)
+    ]
+    return KeyPart(
+        id=id,
+        label=id,
+        home_page=page,
+        response_type="other",
+        depends_on=[],
+        state="verified",
+        prompt="p",
+        answer=answer(),
+        solution="s",
+        criteria=criteria,
+        common_errors=[],
     )
-    pages = draw(st.integers(1, 8))
-    parts: list[KeyPart] = []
-    for q in range(1, draw(st.integers(1, 6)) + 1):
-        subs = draw(st.integers(0, 3))
-        for id in [f"Q{q}"] if subs == 0 else [f"Q{q}.{'abc'[i]}" for i in range(subs)]:
-            criteria = [
-                Criterion(
-                    id=f"{id}.c{n}",
-                    points=step * draw(st.integers(1, 12)),
-                    kind="method",
-                    requirement="r",
-                    partial=[],
-                    carry_forward=False,
-                )
-                for n in range(1, draw(st.integers(1, 3)) + 1)
-            ]
-            parts.append(
-                KeyPart(
-                    id=id,
-                    label=id,
-                    home_page=draw(st.integers(1, pages)),
-                    response_type="other",
-                    depends_on=[],
-                    state="verified",
-                    prompt="p",
-                    answer=answer(),
-                    solution="s",
-                    criteria=criteria,
-                    common_errors=[],
-                )
-            )
-    key = Key(policies=Policies(point_step=step), parts=parts)
-    records = [
+
+
+def all_graded(key: Key, awards: Sequence[Sequence[Decimal]]) -> list[GradeRecord]:
+    """A record for every part of `key`, awarding `awards[i][j]` on criterion j of
+    part i."""
+    return [
         graded(
             Grade(
                 part_id=p.id,
                 criteria=[
                     CriterionGrade(
                         id=c.id,
-                        awarded=step * draw(st.integers(0, int(c.points / step))),
+                        awarded=a,
                         evidence_line=None,
                         evidence_element=None,
                         rationale="",
                         feedback="",
                     )
-                    for c in p.criteria
+                    for c, a in zip(p.criteria, mine, strict=True)
                 ],
                 transcript_dispute=None,
                 belongs_elsewhere=None,
@@ -780,13 +770,49 @@ def graded_keys(draw: st.DrawFn) -> tuple[Key, list[GradeRecord]]:
             ),
             key,
         )
+        for p, mine in zip(key.parts, awards, strict=True)
+    ]
+
+
+STEPS = [Decimal("0.1"), Decimal("0.25"), Decimal("0.5"), Decimal("1"), Decimal("2")]
+
+
+@st.composite
+def graded_keys(draw: st.DrawFn) -> tuple[Key, list[GradeRecord]]:
+    """A key with parts on random pages and criteria worth random multiples of a
+    random step, and a random valid award on every criterion."""
+    step = draw(st.sampled_from(STEPS))
+    pages = draw(st.integers(1, 8))
+    parts: list[KeyPart] = []
+    for q in range(1, draw(st.integers(1, 6)) + 1):
+        subs = draw(st.integers(0, 3))
+        for id in [f"Q{q}"] if subs == 0 else [f"Q{q}.{'abc'[i]}" for i in range(subs)]:
+            points = [
+                step * draw(st.integers(1, 12)) for _ in range(draw(st.integers(1, 3)))
+            ]
+            parts.append(key_part(id, draw(st.integers(1, pages)), points))
+    key = Key(policies=Policies(point_step=step), parts=parts)
+    awards = [
+        [step * draw(st.integers(0, int(c.points / step))) for c in p.criteria]
         for p in parts
     ]
-    return key, records
+    return key, all_graded(key, awards)
+
+
+# Tenths that a float sum would not add up exactly: 0.1 + 0.2 on page 1.
+TENTHS = Key(
+    policies=Policies(point_step=Decimal("0.1")),
+    parts=[
+        key_part("Q1.a", 1, [Decimal("0.3"), Decimal("0.3")]),
+        key_part("Q1.b", 2, [Decimal("0.7")]),
+    ],
+)
+TENTH_AWARDS = [[Decimal("0.1"), Decimal("0.2")], [Decimal("0.7")]]
 
 
 @settings(deadline=None, max_examples=60)
 @given(case=graded_keys())
+@example(case=(TENTHS, all_graded(TENTHS, TENTH_AWARDS)))
 def test_page_and_problem_totals_always_agree_and_stay_within_their_maximums(
     tmp_path_factory: pytest.TempPathFactory, case: tuple[Key, list[GradeRecord]]
 ) -> None:
