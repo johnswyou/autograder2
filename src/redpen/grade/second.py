@@ -118,8 +118,8 @@ async def read_again(
 def compared(
     part: KeyPart, policies: Policies, first: Reading, second: Reading
 ) -> Literal["same", "differ", "not decided"]:
-    """ "same", "differ" or "not decided", for two readings of `part`. They differ
-    when one is blank or unreadable and the other is not. Where code can compare
+    """Whether two readings of `part` are the same, differ or are not decided. They
+    differ when one is blank or unreadable and the other is not. Where code can compare
     the part's final answer and a reading states one, `verify.compare` decides
     (options, numbers, expressions; a missing unit as it takes it). Otherwise they
     are the same when their lines and elements are equal, white space and letter

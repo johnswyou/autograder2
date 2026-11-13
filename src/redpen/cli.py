@@ -603,9 +603,11 @@ def grade(
 def _grade(
     ws: Workspace, submissions: Path, roster: Path | None, dry_run: bool
 ) -> None:
-    """Grade the class in `submissions` against the key in `ws`: ingest, the check
-    that the pinned endpoints keep nothing, then map, read and grade, and the
-    report. Exit code 0 only when nothing failed; with `dry_run`, an estimate."""
+    """Grade the class in `submissions` against the key in `ws`: the check that the
+    second reader is another vendor's model, ingest, the check that the pinned
+    endpoints keep nothing, then map, read, read again where the reader was unsure,
+    and grade, and the report. Exit code 0 only when nothing failed; with
+    `dry_run`, an estimate."""
     try:
         config = load_config()
         api_key = "" if dry_run else openrouter_api_key()

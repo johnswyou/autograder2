@@ -212,10 +212,10 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
             readings |= {r.reading.part_id: r for r in found.records}
         if graded := _read(workspace.grade_json(who, problem), ProblemGrades):
             grades |= {r.grade.part_id: r for r in graded.records}
-    found = _read(workspace.second_json(who), SecondReadings)
+    again = _read(workspace.second_json(who), SecondReadings)
     seconds = {
         s.part_id: s
-        for s in (found.records if found else [])
+        for s in (again.records if again else [])
         if s.part_id in readings and s.first == digest(readings[s.part_id])
     }
     return Stored(student, readings, grades, audits(workspace, key), seconds)
