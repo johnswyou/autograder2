@@ -954,8 +954,18 @@ def test_page_and_problem_totals_always_agree_and_stay_within_their_maximums(
         == Decimal(by_problem["total"])
         == awarded
     )
+    on_page = {p.id: p.home_page for p in key.parts}
     for n in range(1, len(page_columns(by_page)) + 1):
         assert Decimal(by_page[f"page {n}"]) <= pages.get(n, Decimal(0))
+        assert Decimal(by_page[f"page {n}"]) == sum(
+            (
+                c.awarded
+                for r in records
+                if on_page[r.grade.part_id] == n
+                for c in r.grade.criteria
+            ),
+            Decimal(0),
+        )
     for q in problems:
         worth = sum(
             (c.points for p in key.parts if problem_of(p.id) == q for c in p.criteria),
