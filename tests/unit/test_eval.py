@@ -29,7 +29,7 @@ from redpen.prepare.key import page_points, part_hash, save_key
 from redpen.report.report import write_report
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import GradeRecord, ProblemGrades
-from redpen.schemas.key import Key
+from redpen.schemas.key import Key, PointConstraint
 from redpen.schemas.reading import Crop, ProblemReadings, ReadingRecord
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
@@ -738,3 +738,43 @@ def test_the_measures_hold_together_for_any_scores_within_the_maximums(
     for t in e.totals:
         assert t.difference == sum(differences[t.student], D(0))
         assert t.cells == len(differences[t.student])
+
+
+# --- the instructor's points (task 4.5a) ---------------------------------------------
+
+
+def test_with_points_set_the_maxima_are_the_allocation_s_and_a_gold_above_is_refused(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    _, summary = fixture_workspace
+    workspace = Workspace(tmp_path / "ws")
+    # Allocated by hand in tests/unit/test_report.py: Q1-Q3 2 each, Q4.a 1.5, Q4.b
+    # 2.5, Q4.c 1.5, Q5.a 1.5, Q5.b 1, Q5.c 1.
+    pages = PointConstraint(pages=[D(6), D(4), D(3), D(2)])
+    key = KEY.model_copy(update={"points": pages})
+    store_class(workspace, key, summary)
+    by_page = write_rows(tmp_path / "p.csv", read_rows(workspace.scores_by_page_csv))
+    by_problem = write_rows(
+        tmp_path / "q.csv", read_rows(workspace.scores_by_problem_csv)
+    )
+
+    for path, maxima in [
+        (by_page, [("page 1", 6), ("page 2", 4), ("page 3", 3), ("page 4", 2)]),
+        (
+            by_problem,
+            [("Q1", 2), ("Q2", 2), ("Q3", 2), ("Q4", D("5.5")), ("Q5", D("3.5"))],
+        ),
+    ]:
+        e = evaluate(workspace, key, summary.students, path)
+        assert [(c.column, c.maximum) for c in e.columns] == maxima
+        assert (e.maximum, e.mean, e.largest) == (15, 0, [])
+
+    rows = read_rows(workspace.scores_by_page_csv)
+    rows[1][rows[0].index("page 4")] = "2.25"  # on row 2, under the header
+    path = write_rows(tmp_path / "g.csv", rows)
+    result = run(path, workspace)
+    assert result.exit_code == 1
+    assert result.stderr.splitlines() == [
+        f"Row 2, column page 4 of {path} is above the key's maximum there, 2."
+        " Is the gold on another point scale?"
+    ]

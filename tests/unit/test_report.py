@@ -8,6 +8,7 @@ once for the module; a test that changes something works on a copy."""
 
 import csv
 import shutil
+import socket
 import sqlite3
 from collections.abc import Callable, Sequence
 from contextlib import closing
@@ -18,11 +19,13 @@ from pathlib import Path
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
+from typer.testing import CliRunner
 
+from redpen.cli import app
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import problem_of
 from redpen.llm.ledger import Ledger, Usage
-from redpen.prepare.key import number, page_points, part_hash
+from redpen.prepare.key import load_key, number, page_points, part_hash, save_key
 from redpen.report.report import (
     NO_OPTION,
     NOT_INGESTED,
@@ -37,7 +40,7 @@ from redpen.report.report import (
 from redpen.schemas.common import Provenance
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
-from redpen.schemas.key import Criterion, Key, KeyPart, Policies
+from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.reading import (
     FinalAnswer,
     ProblemReadings,
@@ -1005,3 +1008,159 @@ def test_page_and_problem_totals_always_agree_and_stay_within_their_maximums(
         )
         assert Decimal(by_problem[q]) <= worth
     assert by_problem["status"] == "final"
+
+
+# --- the instructor's points (task 4.5a) ---------------------------------------------
+
+# Page maximums unlike the criteria's 3, 5, 4, 4. Allocated by hand (0.25 steps):
+# page 1, 24 steps for Q1-Q3 (1 each): 2, 2, 2. Page 2, 16 steps for Q4.a 2 and
+# Q4.b 3: 6.4 and 9.6, floors 6 and 9, the step left to Q4.b: 1.5 and 2.5. Page 3,
+# 12 steps for Q4.c 2 and Q5.a 2: 1.5 and 1.5. Page 4, 8 steps: Q5.b 1, Q5.c 1.
+PAGES_KEY = KEY.model_copy(
+    update={"points": PointConstraint(pages=[Decimal(n) for n in (6, 4, 3, 2)])}
+)
+SCORE_FILES = ["scores_by_problem.csv", "scores_by_page.csv", "scores_detail.csv"]
+
+
+def test_page_maximums_scale_each_part_and_every_cell_sums_its_scores(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    blank = copy_student(built, workspace, "partly-blank")
+    photo = copy_student(built, workspace, "photo-per-page")
+    stale = copy_student(
+        built, workspace, "photo-per-page", "Stale Copy", "stale-1a2b3c"
+    )
+    other_key(workspace, stale)  # Q4.b graded under another key: withheld
+    low = copy_student(built, workspace, "low-resolution")
+
+    write_report(workspace, PAGES_KEY, [blank, photo, stale, low])
+
+    def cells(student: IngestRecord) -> tuple[list[str], list[str]]:
+        by_problem = row_of(workspace.scores_by_problem_csv, student)
+        by_page = row_of(workspace.scores_by_page_csv, student)
+        problems = [by_problem[q] for q in [*PROBLEMS, "total", "maximum"]]
+        return problems, [by_page[f"page {n}"] for n in range(1, 5)]
+
+    # Partly blank earned 1, 0, 1 on Q1-Q3; 1.5 of 2, 3 of 3, 0 of 2 on Q4; 2 of 2,
+    # 0 of 2, 0 of 2 on Q5. Q4.a: 1.5 x 1.5 / 2 = 1.125, 4.5 steps, a tie: 1.25.
+    # Q4 = 1.25 + 2.5 + 0; Q5 = 1.5; pages 2 + 0 + 2, 1.25 + 2.5, 0 + 1.5, 0 + 0.
+    assert cells(blank) == (
+        ["2", "0", "2", "3.75", "1.5", "9.25", "15"],
+        ["4", "3.75", "1.5", "0"],
+    )
+    # Photo per page earned everything but 1 of Q4.b's 3: 2.5 / 3 = 0.83, 3.33
+    # steps: 0.75. Q4 = 1.5 + 0.75 + 1.5; Q5 = 1.5 + 1 + 1; page 2 = 1.5 + 0.75.
+    assert cells(photo) == (
+        ["2", "2", "2", "3.75", "3.5", "13.25", "15"],
+        ["6", "2.25", "3", "2"],
+    )
+    # The same with Q4.b withheld: its problem and page are empty, never 0.
+    assert cells(stale) == (
+        ["2", "2", "2", "", "3.5", "12.5", "15"],
+        ["6", "", "3", "2"],
+    )
+    assert cells(low) == (["", "", "", "", "", "0", "15"], ["", "", "", ""])
+    feedback = workspace.feedback_md(blank.student_key).read_text()
+    for line in [
+        "Total: 9.25 / 15",
+        "## Problem 4: 3.75 / 5.5",
+        "**4(a): 1.25 / 1.5**",
+    ]:
+        assert f"\n{line}\n" in feedback
+    assert "**4(b): not scored, out of 2.5**" in (
+        workspace.feedback_md(stale.student_key).read_text()
+    )
+    # The detail stays in the criteria's own points.
+    plain = new_workspace(tmp_path, "plain")
+    for student in (blank, photo):
+        copy_student(built, plain, built.truths[student.student_key].layout_class)
+    write_report(plain, KEY, [blank, photo])
+    named = (blank.student_name, photo.student_name)
+    assert rows(plain.scores_detail_csv) == [
+        r for r in rows(workspace.scores_detail_csv) if r["student"] in named
+    ]
+    text = workspace.run_report_md.read_text()
+    assert (
+        "\n\nPoints follow page maximums of 6, 4, 3, 2. A part's score is its points"
+        " times the share of its criteria's points the student earned, rounded to the"
+        " nearest 0.25, a tie rounding up. scores_detail.csv stays in the criteria's"
+        " own points, the grader's units.\n\n| Part |" in text
+    )
+    assert "| Q4.a | 2 | 1.5 | verified |\n| Q4.b | 2 | 2.5 | verified |" in text
+    assert "| 1 | 6 |\n| 2 | 4 |\n| 3 | 3 |\n| 4 | 2 |\n| Total | 15 |" in text
+
+
+def test_page_maximums_equal_to_the_criteria_change_no_score(
+    built: Built, tmp_path: Path
+) -> None:
+    shutil.copytree(built.workspace.root, tmp_path / "ws")
+    workspace = Workspace(tmp_path / "ws")
+    same = KEY.model_copy(
+        update={"points": PointConstraint(pages=[Decimal(n) for n in (3, 5, 4, 4)])}
+    )
+
+    write_report(workspace, same, built.students)
+
+    for name in SCORE_FILES:
+        assert (workspace.root / "out" / name).read_bytes() == (
+            built.workspace.root / "out" / name
+        ).read_bytes()
+    for path in built.workspace.feedback_dir.glob("*.md"):
+        assert (workspace.feedback_dir / path.name).read_bytes() == path.read_bytes()
+
+
+def test_setting_changing_and_removing_the_points_regrades_nobody(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shutil.copytree(built.workspace.root, tmp_path / "ws")
+    workspace = Workspace(tmp_path / "ws")
+    summary = IngestSummary(
+        students=built.students,
+        duplicates=[],
+        not_on_roster=[],
+        missing_from_roster=[],
+        ignored_files=0,
+        unsafe_members=[],
+        failed=[],
+    )
+    write_model(workspace.ingest_summary_json, summary)
+    # No API key and no network: `report` needs neither.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise OSError("network disabled for this test")
+
+    for name in ("create_connection", "getaddrinfo"):
+        monkeypatch.setattr(socket, name, refuse)
+    for name in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, name, refuse)
+    out = workspace.root / "out"
+
+    def report(key: Key) -> dict[Path, bytes]:
+        save_key(workspace.key_yaml, key)
+        result = CliRunner().invoke(app, ["report", "--workspace", str(workspace.root)])
+        assert result.exit_code == 0, result.output
+        loaded = load_key(workspace.key_yaml)
+        assert [part_hash(p, loaded.policies) for p in loaded.parts] == [
+            part_hash(p, KEY.policies) for p in KEY.parts
+        ]
+        return {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+
+    before = report(KEY)
+    assert before == {
+        out / p.relative_to(built.workspace.root / "out"): p.read_bytes()
+        for p in (built.workspace.root / "out").rglob("*")
+        if p.is_file()
+    }
+    total = KEY.model_copy(update={"points": PointConstraint(total=Decimal(20))})
+    for key, maximum in [(PAGES_KEY, "15"), (total, "20")]:
+        files = report(key)
+        assert files != before
+        # Every stored grade still counts: only the unreadable student is withheld.
+        for row in rows(workspace.scores_by_problem_csv):
+            assert row["maximum"] == maximum
+            unread = row["student"] == student_of(built, "low-resolution").student_name
+            assert (row["status"] == "incomplete") == unread
+        assert not any(OTHER_KEY.encode() in text for text in files.values())
+    assert report(KEY) == before
