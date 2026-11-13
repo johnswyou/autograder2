@@ -11,6 +11,7 @@ import functools
 import hashlib
 import json
 import shutil
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
@@ -36,6 +37,7 @@ from redpen.schemas.submission import (
     IngestPage,
     IngestRecord,
     Map,
+    MapEntry,
     MapPage,
     MapRecord,
 )
@@ -52,23 +54,75 @@ ROLES = GRADE_MODELS
 
 class OpenRouter:
     """A mock OpenRouter that keeps every request: the ZDR listing answers as
-    `zdr` says, and every chat request is refused with HTTP 400."""
+    `zdr` says; with `reads`, a read request gets a valid reading of each part it
+    names; every other chat request is refused with HTTP 400."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.zdr: Callable[[httpx.Request], httpx.Response] = lambda _: httpx.Response(
             200, json={"data": ZDR}
         )
+        self.reads = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if request.url.path.endswith("/endpoints/zdr"):
             return self.zdr(request)
+        body = json.loads(request.content)
+        if self.reads and kind(body) == "Readings":
+            return httpx.Response(200, json=answer(body, readings(body)))
         return httpx.Response(400, json={"error": {"message": "refused by the test"}})
 
     @property
     def chats(self) -> list[httpx.Request]:
         return [r for r in self.requests if r.url.path.endswith("/chat/completions")]
+
+
+def kind(body: dict[str, Any]) -> str:
+    """The response model a chat request asks for."""
+    return body["response_format"]["json_schema"]["name"]
+
+
+def readings(body: dict[str, Any]) -> dict[str, Any]:
+    """A reading of each part in a read request's outline (its first text part):
+    one typed line, and the first printed option of a choice part."""
+    outline = json.loads(body["messages"][1]["content"][0]["text"])
+    return {
+        "readings": [
+            {
+                "part_id": part["id"],
+                "status": "answered",
+                "medium": "typed",
+                "lines": ["x = 4"],
+                "final_answer": {
+                    "choices": part["options"][:1],
+                    "value": None,
+                    "unit": None,
+                    "expression": None,
+                },
+                "elements": [],
+                "uncertain": [],
+                "addressed_to_grader": [],
+                "legibility": "clear",
+            }
+            for part in outline["parts"]
+        ]
+    }
+
+
+def answer(body: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
+    """An OpenRouter reply to `body` carrying `content`."""
+    return {
+        "id": "test",
+        "model": body["model"],
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": json.dumps(content)},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
+    }
 
 
 def write_pdf(path: Path, text: str) -> None:
@@ -506,14 +560,25 @@ def test_with_the_privacy_check_passing_the_map_stage_starts(
 
     paths = [r.url.path for r in router.requests]
     assert paths[0] == "/api/v1/endpoints/zdr"
-    assert router.chats and all(b"image_url" in r.content for r in router.chats)
-    # Each page goes to the lock's model for its role, on the endpoints that keep
-    # nothing and nowhere else.
-    role = {"Inventory": "mapper", "Resolution": "mapper", "Readings": "reader"}
-    role |= {"Grades": "grader"}
-    for request in router.chats:
+    assert restricted(router.chats) == {"mapper"}
+    assert result.exit_code == 1  # every chat request is refused
+    assert "map: 3 of 3 students failed." in result.stderr.splitlines()
+    assert (WS.root / "out" / "run_report.md").exists()
+
+
+ROLE = {"Inventory": "mapper", "Resolution": "mapper", "Readings": "reader"}
+ROLE |= {"Grades": "grader"}
+
+
+def restricted(chats: list[httpx.Request]) -> set[str]:
+    """The roles of `chats`, once each request is seen to carry a page and to go
+    to the lock's model for its role, on the endpoints that keep nothing and
+    nowhere else."""
+    assert chats
+    for request in chats:
         body = json.loads(request.content)
-        model = ROLES[role[body["response_format"]["json_schema"]["name"]]]
+        model = ROLES[ROLE[kind(body)]]
+        assert b"image_url" in request.content
         assert body["model"] == model.slug
         assert body["provider"] == {
             "require_parameters": True,
@@ -521,9 +586,53 @@ def test_with_the_privacy_check_passing_the_map_stage_starts(
             "zdr": True,
             "only": sorted(model.providers),
         }
-    assert result.exit_code == 1  # every chat request is refused
-    assert "map: 3 of 3 students failed." in result.stderr.splitlines()
-    assert (WS.root / "out" / "run_report.md").exists()
+    return {ROLE[kind(json.loads(r.content))] for r in chats}
+
+
+async def mapped_everywhere(
+    workspace: Workspace, student: str, spec: Spec, *_: object
+) -> None:
+    """A map stage that finds every part's work in one box on page 1."""
+    entries = [
+        MapEntry(
+            part_id=p.id,
+            page=1,
+            box=[0.1, 0.1, 0.6, 0.3],
+            basis="position",
+            role="work",
+            confidence="high",
+        )
+        for p in spec.parts
+    ]
+    found = Map(entries=entries, unanswered=[], set_aside=[])
+    page = MapPage(number=1, rotation=0, photo=False)
+    write_model(
+        workspace.map_json(student),
+        MapRecord(provenance=NOBODY, pages=[page], map=found),
+    )
+
+
+def test_with_the_privacy_check_passing_read_and_grade_send_crops_restricted(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router.reads = True
+    transport = httpx.MockTransport(router)
+    monkeypatch.setattr(
+        "redpen.orchestrator.Gateway",
+        functools.partial(Gateway, transport=transport, requests_per_second=1e6),
+    )
+    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_everywhere)
+
+    result = grade()
+
+    assert restricted(router.chats) == {"reader", "grader"}
+    per_role = Counter(ROLE[kind(json.loads(r.content))] for r in router.chats)
+    # Three read units, each student's the same pages, so later ones may come from
+    # the cache; two problems go to the grader for each student, and are refused.
+    assert per_role["reader"] >= 3 and per_role["grader"] == 3 * 2
+    assert result.exit_code == 1  # the grader's requests are refused
+    assert "grade: 3 of 3 students failed." in result.stderr.splitlines()
+    assert "read:" not in result.stderr
 
 
 def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> None:
