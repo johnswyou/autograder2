@@ -439,6 +439,7 @@ def _count(share: Share, noun: str) -> str:
 def table(e: Evaluation) -> list[str]:
     """The measures and the counts, for the terminal: no name and no student key."""
     grid = e.cells + e.withheld + e.tool_only + e.neither + e.no_points
+    sums = " It compares page sums, so two errors on one page can cancel."
     return [
         f"Compared by {e.by}: {len(e.totals)} students matched to one gold row each.",
         f"Gold rows naming no student: {len(e.unknown)}. Students with no gold row:"
@@ -462,7 +463,7 @@ def table(e: Evaluation) -> list[str]:
         f"Within one point step ({number(e.point_step)}):"
         f" {_count(e.within_step, 'cells')}.",
         f"Signed bias, tool minus person, on cells: {_points(e.bias)} points,"
-        f" {_percent(e.bias_share)} of the maximum.",
+        f" {_percent(e.bias_share)} of the compared cells' maximum.",
         f"Signed bias on totals: {_points(e.total_bias)} points,"
         f" {_percent(e.total_bias_share)} of the assignment's maximum"
         f" ({number(e.maximum)}).",
@@ -470,7 +471,8 @@ def table(e: Evaluation) -> list[str]:
         f" {_count(e.totals_within, 'students')}.",
         "Students left out of the two totals measures, their totals resting on"
         f" fewer than all {len(e.columns)} scorable cells: {e.incomplete_totals}.",
-        f"Multiple-choice agreement: {_count(e.choice, 'cells of only choice parts')}.",
+        f"Multiple-choice agreement: {_count(e.choice, 'cells of only choice parts')}."
+        + (sums if e.by == "page" else ""),
         "Large disagreements (over 25% of the cell's maximum) not flagged:",
         f"  counting every flag: {_count(e.unflagged, 'cells')}.",
         "  counting only flags that name the student:"

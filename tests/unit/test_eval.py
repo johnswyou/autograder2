@@ -201,6 +201,9 @@ def test_the_tool_s_own_file_as_gold_agrees_in_every_measure(
     # The low-resolution student has no compared cell, so no complete total.
     assert e.incomplete_totals == 1
     assert "None: every compared cell agrees." in markdown(e)
+    [choice] = [line for line in table(e) if line.startswith("Multiple-choice")]
+    cancel = " It compares page sums, so two errors on one page can cancel."
+    assert choice.endswith(cancel) == (by == "page")
 
 
 # --- a gold file changed by hand -----------------------------------------------------
@@ -792,6 +795,14 @@ def test_the_terminal_shows_the_table_and_no_name_and_the_json_holds_its_numbers
     assert ["page", "3", "4", "10", "0.15", "3.8%"] in split
     assert ["page", "4", "4", "10", "0.23", "5.6%"] in split
     assert "  counting only flags that name the student: 3 of 40 cells (7.5%)." in lines
+    assert (
+        "Signed bias, tool minus person, on cells: 0.06 points, 1.6% of the compared"
+        " cells' maximum." in lines
+    )
+    assert (
+        "Multiple-choice agreement: 9 of 10 cells of only choice parts (90%). It"
+        " compares page sums, so two errors on one page can cancel." in lines
+    )
     assert workspace.eval_md.read_text().startswith("# Evaluation\n")
 
 
