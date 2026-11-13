@@ -255,6 +255,9 @@ def prepare(
                 f" wins over --profile {profile}.",
                 err=True,
             )
+        # Before anything is spent: a lock that could never grade is refused now.
+        if found := vendor_problem(lock.models):
+            _fail(f"{ws.config_lock_toml}: {found}.")
         if not ws.key_yaml.exists():  # a key will be solved and verified
             _can_verify(ws, lock.models)
         if ws.spec_json.exists():
@@ -746,6 +749,9 @@ def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
     budget = config.image_budget
     costs = estimate(models, sizes, spec, keyed, summary.students, budget)
     _print_estimate(costs, models, pinned, sizes, spec, keyed, summary.students, budget)
+    if found := vendor_problem(models):  # the run itself would be refused
+        source = ws.config_lock_toml if pinned else "redpen.toml"
+        typer.echo(f"{source}: {found}.", err=True)
     if summary.failed:
         _fail(f"Files not ingested: {len(summary.failed)}.")
 

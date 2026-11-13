@@ -51,6 +51,7 @@ from tests.fixture_truth import FIXTURES, NOBODY
 from tests.pinned import (
     GRADE_MODELS,
     GRADER,
+    KEY_MODELS,
     MAPPER,
     READER,
     SECOND,
@@ -756,6 +757,46 @@ def test_a_second_reader_of_the_reader_s_vendor_is_refused_before_anything_is_se
     assert isinstance(result.exception, SystemExit)
     assert result.stderr.splitlines() == [SAME_VENDOR]
     assert not WS.students_dir.exists()
+
+
+@pytest.mark.parametrize("command", ["run", "prepare"])
+def test_a_fresh_key_is_not_paid_for_when_its_lock_could_never_grade(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    refusing(monkeypatch)
+    WS.key_yaml.unlink()  # so that prepare would solve and verify a key
+    models = {**ROLES, **KEY_MODELS, "second": MAPPER}
+    write_lock(WS.config_lock_toml, Lock(profile="balanced", models=models))
+    shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+    args = ["blank.pdf", *(["subs"] if command == "run" else []), "--workspace", "ws"]
+
+    result = runner.invoke(app, [command, *args])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # not the transport's assertion
+    assert result.stderr.splitlines() == [SAME_VENDOR]
+    assert router.requests == [] and not WS.key_yaml.exists()
+
+
+@pytest.mark.parametrize("command", ["grade", "run"])
+def test_a_dry_run_says_its_second_reader_would_be_refused(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    refusing(monkeypatch)
+    write_lock(
+        WS.config_lock_toml,
+        Lock(profile="balanced", models={**ROLES, "second": MAPPER}),
+    )
+    shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+    blank = ["blank.pdf"] if command == "run" else []
+
+    result = runner.invoke(
+        app, [command, *blank, "subs", "--workspace", "ws", "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == [SAME_VENDOR]
+    assert "Estimate, with nothing sent to a model:" in result.stdout
 
 
 @pytest.mark.parametrize("how", ["not pinned", "its endpoints are not listed"])
