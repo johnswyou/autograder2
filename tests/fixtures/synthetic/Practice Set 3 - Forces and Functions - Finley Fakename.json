@@ -302,10 +302,10 @@
       "criteria": [
         {
           "id": "Q1.c1",
-          "awarded": "1",
+          "rationale": "Chooses C, the answer.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Chooses C, the answer.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -318,10 +318,10 @@
       "criteria": [
         {
           "id": "Q2.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -334,10 +334,10 @@
       "criteria": [
         {
           "id": "Q3.c1",
-          "awarded": "1",
+          "rationale": "Chooses B, the answer.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Chooses B, the answer.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -350,18 +350,18 @@
       "criteria": [
         {
           "id": "Q4.a.c1",
-          "awarded": "1",
+          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
+          "awarded": "1",
           "feedback": ""
         },
         {
           "id": "Q4.a.c2",
-          "awarded": "0.5",
+          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Weight, normal force and tension are right. Friction is missing: the listed partial credit on c2.",
+          "awarded": "0.5",
           "feedback": ""
         }
       ],
@@ -374,18 +374,18 @@
       "criteria": [
         {
           "id": "Q4.b.c1",
-          "awarded": "2",
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "awarded": "2",
           "feedback": ""
         },
         {
           "id": "Q4.b.c2",
-          "awarded": "1",
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -398,18 +398,18 @@
       "criteria": [
         {
           "id": "Q4.c.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q4.c.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -422,10 +422,10 @@
       "criteria": [
         {
           "id": "Q5.a.c1",
-          "awarded": "2",
+          "rationale": "Completes the square correctly.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Completes the square correctly.",
+          "awarded": "2",
           "feedback": ""
         }
       ],
@@ -438,18 +438,18 @@
       "criteria": [
         {
           "id": "Q5.b.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q5.b.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -462,18 +462,18 @@
       "criteria": [
         {
           "id": "Q5.c.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q5.c.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],

@@ -211,10 +211,10 @@
       "criteria": [
         {
           "id": "Q1.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -227,10 +227,10 @@
       "criteria": [
         {
           "id": "Q2.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -243,10 +243,10 @@
       "criteria": [
         {
           "id": "Q3.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -259,18 +259,18 @@
       "criteria": [
         {
           "id": "Q4.a.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q4.a.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -283,18 +283,18 @@
       "criteria": [
         {
           "id": "Q4.b.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q4.b.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -307,18 +307,18 @@
       "criteria": [
         {
           "id": "Q4.c.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q4.c.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -331,10 +331,10 @@
       "criteria": [
         {
           "id": "Q5.a.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -347,18 +347,18 @@
       "criteria": [
         {
           "id": "Q5.b.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q5.b.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],
@@ -371,18 +371,18 @@
       "criteria": [
         {
           "id": "Q5.c.c1",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         },
         {
           "id": "Q5.c.c2",
-          "awarded": "0",
+          "rationale": "No response.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "No response.",
+          "awarded": "0",
           "feedback": ""
         }
       ],

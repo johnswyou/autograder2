@@ -391,10 +391,10 @@
       "criteria": [
         {
           "id": "Q1.c1",
-          "awarded": "1",
+          "rationale": "Chooses C, the answer.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Chooses C, the answer.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -407,10 +407,10 @@
       "criteria": [
         {
           "id": "Q2.c1",
-          "awarded": "1",
+          "rationale": "Chooses D, the answer.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Chooses D, the answer.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -423,10 +423,10 @@
       "criteria": [
         {
           "id": "Q3.c1",
-          "awarded": "1",
+          "rationale": "Chooses B, the answer.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Chooses B, the answer.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -439,18 +439,18 @@
       "criteria": [
         {
           "id": "Q4.a.c1",
-          "awarded": "1",
+          "rationale": "All four forces, labelled, from the dot.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "All four forces, labelled, from the dot.",
+          "awarded": "1",
           "feedback": ""
         },
         {
           "id": "Q4.a.c2",
-          "awarded": "1",
+          "rationale": "All four forces, labelled, from the dot.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "All four forces, labelled, from the dot.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -463,18 +463,18 @@
       "criteria": [
         {
           "id": "Q4.b.c1",
-          "awarded": "2",
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "awarded": "2",
           "feedback": ""
         },
         {
           "id": "Q4.b.c2",
-          "awarded": "1",
+          "rationale": "Newton's second law with T - f, and the right answer with units.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Newton's second law with T - f, and the right answer with units.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -487,18 +487,18 @@
       "criteria": [
         {
           "id": "Q4.c.c1",
-          "awarded": "1",
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "awarded": "1",
           "feedback": ""
         },
         {
           "id": "Q4.c.c2",
-          "awarded": "1",
+          "rationale": "Says it slows down, because friction alone opposes the motion.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Says it slows down, because friction alone opposes the motion.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -511,10 +511,10 @@
       "criteria": [
         {
           "id": "Q5.a.c1",
-          "awarded": "1",
+          "rationale": "Right squared term, but adds 9 instead of subtracting it: the listed partial credit.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Right squared term, but adds 9 instead of subtracting it: the listed partial credit.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -527,18 +527,18 @@
       "criteria": [
         {
           "id": "Q5.b.c1",
-          "awarded": "1",
+          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
+          "awarded": "1",
           "feedback": ""
         },
         {
           "id": "Q5.b.c2",
-          "awarded": "1",
+          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Reads the minimum from the vertex of the 5(a) result. 4 follows from the wrong (x - 3)^2 + 4, so the final answer earns carry-forward credit.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
@@ -551,18 +551,18 @@
       "criteria": [
         {
           "id": "Q5.c.c1",
-          "awarded": "1",
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "awarded": "1",
           "feedback": ""
         },
         {
           "id": "Q5.c.c2",
-          "awarded": "1",
+          "rationale": "Upward parabola, vertex labelled, roots marked.",
           "evidence_line": null,
           "evidence_element": null,
-          "rationale": "Upward parabola, vertex labelled, roots marked.",
+          "awarded": "1",
           "feedback": ""
         }
       ],
