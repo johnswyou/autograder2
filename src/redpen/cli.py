@@ -7,6 +7,7 @@ workspace holds the tracebacks."""
 import asyncio
 import contextlib
 import logging
+import tempfile
 import zipfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -167,7 +168,7 @@ def run(
             _fail(f"{flag} is not supported yet")
     ws = Workspace.for_blank(blank, workspace)
     if dry_run:
-        _estimate(ws, blank, _ingest(ws, submissions, roster))
+        _estimate(ws, blank, _dry_ingest(submissions, roster))
         return
     prepare(blank, None, None, profile, roster, False, workspace)
     _grade(ws, submissions, roster, dry_run=False)
@@ -400,10 +401,10 @@ def _grade(
         typer.echo(problem, err=True)
     if problems:
         _fail(f"{ws.key_yaml} has problems, so nothing was graded.")
-    summary = _ingest(ws, submissions, roster)
     if dry_run:
-        _estimate(ws, ws.blank_pdf, summary)
+        _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
         return
+    summary = _ingest(ws, submissions, roster)
     strict = config.strict_privacy
     lock = _with_prompts(ws, lock.model_copy(update={"strict_privacy": strict}))
     gate = privacy_problems(lock, api_key, strict)
@@ -464,11 +465,18 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
         failed = len(summary.failed)
         _fail(
             f"No student PDF could be ingested from {submissions}: {failed} could"
-            f" not be read (see {ws.ingest_summary_json})."
+            " not be read."
             if failed
             else f"No student PDF was found in {submissions}."
         )
     return summary
+
+
+def _dry_ingest(submissions: Path, roster: Path | None) -> IngestSummary:
+    """`submissions` ingested into a folder deleted afterwards, so that a dry run
+    leaves the workspace's stored class and its students' files as they were."""
+    with tempfile.TemporaryDirectory() as folder:
+        return _ingest(Workspace(Path(folder)), submissions, roster)
 
 
 # The roles the estimate prices.

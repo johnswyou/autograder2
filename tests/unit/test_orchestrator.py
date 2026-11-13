@@ -521,6 +521,27 @@ def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> Non
     assert "- The key exists, so prepare makes no call." in lines
 
 
+def test_a_dry_run_over_another_folder_leaves_the_stored_class_alone(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    assert grade().exit_code == 0
+    before = out_files(WS)
+    summary = WS.ingest_summary_json.read_bytes()
+    folders = sorted(WS.students_dir.iterdir())
+    Path("other").mkdir()
+    write_pdf(Path("other") / "HW 1 - Zed Example.pdf", "1. x = 5")
+
+    dry = runner.invoke(app, ["grade", "other", "--workspace", "ws", "--dry-run"])
+    result = runner.invoke(app, ["report", "--workspace", "ws"])
+
+    assert dry.exit_code == 0 and result.exit_code == 0, dry.output + result.output
+    assert "- 1 students, 1 pages in all;" in " ".join(dry.output.split())
+    assert WS.ingest_summary_json.read_bytes() == summary
+    assert sorted(WS.students_dir.iterdir()) == folders
+    assert out_files(WS) == before
+
+
 def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
