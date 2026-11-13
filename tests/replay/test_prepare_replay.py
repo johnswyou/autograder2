@@ -184,14 +184,13 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
 
 
 def assert_every_rubric_passes(workspace: Workspace, output: str) -> None:
-    """The key's own solution earned every criterion on the first rubric, and so
-    did the second solution, of every part a model grades."""
+    """The key's own solution earned every criterion on the first rubric, for
+    every part a model grades."""
     record = read_model(workspace.verification_json, Verification)
     passed = Trial(outcome="passed", lost=[])
     for v in record.parts:
         free = v.part_id.startswith(("Q4", "Q5"))
         assert v.tried == ([passed] if free else []), v.part_id
-        assert v.second_tried == (passed if free else None), v.part_id
         assert v.key_check is None or v.key_check.verdict == "matches", v.part_id
     assert (
         "Rubric self-test: 6 passed, 0 failed, 0 not graded; 0 with the rubric"

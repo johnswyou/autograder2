@@ -393,7 +393,8 @@ async def _key(
 
 def _can_verify(ws: Workspace, models: Mapping[str, ModelInfo]) -> None:
     """Exit with one line, before any call, unless `models` has a solver, a
-    referee and a checker of another vendor than the solver's."""
+    referee, a grader for the rubric's self-test, and a checker of another vendor
+    than the solver's."""
     if found := role_problems(models):
         _fail(f"{ws.config_lock_toml}: {'; '.join(found)}.")
 

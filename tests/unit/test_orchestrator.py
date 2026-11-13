@@ -840,11 +840,11 @@ def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> N
 
     # Five problems solved twice, two rubrics, a referee for Q4 and Q5, which have
     # a part code cannot compare (a drawing, an explanation, a graph), and the
-    # self-test's two grader calls for each problem with a part a model grades.
-    assert costs["prepare"].calls == 5 + 5 + 2 + 2 + 2 * 2
+    # self-test's grader call for each problem with a part a model grades.
+    assert costs["prepare"].calls == 5 + 5 + 2 + 2 + 2
     dearer = GRADER.model_copy(update={"prompt_price": GRADER.prompt_price + 1})
     priced = estimate({**models, "grader": dearer}, blank, SPEC, False, [], 1536)
-    assert priced["prepare"].usd - costs["prepare"].usd == 2 * 2 * TOKENS["test"][0]
+    assert priced["prepare"].usd - costs["prepare"].usd == 2 * TOKENS["test"][0]
     assert (shape(SPEC).referees, shape(SPEC).referee_pages) == (2, 4)
     assert estimate(models, blank, SPEC, True, [], 1536)["prepare"].calls == 0
 

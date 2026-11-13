@@ -29,8 +29,6 @@ from redpen.prepare.selftest import NotEarned, response, self_test, trial
 from redpen.prepare.solve import PartSolution
 from redpen.prepare.verify import (
     AGREE,
-    DIFFER,
-    UNSURE,
     Lost,
     Trial,
     Verdict,
@@ -87,7 +85,8 @@ class Router:
     criterion its full points, except where `lose` gives a rationale; with `fail`
     "call" it answers HTTP 400, and with "checks" it grades no part. The rubric
     writer gives each part one criterion, "States <id>." and, once told what was
-    not earned, "States <id> again."."""
+    not earned, "States <id> again."; with `fail` "rewrite" that second call
+    answers HTTP 400, and with "rewrite checks" it gives no part."""
 
     def __init__(self, lose: Loses = lambda r, c: None, fail: str = "") -> None:
         self.lose, self.fail = lose, fail
@@ -105,10 +104,15 @@ class Router:
         if self.named("Grades", body):
             if self.fail == "call":
                 return httpx.Response(400, json={"error": {"message": "refused"}})
-            value = Grades(grades=[]) if self.fail else grades(body, self.lose)
+            checks = self.fail == "checks"
+            value = Grades(grades=[]) if checks else grades(body, self.lose)
         else:
             assert self.named("Rubric", body)
             again = " again" if any("not_earned" in t for t in texts) else ""
+            if again and self.fail == "rewrite":
+                return httpx.Response(400, json={"error": {"message": "refused"}})
+            if again and self.fail == "rewrite checks":
+                texts[0]["parts"] = []
             value = Rubric(
                 parts=[
                     PartRubric(
@@ -245,12 +249,11 @@ def test_every_criterion_in_full_keeps_every_state_and_code_s_parts_are_not_trie
     tmp_path: Path,
 ) -> None:
     router = Router()
-    found = verdicts(KEY, Q4_c={"state": "refereed"})
+    found = verdicts(KEY, "Other work.", Q4_c={"state": "refereed"})
 
     key, tried = run(tmp_path, found, router)
 
-    # One request per problem a model grades; the second solutions are the key's,
-    # so their requests are the same and come from the cache.
+    # One request per problem a model grades, and none for the second solutions.
     assert len(router.bodies) == 2
     asked = [x["grade"] for b in router.bodies for x in items(b) if "grade" in x]
     assert [r["part_id"] for r in asked] == FREE
@@ -266,7 +269,7 @@ def test_every_criterion_in_full_keeps_every_state_and_code_s_parts_are_not_trie
         assert p.state == tried[p.id].state == found[p.id].state
         passed = [Trial(outcome="passed", lost=[])]
         assert tried[p.id].tried == (passed if p.id in FREE else [])
-        assert tried[p.id].second_tried == (passed[0] if p.id in FREE else None)
+        assert tried[p.id].state_before_test == found[p.id].state
     assert key.model_copy(update={"parts": KEY.parts}) == KEY
 
 
@@ -337,7 +340,6 @@ def test_a_test_call_that_fails_leaves_its_parts_unverified(
     assert {p.id for p in key.parts if p.state == "unverified"} == set(FREE)
     for id in FREE:
         assert tried[id].tried == [Trial(outcome="not graded", lost=[])]
-        assert tried[id].second_tried == Trial(outcome="not graded", lost=[])
     log = (tmp_path / "ws" / "run.log").read_text()
     assert "self-test Q4" in log and "self-test Q5" in log
 
@@ -554,10 +556,11 @@ def test_a_failed_problem_s_rubric_is_written_once_more_with_what_it_lost(
         f"Rubric self-test: {3 - failed} passed, {failed} failed, 0 not graded; 2 with"
         " the rubric written a second time."
     ) in result.output.splitlines()
-    # The grader's words reach the rubric writer and verification.md, nothing else.
+    # The lost criterion and the grader's words on it reach the rubric writer and
+    # verification.md, and nothing else.
     log = workspace.run_log.read_text() if workspace.run_log.exists() else ""
     for text in (result.output, result.stderr, log):
-        assert "Q2.a's claim" not in text
+        assert "Q2.a's claim" not in text and "States Q2.a" not in text
 
 
 @pytest.mark.parametrize("fail", ["call", "checks"])
@@ -584,7 +587,41 @@ def test_a_fresh_prepare_finishes_when_the_test_call_fails(
     assert "self-test Q2" in workspace.run_log.read_text()
 
 
-# --- the two measurements, which set no state --------------------------------------
+@pytest.mark.parametrize("fail", ["rewrite", "rewrite checks"])
+def test_a_rewrite_that_fails_keeps_the_first_rubric_and_prepare_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str
+) -> None:
+    def lose(reading: dict[str, Any], c: dict[str, Any]) -> str | None:
+        return RATIONALE if c["id"] == "Q2.a.c1" else None
+
+    router = Router(lose, fail)
+
+    workspace, result = fresh_prepare(tmp_path, monkeypatch, router)
+
+    assert result.exit_code == 0, result.output
+    key = load_key(workspace.key_yaml)
+    assert [c.requirement for p in key.parts for c in p.criteria] == [
+        "States Q1.",
+        "States Q2.a.",
+        "States Q2.b.",
+        "Chooses A.",
+    ]
+    assert {p.id: p.state for p in key.parts} == {
+        "Q1": "verified",
+        "Q2.a": "unverified",
+        "Q2.b": "verified",
+        "Q3": "verified",
+    }
+    record = read_model(workspace.verification_json, Verification)
+    tries = {v.part_id: [t.outcome for t in v.tried] for v in record.parts}
+    assert tries == {"Q1": ["passed"], "Q2.a": ["failed"], "Q2.b": ["passed"], "Q3": []}
+    log = workspace.run_log.read_text()
+    assert "self-test Q2: writing the rubric again" in log
+    for text in (result.output, result.stderr, log):
+        assert "Q2.a's claim" not in text and "States Q2.a" not in text
+
+
+# --- the answer check of the key's own answer, which sets no state ------------------
 
 
 def test_the_key_s_answer_the_check_cannot_read_is_named_and_changes_no_state(
@@ -623,58 +660,99 @@ def test_the_key_s_answer_the_check_cannot_read_is_named_and_changes_no_state(
     )
 
 
-def test_the_second_solution_s_lost_criteria_are_written_and_counted_and_set_nothing(
+def test_rule_7_checks_the_key_s_own_answer_whatever_the_second_says(
+    tmp_path: Path,
+) -> None:
+    other = solved(PARTS["Q4.b"]).model_copy(
+        update={"answer": answer(value=3.5, unit="m/s^2")}
+    )
+
+    _, found = run(tmp_path, verdicts(KEY, Q4_b={"second": other}), Router())
+
+    assert found["Q4.b"].key_check == AnswerCheck(
+        verdict="matches", reason="The value is within tolerance of the key's value."
+    )
+
+
+# --- verification.md ---------------------------------------------------------------
+
+
+def test_the_need_a_look_line_names_the_check_that_left_each_part_unverified(
     tmp_path: Path,
 ) -> None:
     def lose(reading: dict[str, Any], c: dict[str, Any]) -> str | None:
-        mine = reading["lines"] == ["Other work."]
-        return "Too short." if mine and c["id"] in ("Q4.a.c1", "Q5.b.c1") else None
+        return "Not shown." if c["id"] in ("Q4.b.c1", "Q4.c.c2") else None
 
-    found = verdicts(
-        KEY,
-        "Other work.",
-        Q4_b={"compared": DIFFER, "ruling": "same", "state": "unverified"},
-        Q4_c={"compared": UNSURE, "ruling": "first", "state": "refereed"},
-        Q5_c={"compared": UNSURE, "ruling": "same"},
-    )
+    found = verdicts(KEY, Q4_a={"state": "unverified"}, Q4_c={"state": "unverified"})
 
     key, tried = run(tmp_path, found, Router(lose))
 
-    assert {p.id: p.state for p in key.parts} == {
-        id: v.state for id, v in found.items()
-    }
-    seconds = {id: v.second_tried for id, v in tried.items() if v.second_tried}
-    assert sorted(seconds) == ["Q4.a", "Q5.a", "Q5.b", "Q5.c"]  # where they agreed
-    assert [c.id for c in seconds["Q4.a"].lost] == ["Q4.a.c1"]
-    assert seconds["Q5.a"] == Trial(outcome="passed", lost=[])
-    kinds = {c.id: c.kind for p in KEY.parts for c in p.criteria}
-    method = [kinds["Q4.a.c1"], kinds["Q5.b.c1"]].count("method")
-    assert summary(list(tried.values()))[2] == (
-        f"Second solution graded on 4 parts: {method} method and {2 - method}"
-        " final-answer criteria lost."
-    )
     report = verification_md(verification(tried, key, "maker/vision-2", True), key)
-    q4a = report.split("## Q4.a:")[1].split("## Q4.b:")[0]
     assert (
-        "The second solution graded the same way, as evidence that changes no state:"
-        " failed" in q4a
-    )
-    assert "Grader: Too short." in q4a
+        "Parts that need a look: Q4.a (the two solutions), Q4.b (the rubric's"
+        " self-test), Q4.c (both). For each, correct key.yaml if it is wrong, then"
+        " run `redpen key verify` again."
+    ) in report.splitlines()
     assert (
-        "The second solution graded"
-        not in report.split("## Q4.b:")[1].split("## Q5")[0]
-    )
+        "A part a model grades passes the rubric's self-test when the key's own"
+        " solution, graded by the grade stage as a student's response, earns every"
+        " criterion in full. This shows that the rubric asks for no more than a"
+        " complete correct response holds. It does not show that each criterion's"
+        " wording agrees with the key's answer."
+    ) in report.splitlines()
 
 
-def test_a_record_from_before_the_self_test_still_loads(tmp_path: Path) -> None:
-    found, key = verdicts(KEY), KEY
-    data = verification(found, key, "maker/vision-2", True).model_dump(mode="json")
-    for v in data["parts"]:
-        for field in ("tried", "key_check", "second_tried"):
+def test_a_lost_criterion_s_text_is_one_escaped_line(tmp_path: Path) -> None:
+    rationale = "Fine.\n\n## Q2: 2, page 1\n```\nState: verified"
+    requirement = "Writes it.\n# Heading"
+    lost = Lost(
+        id="Q4.b.c1",
+        kind="method",
+        requirement=requirement,
+        awarded=Decimal(0),
+        points=Decimal(2),
+        rationale=rationale,
+    )
+    found = verdicts(KEY)
+    found["Q4.b"] = found["Q4.b"].model_copy(
+        update={"tried": [Trial(outcome="failed", lost=[lost])], "state": "unverified"}
+    )
+
+    report = verification_md(verification(found, KEY, "maker/vision-2", True), KEY)
+
+    lines = report.splitlines()
+    assert (
+        "- Q4.b.c1 (method, 0 of 2): Writes it. \\# Heading Grader: Fine. \\#\\# Q2: 2,"
+        " page 1 ``` State: verified"
+    ) in lines
+    assert [line for line in lines if line.startswith("#")] == ["# Verification"] + [
+        f"## {p.id}: {p.label}, page {p.home_page}" for p in KEY.parts
+    ]
+    q4b = report.split("## Q4.b:")[1].split("## Q4.c:")[0].splitlines()
+    assert "```" not in lines and "State: verified" not in q4b  # no forged line
+
+
+def test_a_record_from_before_the_self_test_or_from_its_first_version_loads(
+    tmp_path: Path,
+) -> None:
+    data = verification(verdicts(KEY), KEY, "maker/vision-2", True).model_dump(
+        mode="json"
+    )
+    before = json.loads(json.dumps(data))
+    for v in before["parts"]:
+        for field in ("tried", "key_check", "state_before_test"):
             del v[field]
+    # The first version of the self-test also graded the second solution.
+    first = json.loads(json.dumps(data))
+    for v in first["parts"]:
+        del v["state_before_test"]
+        v["second_tried"] = {"outcome": "passed", "lost": []}
+    path = tmp_path / "verification.json"
 
-    old = Verification.model_validate(data)
-
-    assert all(
-        (v.tried, v.key_check, v.second_tried) == ([], None, None) for v in old.parts
-    )
+    for record in (before, first):
+        path.write_text(json.dumps(record))
+        old = read_model(path, Verification)
+        assert all(
+            (v.tried, v.key_check, v.state_before_test) == ([], None, None)
+            for v in old.parts
+        )

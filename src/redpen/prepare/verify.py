@@ -14,7 +14,9 @@ import json
 import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
+
+from pydantic import model_validator
 
 from redpen import prompts
 from redpen.grade.check import MATCH, NO_MATCH, check_answer, evaluate
@@ -95,12 +97,11 @@ class Trial(Schema):
 # not asked. `reason` is the referee's own text, or the fixed words of a failure.
 # `stands` is what the key is written from. `part_hash` is the key part's when its
 # state was set, filled in once the key is written. The self-test's fields keep
-# their defaults in a record written before it existed, and for a part scored by
-# code: `tried`, the key's own solution graded against the rubric, once, or twice
-# when a fresh prepare wrote the problem's rubric again; `key_check`, the answer
-# check of the key's own answer (None when it has nothing to check); and
-# `second_tried`, the second solution graded the same way where the two solvers
-# agreed, which sets no state.
+# their defaults in a record written before it existed: `tried`, the key's own
+# solution graded against the rubric, once, or twice when a fresh prepare wrote the
+# problem's rubric again, and none for a part scored by code; `key_check`, the
+# answer check of the key's own answer (None when it has nothing to check); and
+# `state_before_test`, the state the two solutions left.
 class Verdict(Schema):
     part_id: str
     state: State
@@ -114,7 +115,18 @@ class Verdict(Schema):
     stands: PartSolution
     tried: list[Trial] = []
     key_check: AnswerCheck | None = None
-    second_tried: Trial | None = None
+    state_before_test: State | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _second_solution_graded(cls, data: Any) -> Any:
+        """A record of the first self-test also holds `second_tried`, the second
+        solution graded, which is no longer made: it is dropped."""
+        if not isinstance(data, dict) or "second_tried" not in data:
+            return cast(Any, data)
+        return {
+            k: v for k, v in cast(dict[str, Any], data).items() if k != "second_tried"
+        }
 
 
 # key/verification.json: the model that made the second solutions, whether the
@@ -461,21 +473,27 @@ def state_counts(states: Iterable[str]) -> str:
 
 def summary(parts: Sequence[Verdict]) -> list[str]:
     """The self-test in counts and fixed words, for the terminal and the top of
-    verification.md: the rubric's test, the key answers the answer check does not
-    read as matching, and the criteria the second solution lost, by kind."""
+    verification.md: the rubric's test, and the key answers the answer check does
+    not read as matching."""
     last = Counter(v.tried[-1].outcome for v in parts if v.tried)
     again = sum(len(v.tried) > 1 for v in parts)
     unread = sum(bool(v.key_check and v.key_check.verdict != MATCH) for v in parts)
-    seconds = [v.second_tried for v in parts if v.second_tried]
-    kinds = Counter(c.kind for t in seconds for c in t.lost)
     return [
         f"Rubric self-test: {last['passed']} passed, {last['failed']} failed,"
         f" {last['not graded']} not graded; {again} with the rubric written a second"
         " time.",
         f"Key answers the answer check does not read as matching: {unread}.",
-        f"Second solution graded on {len(seconds)} parts: {kinds['method']} method and"
-        f" {kinds['final_answer']} final-answer criteria lost.",
     ]
+
+
+def _cause(v: Verdict) -> str:
+    """In fixed words, which check left the unverified part `v` so: the two
+    solutions, the rubric's self-test, or both."""
+    test = bool(v.tried) and v.tried[-1].outcome != "passed"
+    solutions = v.state_before_test == "unverified" or not test
+    if test and solutions:
+        return "both"
+    return "the rubric's self-test" if test else "the two solutions"
 
 
 def _lost(found: Lost) -> str:
@@ -488,8 +506,8 @@ def _lost(found: Lost) -> str:
 
 
 def _tried(v: Verdict) -> list[str]:
-    """The self-test's lines of one part: each try of the rubric, the answer check
-    of the key's own answer, and the second solution graded."""
+    """The self-test's lines of one part: each try of the rubric, and the answer
+    check of the key's own answer."""
     twice = len(v.tried) > 1
     lines = ["Its rubric was written a second time.", ""] if twice else []
     if not v.tried:
@@ -505,13 +523,6 @@ def _tried(v: Verdict) -> list[str]:
             " student.",
             "",
         ]
-    if second := v.second_tried:
-        lines += [
-            "The second solution graded the same way, as evidence that changes no"
-            f" state: {second.outcome}",
-            "",
-        ]
-        lines += [*map(_lost, second.lost), ""] if second.lost else []
     return lines
 
 
@@ -525,14 +536,20 @@ def verification_md(record: Verification, key: Key) -> str:
     kept to one line, or fenced by more backticks than it holds."""
     keyed = record.keyed
     whose = "the key's own" if keyed else "the first solver's"
-    look = [v.part_id for v in record.parts if v.state == "unverified"]
+    look = [
+        f"{v.part_id} ({_cause(v)})" for v in record.parts if v.state == "unverified"
+    ]
     lines = [
         "# Verification",
         "",
         f"The second solution of each problem was made by {one_line(record.checker)}."
-        f" The first solution is {whose}. Then the key's own solution of each part a"
-        " model grades was graded against its rubric as a response, by the grade"
-        " stage, and has to earn every criterion in full.",
+        f" The first solution is {whose}.",
+        "",
+        "A part a model grades passes the rubric's self-test when the key's own"
+        " solution, graded by the grade stage as a student's response, earns every"
+        " criterion in full. This shows that the rubric asks for no more than a"
+        " complete correct response holds. It does not show that each criterion's"
+        " wording agrees with the key's answer.",
         "",
         *(
             [

@@ -3,12 +3,10 @@ a class is graded, so the key's own solution of each part a model grades is turn
 in code, into a response, and the grade stage grades it against the rubric, text
 only, exactly as it grades a student: it has to earn every criterion in full. On a
 fresh prepare a problem that fails has its rubric written once more and is tried
-again. A part that fails, or whose call fails, is unverified: nothing here makes a
-part verified.
+again; if that rewrite fails, the first rubric stands. A part that fails, or whose
+call fails, is unverified: nothing here makes a part verified.
 
-Two things are measured beside it, and set no state: the answer check of the key's
-own answer, and the second solver's solution graded the same way where the two
-solvers agreed."""
+Beside it, and setting no state: the answer check of the key's own answer."""
 
 import tempfile
 from collections import defaultdict
@@ -20,7 +18,7 @@ from redpen.grade.grade import grade_student
 from redpen.grade.read import problem_of
 from redpen.llm.client import Gateway, finish_all
 from redpen.llm.models import ModelInfo
-from redpen.prepare.verify import DIFFER, Lost, Trial, Verdict
+from redpen.prepare.verify import Lost, Trial, Verdict
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import AnswerCheck, Grade
 from redpen.schemas.key import Answer, Key, KeyPart
@@ -135,7 +133,8 @@ async def self_test(
     state only when the key's own solution earns every criterion in full on the
     rubric that stands, and is unverified otherwise. With `rewrite`, on a fresh
     prepare, each problem where a criterion was not earned is given to it once, and
-    tried again on the key it returns. Without it, no criterion is written again."""
+    tried again on the key it returns; if it fails, that is written to the run log
+    and the first rubric stands. Without it, no criterion is written again."""
 
     async def attempt(key: Key, problems: Collection[str]) -> dict[str, Trial]:
         mine = {p.id: response(p.id, p.solution, p.answer) for p in key.parts}
@@ -154,25 +153,19 @@ async def self_test(
             ]
             for problem in failed
         }
-        key = await rewrite(lost)
-        for id, t in (await attempt(key, failed)).items():
-            tried[id].append(t)
+        try:
+            key = await rewrite(lost)
+        except Exception as error:  # the first rubric stands, and so do its failures
+            names = ", ".join(
+                p for p in dict.fromkeys(map(problem_of, tried)) if p in failed
+            )
+            log_failure(
+                workspace, f"self-test {names}: writing the rubric again", error
+            )
+        else:
+            for id, t in (await attempt(key, failed)).items():
+                tried[id].append(t)
     graded_by_model = {p.id for p in key.parts if p.response_type not in CHOICE_TYPES}
-    agreed = {
-        id
-        for id, v in found.items()
-        if id in graded_by_model
-        and v.second
-        and (v.ruling is None or (v.ruling == "same" and v.compared != DIFFER))
-    }
-    seconds = {
-        id: response(id, v.second.solution, v.second.answer)
-        for id, v in found.items()
-        if v.second
-    }
-    second = await graded(
-        workspace, gateway, model, key, seconds, {problem_of(id) for id in agreed}
-    )
     verdicts: dict[str, Verdict] = {}
     parts: list[KeyPart] = []
     for part in key.parts:
@@ -186,9 +179,9 @@ async def self_test(
         verdicts[part.id] = found[part.id].model_copy(
             update={
                 "state": state,
+                "state_before_test": found[part.id].state,
                 "tried": mine,
                 "key_check": AnswerCheck(**check._asdict()) if check else None,
-                "second_tried": second.get(part.id) if part.id in agreed else None,
             }
         )
         parts.append(part.model_copy(update={"state": state}))

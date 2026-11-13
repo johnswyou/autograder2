@@ -338,8 +338,7 @@ FIRSTS = ["Q1", "Q2", "Q3", "Q4.a", "Q5.a"]  # the first part of each problem
             {("solver", "Solution", p) for p in FIRSTS[:4]},
             [
                 *(("checker", "Solution", p) for p in FIRSTS),
-                # The rubric's self-test: the second solutions are the same as the
-                # key's, so their requests are the same and come from the cache.
+                # The rubric's self-test, one call for each problem it grades.
                 ("grader", "Grades", "Q4.a"),
                 ("grader", "Grades", "Q5.a"),
                 ("solver", "Rubric", "Q4.a"),

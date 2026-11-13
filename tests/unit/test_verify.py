@@ -715,15 +715,19 @@ def test_key_verify_changes_nothing_but_state(
     look = [id for id, state in states.items() if state == "unverified"]
     assert report.startswith(
         "# Verification\n\nThe second solution of each problem was made by"
-        f" {CHECKER.slug}. The first solution is the key's own. Then the key's own"
-        " solution of each part a model grades was graded against its rubric as a"
-        " response, by the grade stage, and has to earn every criterion in full.\n\n"
+        f" {CHECKER.slug}. The first solution is the key's own.\n\nA part a model"
+        " grades passes the rubric's self-test when the key's own solution, graded by"
+        " the grade stage as a student's response, earns every criterion in full."
+        " This shows that the rubric asks for no more than a complete correct"
+        " response holds. It does not show that each criterion's wording agrees with"
+        " the key's answer.\n\n"
         "The key keeps no final computation, so its side has no arithmetic check."
         "\n\nStates: "
     )
+    causes = ", ".join(f"{id} (the two solutions)" for id in look)
     assert (
-        f"Parts that need a look: {', '.join(look)}. For each, correct key.yaml if it"
-        " is wrong, then run `redpen key verify` again."
+        f"Parts that need a look: {causes}. For each, correct key.yaml if it is"
+        " wrong, then run `redpen key verify` again."
         if look
         else "Parts that need a look: none."
     ) in report.splitlines()
@@ -784,13 +788,16 @@ def test_key_verify_makes_a_part_its_key_fails_unverified_and_rewrites_nothing(
         ("failed", ["Q4.b.c1"])
     ]
     report = workspace.verification_md.read_text()
-    assert "Parts that need a look: Q4.b. For each" in report
+    assert "Parts that need a look: Q4.b (the rubric's self-test). For each" in report
     assert "Grader: The rubric asks for more." in report.split("## Q4.b:")[1]
     assert (
         "Rubric self-test: 5 passed, 1 failed, 0 not graded; 0 with the rubric"
         " written a second time." in result.output.splitlines()
     )
-    assert "asks for more" not in result.output + result.stderr
+    # Neither the lost criterion's requirement nor the grader's words on it.
+    [c1] = [c for c in before.parts[4].criteria if c.id == "Q4.b.c1"]
+    for text in (c1.requirement, "asks for more"):
+        assert text not in result.output + result.stderr
     asked = len(router.bodies)
 
     again = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
