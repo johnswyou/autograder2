@@ -48,9 +48,10 @@ UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
 UNGRADED = "No reading or no grade was recorded for it."
-# Before the requirement of a criterion the class audit lowered, where the grader
-# gave no feedback: the student's file never shows the audit's own reason.
-LOWERED = "This was marked again beside the rest of the class. It asks for:"
+# Before the requirement of a criterion the class audit lowered from its full
+# points, in place of whatever the grader wrote then (often praise): the student's
+# file never shows the audit's own reason.
+LOWERED = "This point was marked again for consistency across the class. What it needs:"
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
 # Under the pinned models, once a grade run of the workspace had strict privacy off.
@@ -259,8 +260,10 @@ def audited(stored: Stored, part: KeyPart) -> GradeRecord:
     """The stored grade record of `part` with each change of the class audit to the
     student's awards that still holds: one decided on the record's own part hash
     and award, to one of the criterion's levels, which the change's reason then
-    explains to the instructor. Any other is ignored. A lowered award with no
-    feedback gets fixed words and the criterion's requirement, never the reason."""
+    explains to the instructor. Any other is ignored. An award lowered from full
+    points shows the student fixed words and the criterion's requirement in place
+    of the grader's feedback, never the reason; one lowered from a partial level
+    keeps the grader's feedback."""
     record = stored.grades[part.id]
     audit = stored.audits.get(part.id)
     whose = stored.student.student_key
@@ -282,8 +285,9 @@ def audited(stored: Stored, part: KeyPart) -> GradeRecord:
         ):
             found.append(c)
             continue
+        full = criteria[c.id].points
         feedback = c.feedback
-        if change.after < criteria[c.id].points and not feedback.strip():
+        if change.before == full > change.after:
             feedback = f"{LOWERED} {criteria[c.id].requirement}"
         why = (
             f"Changed by the class audit from {number(change.before)}: {change.reason}"

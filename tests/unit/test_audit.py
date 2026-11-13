@@ -589,29 +589,46 @@ def test_an_empty_reason_is_refused_and_asked_once_more(tmp_path: Path) -> None:
     assert [c.reason for c in audit_of(workspace, "Q4.c").changes] == [REASON]
 
 
-def test_a_lowered_award_shows_the_student_the_requirement_and_never_the_reason(
-    tmp_path: Path,
+@pytest.mark.parametrize("said", ["", "Good job."], ids=["no feedback", "praise"])
+def test_an_award_lowered_from_full_shows_the_requirement_never_praise_or_the_reason(
+    tmp_path: Path, said: str
 ) -> None:
-    # Ann had the criterion in full, so the grader wrote her no feedback on it.
+    # Ann had the criterion in full; the grader wrote her nothing, or praise.
     workspace = new_workspace(tmp_path)
     for who, c1 in ((ANN, "1"), (BEN, "0")):
         grade = graded("Q4.c", {"Q4.c.c1": c1, "Q4.c.c2": "1"})
-        quiet = [
-            c.model_copy(update={"feedback": ""}) if who == ANN else c
-            for c in grade.criteria
-        ]
-        quiet_grade = grade.model_copy(update={"criteria": quiet})
-        store(workspace, who, [reading("Q4.c")], [record(Q4C, quiet_grade)])
+        ann = [c.model_copy(update={"feedback": said}) for c in grade.criteria]
+        if who == ANN:
+            grade = grade.model_copy(update={"criteria": ann})
+        store(workspace, who, [reading("Q4.c")], [record(Q4C, grade)])
     audit(workspace, Q4C, Grader(everyone(0)))
 
     write_report(workspace, Q4C, students(ANN, BEN))
 
     [c1] = [c for c in PARTS["Q4.c"].criteria if c.id == "Q4.c.c1"]
-    ann = workspace.feedback_md(ANN).read_text()
-    assert f"- {one_line(LOWERED)} {one_line(c1.requirement)}" in ann.splitlines()
+    lines = workspace.feedback_md(ANN).read_text().splitlines()
+    assert f"- {one_line(LOWERED)} {one_line(c1.requirement)}" in lines
+    assert "- Good job." not in lines
     for path in workspace.feedback_dir.iterdir():
         assert REASON not in path.read_text()
     assert "Feedback on Q4.c.c1." in workspace.feedback_md(BEN).read_text()
+
+
+def test_an_award_lowered_from_a_partial_level_keeps_the_grader_s_feedback(
+    tmp_path: Path,
+) -> None:
+    key = key_of("Q4.b")
+    workspace = new_workspace(tmp_path)
+    for who, c1 in ((ANN, "1"), (BEN, "0")):  # 1 is the partial level of 2
+        grade = graded("Q4.b", {"Q4.b.c1": c1, "Q4.b.c2": "1"})
+        store(workspace, who, [reading("Q4.b")], [record(key, grade)])
+    audit(workspace, key, Grader(everyone(0)))
+
+    write_report(workspace, key, students(ANN, BEN))
+
+    text = workspace.feedback_md(ANN).read_text()
+    assert "- Feedback on Q4.b.c1." in text.splitlines()
+    assert one_line(LOWERED) not in text and REASON not in text
 
 
 def test_a_large_group_may_answer_at_160_tokens_a_case(tmp_path: Path) -> None:
