@@ -1423,18 +1423,19 @@ def test_entries_come_by_severity_then_points_then_student_key_then_part_order(
 
     change_reading(workspace, s3, "Q2", unreadable)  # high
     graded_with(workspace, s1, "Q4.b", transcript_dispute="x")  # medium
-    for student, part in [(s2, "Q4.a"), (s2, "Q5.a"), (s1, "Q5.a"), (s1, "Q1")]:
+    for student, part in [(s2, "Q4.a"), (s2, "Q5.a"), (s1, "Q4.a"), (s1, "Q1")]:
         poorly_read(workspace, student, part)  # medium
     graded_with(workspace, s3, "Q4.b", code_overruled="x")  # low
 
     write_report(workspace, key, [s1, s2, s3])
 
     found = listed(workspace)
+    # At 2 points, s1's Q4.a before s2's Q5.a, which comes first in the key.
     assert [heading for heading, _ in found] == [
         "Q2, worth 1",
         "`Student 3` (`s3`), Q2",
         "`Student 1` (`s1`), Q4.b",
-        "`Student 1` (`s1`), Q5.a",
+        "`Student 1` (`s1`), Q4.a",
         "`Student 2` (`s2`), Q5.a",
         "`Student 2` (`s2`), Q4.a",
         "`Student 1` (`s1`), Q1",
