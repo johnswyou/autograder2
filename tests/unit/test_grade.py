@@ -20,7 +20,13 @@ from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
 from redpen.schemas.common import Provenance
-from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
+from redpen.schemas.grade import (
+    AnswerCheck,
+    CriterionGrade,
+    Grade,
+    GradeRecord,
+    ProblemGrades,
+)
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import (
     Crop,
@@ -610,6 +616,66 @@ def test_an_overrule_is_asked_for_kept_and_one_that_overrules_nothing_cleared(
     }
     assert records["Q4.b"].grade.code_overruled == "carried"
     assert records["Q4.a"].grade.code_overruled is None
+
+
+TWO_FINAL = key_of(
+    PARTS["Q4.a"],
+    changed(
+        "Q4.b",
+        criteria=[
+            PARTS["Q4.b"].criteria[0].model_dump() | {"kind": "final_answer"},
+            PARTS["Q4.b"].criteria[1],
+        ],
+    ),
+    PARTS["Q4.c"],
+)
+
+
+def test_a_part_with_two_final_answer_criteria_gets_the_check_and_is_not_held(
+    tmp_path: Path,
+) -> None:
+    # A match, and the second final-answer criterion at zero with no reason.
+    workspace = Workspace(tmp_path / "ws")
+    right = stated("Q4.b", value=RIGHT, unit="m/s^2")
+    store(workspace, [ASKED["Q4.a"], right, ASKED["Q4.c"]])
+    grader = Grader(TWO_FINAL, lambda ids, n: q4b_final(0))
+
+    records = run(workspace, TWO_FINAL, grader)
+
+    assert problems(TWO_FINAL, ASKED | {"Q4.b": right}, q4b_final(0)) == []
+    assert len(grader.requests) == 1
+    content = grader.requests[0]["json"]["messages"][1]["content"]
+    texts = [json.loads(c["text"]) for c in content if c["type"] == "text"]
+    [item] = [t for t in texts if t.get("grade", {}).get("part_id") == "Q4.b"]
+    assert item["check"]["verdict"] == "matches"
+    assert awards(records["Q4.b"]) == [Decimal(2), Decimal(0)]
+
+
+def test_the_check_given_to_the_grader_is_stored_with_the_grade(
+    tmp_path: Path,
+) -> None:
+    key = key_of(PARTS["Q1"], *Q4.parts)
+    workspace = Workspace(tmp_path / "ws")
+    chosen = FinalAnswer(choices=["C"], value=None, unit=None, expression=None)
+    wrong = stated("Q4.b", value=WRONG, unit="m/s^2")
+    readings = [ASKED["Q4.a"], wrong, ASKED["Q4.c"]]
+    store(workspace, [reading("Q1", final_answer=chosen), *readings])
+
+    records = run(workspace, key, Grader(Q4, lambda ids, n: q4b_final(0)))
+
+    found = AnswerCheck(
+        verdict="does not match",
+        reason="The value is outside the tolerance of every value the key accepts.",
+    )
+    assert records["Q4.b"].check == found
+    assert records["Q4.a"].check is None  # no check for a drawing
+    assert records["Q1"].check is None  # decided by code
+    stored = read_model(workspace.grade_json(STUDENT, "Q4"), ProblemGrades)
+    assert [r.check for r in stored.records] == [None, found, None]
+    # A record written before the check was stored still loads.
+    old = records["Q4.a"].model_dump(mode="json")
+    del old["check"]
+    assert GradeRecord.model_validate(old).check is None
 
 
 def test_a_reason_given_where_no_award_goes_against_the_check_is_cleared(

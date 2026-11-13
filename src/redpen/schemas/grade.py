@@ -36,9 +36,17 @@ class Grade(Schema):
     code_overruled: str | None  # the computed answer check is wrong
 
 
+# The answer check the grader was given beside the reading, as it was then.
+class AnswerCheck(Schema):
+    verdict: Verdict
+    reason: str
+
+
 class GradeRecord(Schema):
     provenance: Provenance
     grade: Grade
+    # None for a part with no check, decided by code, or graded before checks.
+    check: AnswerCheck | None = None
 
 
 # A part read as unreadable has no record, nor has a choice part answered with no
