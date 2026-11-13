@@ -8,11 +8,12 @@ only to `out/eval.md` (as a code span) and `out/eval.json`, and never used as a 
 Nothing a student or a model wrote is copied: the listing gives paths."""
 
 import csv
+import re
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -44,6 +45,9 @@ IGNORED = ("total", "maximum", "status", "open_flags")
 TOTAL_WITHIN = Decimal("0.05")
 # A cell further apart than this share of its maximum is a large disagreement.
 LARGE = Decimal("0.25")
+# A score as a person types one: ASCII digits, and up to six after a point, so that
+# every sum and difference stays exact in Decimal's 28 digits.
+PLAIN = re.compile(r"[0-9]+(?:\.[0-9]{1,6})?")
 # Printed to the hundredth of a point and the tenth of a percent, halves up.
 CENT, TENTH = Decimal("0.01"), Decimal("0.1")
 
@@ -313,16 +317,12 @@ def _read_gold(
 
 
 def _gold_points(text: str, maximum: Decimal, where: str) -> Decimal | None:
-    if not text.strip():
+    plain = text.strip()
+    if not plain:
         return None
-    try:
-        value = Decimal(text.strip())
-    except InvalidOperation:
-        value = Decimal("NaN")
-    if not value.is_finite():
+    if not PLAIN.fullmatch(plain):
         raise GoldError(f"{where} is not a number of points.")
-    if value < 0:
-        raise GoldError(f"{where} is below zero.")
+    value = Decimal(plain)
     if value > maximum:
         raise GoldError(
             f"{where} is above the key's maximum there, {number(maximum)}."

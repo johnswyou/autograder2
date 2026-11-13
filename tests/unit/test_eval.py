@@ -566,7 +566,8 @@ def test_a_name_never_reaches_the_markdown_unescaped_or_becomes_a_path(
         ("two", "is not a number of points."),
         ("nan", "is not a number of points."),
         ("inf", "is not a number of points."),
-        ("-0.5", "is below zero."),
+        ("-0.5", "is not a number of points."),
+        ("1_000", "is not a number of points."),
         (
             "5.25",
             "is above the key's maximum there, 5. Is the gold on another point scale?",
@@ -586,6 +587,71 @@ def test_a_cell_that_is_not_a_score_is_refused_with_its_row_and_column(
     assert isinstance(result.exception, SystemExit)
     assert result.stderr.splitlines() == [f"Row 2, column page 2 of {path} {why}"]
     assert not workspace.eval_json.exists()
+
+
+@pytest.mark.parametrize(
+    ("text", "points"),
+    [
+        ("4", D(4)),
+        ("4.5", D("4.5")),
+        ("0.25", D("0.25")),
+        ("0", D(0)),
+        ("5", D(5)),  # page 2's maximum
+        ("04", D(4)),
+        ("4.000001", D("4.000001")),  # six digits after the point
+        (" 4 ", D(4)),
+        ("\t4.5\u00a0", D("4.5")),  # a tab and a no-break space around it
+    ],
+)
+def test_a_gold_score_of_plain_digits_is_accepted(
+    built: Built, tmp_path: Path, text: str, points: Decimal
+) -> None:
+    path = gold(built, tmp_path / "g.csv", "page", {("Avery Example", "page 2"): text})
+    e = evaluate(built.workspace, KEY, built.students, path)
+
+    # Avery's other pages hold 2, 4 and 4.
+    [total] = [t for t in e.totals if t.student == "Avery Example"]
+    assert total.person == 10 + points
+
+
+FORTY = "0." + "1" * 39  # a 40-digit decimal
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "0_5",
+        "1_000",
+        "+4",
+        "1e0",
+        "-0",
+        "-0.5",
+        "\uff14",  # full-width 4
+        "\u0664",  # Arabic-Indic 4
+        "\u00bd",  # one half
+        FORTY,
+        "4.1234567",  # seven digits after the point
+        ".5",
+        "4.",
+        "4,5",
+        "4 5",
+        "0x10",
+        "nan",
+        "inf",
+        "Infinity",
+        "two",
+    ],
+)
+def test_a_gold_score_that_is_not_plain_digits_is_not_a_number_of_points(
+    built: Built, tmp_path: Path, text: str
+) -> None:
+    path = gold(built, tmp_path / "g.csv", "page", {("Avery Example", "page 2"): text})
+
+    with pytest.raises(GoldError) as refused:
+        evaluate(built.workspace, KEY, built.students, path)
+    assert str(refused.value) == (
+        f"Row 2, column page 2 of {path} is not a number of points."
+    )
 
 
 def test_a_header_that_fits_neither_score_file_is_refused_naming_the_columns(
