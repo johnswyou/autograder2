@@ -381,6 +381,16 @@ def test_a_disagreement_lists_both_scores_and_the_paths_of_its_files(
     ) in markdown(e)
 
 
+def test_a_gold_score_is_read_as_written_never_through_float(
+    built: Built, tmp_path: Path
+) -> None:
+    # 4.9 has no exact binary form: through float it would be 4.9000000000000003...
+    path = gold(built, tmp_path / "g.csv", "page", {("Avery Example", "page 2"): "4.9"})
+    [d] = evaluate(built.workspace, KEY, built.students, path).largest
+
+    assert (d.person, d.difference) == (D("4.9"), D("0.1"))
+
+
 # --- cells left out ------------------------------------------------------------------
 
 
@@ -661,14 +671,16 @@ def test_a_workspace_with_no_key_or_no_ingest_gives_one_line(
     ]
 
 
-def test_a_column_with_no_points_is_not_compared(
+def test_a_column_with_no_points_is_not_compared_nor_a_mixed_one_a_choice_cell(
     fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
 ) -> None:
-    # Q5.c moved by hand to page 6 of a 4-page blank: page 5 holds nothing.
+    # Moved by hand: Q5.c to page 6 of a 4-page blank, so page 5 holds nothing;
+    # and the choice part Q3 to page 2, beside the parts Q4.a and Q4.b.
+    moved = {"Q5.c": 6, "Q3": 2}
     key = KEY.model_copy(
         update={
             "parts": [
-                p.model_copy(update={"home_page": 6}) if p.id == "Q5.c" else p
+                p.model_copy(update={"home_page": moved[p.id]}) if p.id in moved else p
                 for p in KEY.parts
             ]
         }
@@ -680,11 +692,11 @@ def test_a_column_with_no_points_is_not_compared(
 
     e = evaluate(workspace, key, fixture_workspace[1].students, path)
 
-    assert [c.column for c in e.columns] == ["page 1", "page 2", "page 3"] + [
-        "page 4",
-        "page 6",
-    ]
+    columns = ["page 1", "page 2", "page 3", "page 4", "page 6"]
+    assert [c.column for c in e.columns] == columns
     assert e.cells == 10 * 5
+    # Only page 1, of Q1 and Q2, holds choice parts alone.
+    assert (e.choice.count, e.choice.of) == (10, 10)
 
 
 # --- a property ----------------------------------------------------------------------
