@@ -253,14 +253,14 @@ def suspect(
     matches the other. A `Suspect` when its largest group is larger than the key's
     side and holds at least `SHARE` of those who answered and at least `AT_LEAST`
     students, else None."""
-    kind = _kind(part)
+    kind = kind_of(part)
     if kind is None:
         return None
     unit = part.answer.unit if kind == "numeric" else None
     answered = [
         r.model_copy(update={"final_answer": _with_unit(r.final_answer, unit)})
         for r in readings
-        if r is not None and r.status == "answered" and _states(kind, r.final_answer)
+        if r is not None and r.status == "answered" and gives(kind, r.final_answer)
     ]
     ours, others = 0, list[tuple[Answer, int]]()
     for reading in answered:
@@ -268,7 +268,7 @@ def suspect(
         if side == "key":
             ours += 1
         elif side == "other":
-            said = _as(kind, reading.final_answer)
+            said = as_answer(kind, reading.final_answer)
             same = [
                 i
                 for i, (first, _) in enumerate(others)
@@ -310,7 +310,7 @@ def _side(
     return "other" if found.reason == OTHER_UNIT and convertible else None
 
 
-def _states(kind: ResponseType, stated: FinalAnswer) -> bool:
+def gives(kind: ResponseType, stated: FinalAnswer) -> bool:
     """Whether `stated` gives a final answer of `kind`."""
     if kind == "numeric":
         return stated.value is not None
@@ -333,20 +333,20 @@ def _cited(
     it cites none the reading has."""
     line = element = None
     if (n := grade.evidence_line) and n <= len(reading.lines):
-        line = _fold(reading.lines[n - 1])
+        line = fold(reading.lines[n - 1])
     if (n := grade.evidence_element) and n <= len(reading.elements):
         e = reading.elements[n - 1]
         element = tuple(
-            _fold(x or "") for x in (e.label, e.kind, e.direction, e.position)
+            fold(x or "") for x in (e.label, e.kind, e.direction, e.position)
         )
     return line, element
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _kind(part: KeyPart) -> ResponseType | None:
+def kind_of(part: KeyPart) -> ResponseType | None:
     """The response type `compare` takes `part`'s answers as, as the answer check
     reads them: a choice part's own; numeric for a value; symbolic for an
     expression; None when code cannot compare them."""
@@ -359,7 +359,7 @@ def _kind(part: KeyPart) -> ResponseType | None:
     return None
 
 
-def _as(kind: ResponseType, stated: FinalAnswer) -> Answer:
+def as_answer(kind: ResponseType, stated: FinalAnswer) -> Answer:
     """A student's `stated` answer as `compare` takes it: an answer with only the
     fields a `kind` answer fills (it makes a key part of it, which refuses any
     other), its options folded as the grade stage folds them."""
