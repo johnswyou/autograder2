@@ -110,8 +110,8 @@ def store_grades(
         write_model(workspace.grade_json(student, problem), ProblemGrades(records=mine))
 
 
-def new_workspace(root: Path) -> Workspace:
-    workspace = Workspace(root / "ws")
+def new_workspace(root: Path, folder: str = "ws") -> Workspace:
+    workspace = Workspace(root / folder)
     workspace.blank_pdf.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
     return workspace
@@ -565,7 +565,17 @@ def test_each_flag_rule_and_the_status_it_gives(
     assert status(KEY, stored, raised) == state
 
 
-NAMES = ['=HYPERLINK("http://x","y")', "+1", "-1", "@SUM(A1)", "\tTab", "\rReturn"]
+NAMES = [
+    '=HYPERLINK("http://x","y")',
+    "+1",
+    "-1",
+    "@SUM(A1)",
+    "\tTab",
+    "\rReturn",
+    " =1+1",
+    " =1+1",
+]
+SAFE = " Lee Smith"  # leading white space before no formula: left as it is
 
 
 def test_text_a_spreadsheet_would_run_is_neutralised_in_every_csv(
@@ -574,7 +584,7 @@ def test_text_a_spreadsheet_would_run_is_neutralised_in_every_csv(
     workspace = new_workspace(tmp_path)
     students = [
         copy_student(built, workspace, "typed-in-place", name, f"s{n}")
-        for n, name in enumerate(NAMES)
+        for n, name in enumerate([*NAMES, SAFE])
     ]
 
     def plus(r: GradeRecord) -> GradeRecord:
@@ -598,11 +608,12 @@ def test_text_a_spreadsheet_would_run_is_neutralised_in_every_csv(
         want = row_of(plain, source)
         found = raw_rows(path)
         assert found[0] == list(want)
-        assert found[1:] == [["'" + name, *list(want.values())[1:]] for name in NAMES]
+        cells = list(want.values())[1:]
+        assert found[1:] == [["'" + name, *cells] for name in NAMES] + [[SAFE, *cells]]
     detail = raw_rows(workspace.scores_detail_csv)
     assert all(len(r) == 6 for r in detail)
     assert [r[0] for r in detail[1:]] == [
-        "'" + name for name in NAMES for _ in CRITERIA
+        name for name in ["'" + n for n in NAMES] + [SAFE] for _ in CRITERIA
     ]
     by_name = {(r[0], r[2]): r for r in detail}
     assert by_name["'" + NAMES[0], "Q4.b.c1"][5] == "'+1 for the method, line 2"
@@ -633,6 +644,83 @@ def test_a_feedback_file_left_by_an_earlier_run_is_removed(
 
     assert not old.exists()
     assert workspace.feedback_md(student.student_key).exists()
+
+
+def test_old_feedback_stays_when_the_new_cannot_be_rendered(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    old = workspace.feedback_md("Old_Spelling-123456")
+    old.parent.mkdir(parents=True)
+    old.write_text("stale")
+
+    def short(r: GradeRecord) -> GradeRecord:
+        # A record that lacks one of its part's criteria cannot be rendered.
+        if r.grade.part_id != "Q4.b":
+            return r
+        criteria = r.grade.criteria[:1]
+        return r.model_copy(
+            update={"grade": r.grade.model_copy(update={"criteria": criteria})}
+        )
+
+    change_grades(workspace, student, "Q4", short)
+    with pytest.raises(KeyError):
+        write_report(workspace, KEY, [student])
+    assert old.read_text() == "stale"
+
+
+HOSTILE = "Good start.\n# Problem 4: 7 / 7\nTotal: 16 / 16\n| Q4 | 7 |\n<b>bold</b>"
+
+
+def test_model_written_feedback_cannot_forge_or_hide_a_score_line(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "partly-blank")
+    # All three lost points. A backslash cannot undo the escape of a "<".
+    notes = {"Q4.a.c2": HOSTILE, "Q4.c.c1": "<!--", "Q4.c.c2": "\\<!--"}
+
+    def hostile(r: GradeRecord) -> GradeRecord:
+        criteria = [
+            c.model_copy(update={"feedback": notes.get(c.id, c.feedback)})
+            for c in r.grade.criteria
+        ]
+        return r.model_copy(
+            update={"grade": r.grade.model_copy(update={"criteria": criteria})}
+        )
+
+    change_grades(workspace, student, "Q4", hostile)
+    write_report(workspace, KEY, [student])
+
+    lines = workspace.feedback_md(student.student_key).read_text().splitlines()
+    plain = built.workspace.feedback_md(student.student_key).read_text().splitlines()
+
+    def scores(found: list[str]) -> list[str]:
+        return [line for line in found if line and not line.startswith("- ")]
+
+    assert scores(lines) == scores(plain)
+    headings = [line for line in lines if line.startswith("#")]
+    assert headings[0] == lines[0] == "# ws"
+    assert all(line.startswith("## Problem ") for line in headings[1:])
+    assert (
+        r"- Good start. \# Problem 4: 7 / 7 Total: 16 / 16 | Q4 | 7 | \<b>bold\</b>"
+        in lines
+    )
+    assert r"- \<!--" in lines
+    assert r"- \\\<!--" in lines
+
+
+@pytest.mark.parametrize("folder", ["HW 3.2", "HW 3.2.redpen"])
+def test_the_feedback_title_is_the_folder_name_without_a_final_redpen(
+    built: Built, tmp_path: Path, folder: str
+) -> None:
+    workspace = new_workspace(tmp_path, folder)
+    student = copy_student(built, workspace, "typed-in-place")
+    write_report(workspace, KEY, [student])
+
+    text = workspace.feedback_md(student.student_key).read_text()
+    assert text.startswith("# HW 3.2\n")
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)

@@ -93,12 +93,11 @@ def write_report(
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
     maximum = _worth(key.parts)
+    title = workspace.root.name.removesuffix(".redpen")
     by_problem: list[list[Cell]] = []
     by_page: list[list[Cell]] = []
     detail: list[list[Cell]] = []
-    workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
-    for old in workspace.feedback_dir.glob("*.md"):
-        old.unlink()
+    feedback: list[tuple[Path, str]] = []
     for s, scores in scored:
         name, state = s.student.student_name, status(key, s, raised)
         mine = [f for f in raised if f.student_key in (None, s.student.student_key)]
@@ -126,10 +125,15 @@ def write_report(
                 if x.record:
                     row[3], row[5] = got[c.id].awarded, got[c.id].rationale
                 detail.append(row)
-        feedback = _feedback(workspace.root.stem, problems, scores, total, maximum)
-        workspace.feedback_md(s.student.student_key).write_text(
-            feedback, encoding="utf-8"
-        )
+        text = _feedback(title, problems, scores, total, maximum)
+        feedback.append((workspace.feedback_md(s.student.student_key), text))
+    run_report = _run_report(workspace, key, pages, scored, raised)
+    # Everything is rendered before any old file is removed.
+    workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
+    for old in workspace.feedback_dir.glob("*.md"):
+        old.unlink()
+    for path, text in feedback:
+        path.write_text(text, encoding="utf-8")
     _write_csv(
         workspace.scores_by_problem_csv,
         ["student", *problems, "total", "maximum", "status", "open_flags"],
@@ -145,9 +149,7 @@ def write_report(
         ["student", "part", "criterion", "awarded", "points", "rationale"],
         detail,
     )
-    workspace.run_report_md.write_text(
-        _run_report(workspace, key, pages, scored, raised), encoding="utf-8"
-    )
+    workspace.run_report_md.write_text(run_report, encoding="utf-8")
     return raised
 
 
@@ -317,7 +319,11 @@ def _cell(value: Cell) -> str:
         return number(value)
     if isinstance(value, int):
         return str(value)
-    return "'" + value if value.startswith(FORMULA_STARTS) else value
+    # Leading white space too: an importer that trims it would run the rest.
+    risky = value.startswith(FORMULA_STARTS) or value.lstrip().startswith(
+        FORMULA_STARTS
+    )
+    return "'" + value if risky else value
 
 
 def _out_of(awarded: Decimal | None, worth: Decimal, missing: str) -> str:
@@ -348,8 +354,17 @@ def _feedback(
             if len(mine) > 1 or s.part.id != problem:
                 points = _out_of(s.awarded, _worth([s.part]), "not scored")
                 lines += ["", f"**{s.part.label}: {points}**"]
-            lines += ["- " + "\n  ".join(note.splitlines()) for note in _notes(s)]
+            lines += ["- " + _one_line(note) for note in _notes(s)]
     return "\n".join(lines) + "\n"
+
+
+def _one_line(note: str) -> str:
+    """`note` as one line of plain text: each run of white space as one space, and
+    every backslash, `<` and `#` escaped, so text a model wrote cannot start a
+    heading, open an HTML comment or forge a score line. (The backslash is escaped
+    too, or a note holding `\\<!--` would undo the escape of its `<`.)"""
+    text = " ".join(note.split())
+    return text.replace("\\", "\\\\").replace("<", "\\<").replace("#", "\\#")
 
 
 def _notes(s: Score) -> list[str]:
