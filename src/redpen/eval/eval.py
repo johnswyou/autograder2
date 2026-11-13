@@ -110,6 +110,7 @@ class Evaluation(Schema):
     total_bias: Decimal | None
     total_bias_share: Decimal | None  # of the assignment's maximum
     totals_within: Share
+    incomplete_totals: int  # matched students left out of the two totals measures
     choice: Share  # cells of only choice parts that agree exactly
     unflagged: Share  # large and no flag on the cell's parts, the key's counted
     unflagged_named: Share  # large and no flag naming the student there
@@ -193,9 +194,12 @@ def evaluate(
             pairs.append(_Pair(st, column, parts, tool, person, maximum, on))
 
     totals = [_total(st, [p for p in pairs if p.stored is st]) for st in stored]
-    counted = [t for t in totals if t.cells]
+    # A total is measured against the assignment's maximum, so it counts only when
+    # every column that can be scored was compared.
+    scorable = sum(1 for m in maxima[by].values() if m)
+    complete = [t for t in totals if t.cells == scorable]
     maximum = points_of(key, key.parts)
-    signed = _sum(t.difference for t in counted)
+    signed = _sum(t.difference for t in complete)
     large = [p for p in pairs if abs(p.difference) > LARGE * p.maximum]
     choice = [p for p in pairs if all(x.response_type in CHOICE_TYPES for x in p.parts)]
     ranked = sorted(
@@ -235,12 +239,13 @@ def evaluate(
         bias_share=_ratio(
             _sum(p.difference for p in pairs), _sum(p.maximum for p in pairs)
         ),
-        total_bias=_ratio(signed, len(counted)),
-        total_bias_share=_ratio(signed, len(counted) * maximum),
+        total_bias=_ratio(signed, len(complete)),
+        total_bias_share=_ratio(signed, len(complete) * maximum),
         totals_within=_share(
-            sum(abs(t.difference) <= TOTAL_WITHIN * maximum for t in counted),
-            len(counted),
+            sum(abs(t.difference) <= TOTAL_WITHIN * maximum for t in complete),
+            len(complete),
         ),
+        incomplete_totals=len(totals) - len(complete),
         choice=_share(sum(not p.difference for p in choice), len(choice)),
         unflagged=_share(sum(not p.flags for p in large), len(pairs)),
         unflagged_named=_share(
@@ -426,6 +431,8 @@ def table(e: Evaluation) -> list[str]:
         f" ({number(e.maximum)}).",
         "Totals within 5% of the assignment's maximum:"
         f" {_count(e.totals_within, 'students')}.",
+        "Students left out of the two totals measures, their totals resting on"
+        f" fewer than all {len(e.columns)} scorable cells: {e.incomplete_totals}.",
         f"Multiple-choice agreement: {_count(e.choice, 'cells of only choice parts')}.",
         "Large disagreements (over 25% of the cell's maximum) not flagged:",
         f"  counting every flag: {_count(e.unflagged, 'cells')}.",

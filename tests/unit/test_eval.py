@@ -189,6 +189,8 @@ def test_the_tool_s_own_file_as_gold_agrees_in_every_measure(
     assert all(t.difference == 0 for t in e.totals)
     assert e.largest == []
     assert (e.withheld, e.unknown, e.no_gold, e.doubled) == (0, [], [], [])
+    # The low-resolution student has no compared cell, so no complete total.
+    assert e.incomplete_totals == 1
     assert "None: every compared cell agrees." in markdown(e)
 
 
@@ -345,6 +347,7 @@ def test_each_measure_equals_the_value_worked_out_by_hand(
         assert (share.count, share.of, share.share) == (count, of, D(count) / of)
     assert (e.unflagged.count, e.unflagged.of) == hand.unflagged
     assert (e.unflagged_named.count, e.unflagged_named.of) == hand.unflagged_named
+    assert e.incomplete_totals == 1
     assert {t.student: t.difference for t in e.totals} == {
         s.student_name: hand.differences.get(s.student_name, D(0))
         for s in built.students
@@ -430,6 +433,31 @@ def test_an_empty_gold_cell_is_left_out_of_the_measures(
     assert e.cells == 10 * len(MAXIMA[by]) - 2
     assert [c.cells for c in e.columns if c.column == column] == [8]
     assert (e.withheld, e.mean) == (0, 0)
+    # Kit and Avery now have one cell fewer, and low-resolution none: no complete
+    # total, so out of the totals measures. The other eight count.
+    assert (e.incomplete_totals, e.totals_within.of) == (3, 8)
+
+
+def test_a_total_on_fewer_than_every_scorable_cell_is_left_out_of_the_totals(
+    built: Built, tmp_path: Path
+) -> None:
+    # One cell per student, as in the review: no total rests on every column.
+    header, *body = read_rows(built.workspace.scores_by_page_csv)
+    rows = [header, *(r[:2] + [""] * 3 for r in body)]
+    path = write_rows(tmp_path / "g.csv", rows)
+    e = evaluate(built.workspace, KEY, built.students, path)
+
+    assert e.cells == 10
+    assert (e.totals_within.count, e.totals_within.of) == (0, 0)
+    assert (e.total_bias, e.total_bias_share, e.totals_within.share) == (None,) * 3
+    assert e.incomplete_totals == len(built.students)
+    assert (
+        "Students left out of the two totals measures, their totals resting on fewer"
+        f" than all 4 scorable cells: {len(built.students)}." in table(e)
+    )
+    assert "Totals within 5% of the assignment's maximum: 0 of 0 students (-)." in (
+        table(e)
+    )
 
 
 # --- students ------------------------------------------------------------------------
@@ -738,6 +766,11 @@ def test_the_measures_hold_together_for_any_scores_within_the_maximums(
     for t in e.totals:
         assert t.difference == sum(differences[t.student], D(0))
         assert t.cells == len(differences[t.student])
+    complete = sum(len(d) == len(MAXIMA[by]) for d in differences.values())
+    assert (e.totals_within.of, e.incomplete_totals) == (
+        complete,
+        len(differences) - complete,
+    )
 
 
 # --- the instructor's points (task 4.5a) ---------------------------------------------
