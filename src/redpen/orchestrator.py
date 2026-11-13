@@ -132,7 +132,8 @@ async def grade_class(
 
 # Per call, the tokens sent besides images (instructions, outline and JSON parts)
 # and the tokens returned, reasoning included: the means over the calls recorded for
-# the fixtures (task 2.7 report; solve, check and referee in task 4.5b). The
+# the fixtures (task 2.7 report; solve, check and referee in task 4.5b; the
+# self-test's grader calls, "test", in task 4.5c, text only). The
 # checker's vendor counts image tokens its own way, and its text figure takes up
 # the difference at the fixture's page size.
 TOKENS: dict[str, tuple[int, int]] = {
@@ -142,6 +143,7 @@ TOKENS: dict[str, tuple[int, int]] = {
     "check": (2070, 415),
     "referee": (2803, 155),
     "rubric": (3686, 1318),
+    "test": (7567, 976),
     "map page": (3353, 637),
     "resolve": (3916, 748),
     "read": (4684, 461),
@@ -279,6 +281,8 @@ def estimate(
         referee_pages = found.referee_pages * page
         add("prepare", REFEREE, "referee", found.referees, referee_pages)
         add("prepare", "solver", "rubric", found.rubrics)
+        # The rubric's self-test: the key's solution and the second one, graded.
+        add("prepare", "grader", "test", 2 * found.rubrics)
     for student in students:
         mine = [image_tokens((p.width_px, p.height_px), budget) for p in student.pages]
         # A slide export's page is shown beside the same page of the blank.

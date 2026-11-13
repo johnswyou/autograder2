@@ -29,7 +29,7 @@ from redpen.config import Lock, read_lock, write_lock
 from redpen.grade.ingest import IngestSummary
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
-from redpen.orchestrator import PER_PAGE, estimate, image_tokens, shape
+from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
 from redpen.prepare.key import part_hash, save_key
 from redpen.report.report import STRICT_OFF_RUN, UNGRADED
 from redpen.schemas.common import Provenance
@@ -838,9 +838,13 @@ def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> N
 
     costs = estimate(models, blank, SPEC, False, [], 1536)
 
-    # Five problems solved twice, two rubrics, and a referee for Q4 and Q5, which
-    # have a part code cannot compare (a drawing, an explanation, a graph).
-    assert costs["prepare"].calls == 5 + 5 + 2 + 2
+    # Five problems solved twice, two rubrics, a referee for Q4 and Q5, which have
+    # a part code cannot compare (a drawing, an explanation, a graph), and the
+    # self-test's two grader calls for each problem with a part a model grades.
+    assert costs["prepare"].calls == 5 + 5 + 2 + 2 + 2 * 2
+    dearer = GRADER.model_copy(update={"prompt_price": GRADER.prompt_price + 1})
+    priced = estimate({**models, "grader": dearer}, blank, SPEC, False, [], 1536)
+    assert priced["prepare"].usd - costs["prepare"].usd == 2 * 2 * TOKENS["test"][0]
     assert (shape(SPEC).referees, shape(SPEC).referee_pages) == (2, 4)
     assert estimate(models, blank, SPEC, True, [], 1536)["prepare"].calls == 0
 
