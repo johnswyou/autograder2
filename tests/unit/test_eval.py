@@ -1007,3 +1007,58 @@ def test_with_points_set_the_maxima_are_the_allocation_s_and_a_gold_above_is_ref
         f"Row 2, column page 4 of {path} is above the key's maximum there, 2."
         " Is the gold on another point scale?"
     ]
+
+
+def test_with_points_set_every_measure_s_denominator_is_the_allocated_maximum(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    # Page maximums 6, 4, 3, 2 (total 15), where the criteria give 3, 5, 4, 4 (16).
+    _, summary = fixture_workspace
+    workspace = Workspace(tmp_path / "ws")
+    key = KEY.model_copy(
+        update={"points": PointConstraint(pages=[D(6), D(4), D(3), D(2)])}
+    )
+    store_class(workspace, key, summary)
+    rows = read_rows(workspace.scores_by_page_csv)
+    by_name = {r[0]: r for r in rows[1:]}
+    # Blake's page 1: tool 6, person 5.2, d +0.8. Under 6 not large (1.5) and not
+    # within 5% of 15 (0.75); under the criteria's 3 and 16 it would be both.
+    # Avery's page 4: tool 2, person 1.25, d +0.75. Under 2 large (0.5) and within
+    # 5% of 15, exactly; under the criteria's 4 it would not be large.
+    assert by_name["Blake Sample"][1] == "6" and by_name["Avery Example"][4] == "2"
+    by_name["Blake Sample"][1], by_name["Avery Example"][4] = "5.2", "1.25"
+    e = evaluate(workspace, key, summary.students, write_rows(tmp_path / "g.csv", rows))
+
+    assert [(c.column, c.maximum, c.mean, c.share) for c in e.columns] == [
+        ("page 1", 6, D("0.08"), D("0.8") / 60),
+        ("page 2", 4, 0, 0),
+        ("page 3", 3, 0, 0),
+        ("page 4", 2, D("0.075"), D("0.0375")),
+    ]
+    accounted(e, len(MAXIMA["page"]))
+    assert (e.maximum, e.cells) == (15, 40)
+    assert (e.mean, e.share) == (D("1.55") / 40, D("1.55") / 150)
+    assert (e.bias, e.bias_share) == (D("1.55") / 40, D("1.55") / 150)
+    assert (e.total_bias, e.total_bias_share) == (D("0.155"), D("1.55") / 150)
+    assert (e.totals_within.count, e.totals_within.of) == (9, 10)
+    assert (e.unflagged.count, e.unflagged_named.count) == (1, 1)
+    assert [(d.student, d.column) for d in e.largest] == [
+        ("Blake Sample", "page 1"),
+        ("Avery Example", "page 4"),
+    ]
+
+    # By problem, Q1 is worth 2 here where its criterion is worth 1.
+    rows = read_rows(workspace.scores_by_problem_csv)
+    q1 = rows[0].index("Q1")
+    rows[1][q1] = "2"
+    e = evaluate(workspace, key, summary.students, write_rows(tmp_path / "q.csv", rows))
+    assert [c.maximum for c in e.columns if c.column == "Q1"] == [2]
+    accounted(e, len(MAXIMA["problem"]))
+    rows[1][q1] = "2.25"
+    path = write_rows(tmp_path / "q.csv", rows)
+    with pytest.raises(GoldError) as refused:
+        evaluate(workspace, key, summary.students, path)
+    assert str(refused.value) == (
+        f"Row 2, column Q1 of {path} is above the key's maximum there, 2."
+        " Is the gold on another point scale?"
+    )
