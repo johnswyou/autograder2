@@ -5,9 +5,9 @@ with the provenance, including the key part hash, it was produced under.
 `ProblemGrades` is one stored file, a top-level problem's records.
 """
 
-from typing import Literal
+from typing import Any, Literal, cast
 
-from pydantic import PositiveInt
+from pydantic import PositiveInt, model_validator
 
 from redpen.schemas.common import CriterionId, PartId, Points, Provenance, Schema
 
@@ -46,7 +46,16 @@ class GradeRecord(Schema):
     provenance: Provenance
     grade: Grade
     # None for a part with no check, decided by code, or graded before checks.
-    check: AnswerCheck | None = None
+    # Required, so that the schema passes the strict lint like every other.
+    check: AnswerCheck | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _graded_before_checks(cls, data: Any) -> Any:
+        """A record stored before `check` existed has none: it loads with None."""
+        if not isinstance(data, dict) or "check" in data:
+            return cast(Any, data)
+        return {**cast(dict[str, Any], data), "check": None}
 
 
 # A part read as unreadable has no record, nor has a choice part answered with no

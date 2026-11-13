@@ -771,7 +771,7 @@ def test_an_award_is_stored_as_the_key_writes_its_level(tmp_path: Path) -> None:
 def test_a_part_s_points_are_summed_by_code_from_the_record_and_the_key() -> None:
     grade = full(KEY, "Q4.b")
     grade.criteria[0].awarded = Decimal(1)
-    record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=grade)
+    record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=grade, check=None)
 
     assert part_points(record, KEY) == (Decimal(2), Decimal(3))
 
@@ -797,7 +797,9 @@ C1_EDITED = changed(
     ids=["a criterion edited", "only the policies edited"],
 )
 def test_a_record_graded_under_another_key_is_never_summed(edited: Key) -> None:
-    record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=full(KEY, "Q4.b"))
+    record = GradeRecord(
+        provenance=by_code(PARTS["Q4.b"]), grade=full(KEY, "Q4.b"), check=None
+    )
 
     with pytest.raises(ValueError) as raised:
         part_points(record, edited)

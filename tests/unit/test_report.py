@@ -88,7 +88,7 @@ def graded(grade: Grade, key: Key = KEY) -> GradeRecord:
         prompt_version=None,
         model_slug=None,
     )
-    return GradeRecord(provenance=provenance, grade=grade)
+    return GradeRecord(provenance=provenance, grade=grade, check=None)
 
 
 def feedback_on(criterion: str) -> str:

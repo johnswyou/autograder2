@@ -100,6 +100,7 @@ def store_class(workspace: Workspace, key: Key, summary: IngestSummary) -> None:
                         model_slug=None,
                     ),
                     grade=g,
+                    check=None,
                 )
                 for g in truth.grades
                 if problem_of(g.part_id) == q

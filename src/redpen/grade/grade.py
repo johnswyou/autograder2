@@ -91,7 +91,9 @@ async def grade_student(
                 continue
             if reading.status == "blank" or choice:
                 records[part.id] = GradeRecord(
-                    provenance=provenance(part, False), grade=by_code(part, reading)
+                    provenance=provenance(part, False),
+                    grade=by_code(part, reading),
+                    check=None,
                 )
             else:
                 asked.append(part)
