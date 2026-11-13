@@ -528,12 +528,28 @@ def test_a_part_s_points_are_summed_by_code_from_the_record_and_the_key() -> Non
     assert part_points(record, KEY) == (Decimal(2), Decimal(3))
 
 
-def test_a_record_graded_under_another_key_is_never_summed() -> None:
+C1_EDITED = changed(
+    "Q4.b",
+    criteria=[
+        PARTS["Q4.b"].criteria[0].model_dump() | {"requirement": "New."},
+        PARTS["Q4.b"].criteria[1],
+    ],
+)
+
+
+@pytest.mark.parametrize(
+    "edited",
+    [
+        key_of(C1_EDITED),
+        Key(
+            policies=KEY.policies.model_copy(update={"rel_tol": 0.05}),
+            parts=[PARTS["Q4.b"]],
+        ),
+    ],
+    ids=["a criterion edited", "only the policies edited"],
+)
+def test_a_record_graded_under_another_key_is_never_summed(edited: Key) -> None:
     record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=full(KEY, "Q4.b"))
-    c1, c2 = PARTS["Q4.b"].criteria
-    edited = key_of(
-        changed("Q4.b", criteria=[c1.model_dump() | {"requirement": "New."}, c2])
-    )
 
     with pytest.raises(ValueError) as raised:
         part_points(record, edited)

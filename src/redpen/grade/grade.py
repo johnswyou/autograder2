@@ -160,14 +160,14 @@ async def grade_student(
 
 def by_code(part: KeyPart, reading: Reading) -> Grade:
     """The grade code gives a part read blank (zero on every criterion) or a choice
-    part (full points when the options read are the key's, compared without regard
-    to case or surrounding space, else zero)."""
+    part with an option read (full points when the options read are the key's,
+    compared without regard to case or surrounding space, else zero)."""
     if reading.status == "blank":
         earned, why = False, "No response."
     else:
         read = reading.final_answer.choices
         earned = _options(read) == _options(part.answer.choices)
-        chosen, answer = ", ".join(read) or "nothing", ", ".join(part.answer.choices)
+        chosen, answer = ", ".join(read), ", ".join(part.answer.choices)
         why = (
             f"Chooses {chosen}, the answer."
             if earned
