@@ -48,6 +48,7 @@ from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
 
 POLICIES = Policies()
+INF, NAN = float("inf"), float("nan")
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 SPEC = read_model(FIXTURES / "spec.json", Spec)
 runner = CliRunner()
@@ -137,6 +138,19 @@ FORCE = DiagramElement(label="N", kind="force", direction="up", position=None)
         ("numeric", {"value": 140}, {"value": 144.9}, DIFFER),
         ("numeric", {"value": 1.5}, {"value": 1.47}, DIFFER),  # 1.47 rounds to 1.5
         ("numeric", {"value": 1.47}, {"value": 1.5}, DIFFER),
+        # A unit left off is no disagreement: the referee can still find them same.
+        ("numeric", {"value": 2.5, "unit": "m/s^2"}, {"value": 2.5}, UNSURE),
+        ("numeric", {"value": 2.5}, {"value": 2.5, "unit": "m/s^2"}, UNSURE),
+        # A value that is not finite never agrees.
+        ("numeric", {"value": INF}, {"value": 5}, UNSURE),
+        ("numeric", {"value": -INF}, {"value": INF}, UNSURE),
+        (
+            "numeric",
+            {"value": 5, "accept_also": [INF]},
+            {"value": 7, "accept_also": [INF]},
+            UNSURE,
+        ),
+        ("numeric", {"value": NAN}, {"value": 5}, UNSURE),
         # An answer without what its type needs differs, on either side.
         ("numeric", {"value": 2.5, "unit": "m"}, {"unit": "m"}, DIFFER),
         ("numeric", {"unit": "m"}, {"value": 2.5, "unit": "m"}, DIFFER),
@@ -177,6 +191,12 @@ FORCE = DiagramElement(label="N", kind="force", direction="up", position=None)
         "140 and 144.9",
         "a rounding one way",
         "a rounding the other way",
+        "a unit left off the second",
+        "a unit left off the first",
+        "infinity against 5",
+        "minus infinity against infinity",
+        "infinity among both sides' alternatives",
+        "nan on one side",
         "no second value",
         "no first value",
         "no expression",
@@ -198,8 +218,9 @@ def test_two_answers_are_compared_in_code_where_the_type_allows(
     assert compare(response_type, answer(**first), answer(**second), POLICIES) == found
 
 
-def test_a_comparison_that_raises_cannot_tell_and_is_logged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("keyed", [False, True], ids=["fresh", "keyed"])
+def test_a_comparison_that_raises_differs_and_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyed: bool
 ) -> None:
     def broken(*args: object) -> None:
         raise RuntimeError("broken")
@@ -207,10 +228,13 @@ def test_a_comparison_that_raises_cannot_tell_and_is_logged(
     monkeypatch.setattr(stage, "check_answer", broken)
     spec = Spec(parts=[part("Q1", "numeric")])
     first = {"Q1": solved("Q1", "2.5", value=2.5, unit="m")}
+    second = {"Q1": solved("Q1", "3.5", value=3.5, unit="m")}
 
-    found = run(tmp_path, spec, first, OpenRouter(first, "neither"))
+    # The referee finding the two the same cannot lift a failed comparison.
+    found = run(tmp_path, spec, first, OpenRouter(second, "same"), keyed)
 
-    assert found["Q1"].compared == UNSURE and found["Q1"].state == "unverified"
+    assert (found["Q1"].compared, found["Q1"].ruling) == (DIFFER, "same")
+    assert found["Q1"].state == "unverified"
     log = (tmp_path / "ws" / "run.log").read_text()
     assert "verify Q1: the comparison" in log and "RuntimeError: broken" in log
 
@@ -826,6 +850,20 @@ def test_key_check_names_a_part_changed_after_it_was_verified(
     assert result.output.splitlines()[0] == "Q4.b was changed after it was verified."
     assert sum("was changed" in line for line in result.output.splitlines()) == 1
     assert workspace.key_yaml.read_bytes() == edited  # no state changed
+
+    # A record that does not load gets one fixed line, and no record none.
+    workspace.verification_json.write_text('{"checker": "Q4.b was changed by A"')
+    broken = runner.invoke(app, ["key", "check", "--workspace", "ws"])
+    workspace.verification_json.unlink()
+    silent = runner.invoke(app, ["key", "check", "--workspace", "ws"])
+
+    assert broken.exit_code == silent.exit_code == 0, broken.output + silent.output
+    assert broken.output.splitlines()[:2] == [
+        "ws/key/verification.json does not load, so no part is checked for a change"
+        " since it was verified.",
+        "ws/key/key.yaml: no problem found.",
+    ]
+    assert silent.output.splitlines()[0] == "ws/key/key.yaml: no problem found."
 
 
 # --- the fresh prepare ----------------------------------------------------------------

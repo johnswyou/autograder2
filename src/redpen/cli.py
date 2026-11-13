@@ -251,7 +251,7 @@ def prepare(
                 err=True,
             )
         if not ws.key_yaml.exists():  # a key will be solved and verified
-            _can_verify(ws, lock)
+            _can_verify(ws, lock.models)
         if ws.spec_json.exists():
             typer.echo(f"Reusing {ws.spec_json}")
             spec = _checked(ws.spec_json, pages)
@@ -375,10 +375,10 @@ async def _key(
     return key, verification(found, key, lock.models[CHECKER].slug, False)
 
 
-def _can_verify(ws: Workspace, lock: Lock) -> None:
-    """Exit with one line, before any call, unless the lock pins a solver, a
+def _can_verify(ws: Workspace, models: Mapping[str, ModelInfo]) -> None:
+    """Exit with one line, before any call, unless `models` has a solver, a
     referee and a checker of another vendor than the solver's."""
-    if found := role_problems(lock.models):
+    if found := role_problems(models):
         _fail(f"{ws.config_lock_toml}: {'; '.join(found)}.")
 
 
@@ -466,11 +466,18 @@ def key_check(workspace: KeyWorkspace) -> None:
 
 
 def _changed_by_hand(ws: Workspace, key: Key) -> list[str]:
-    """`changed` against verification.json, or nothing without a readable one."""
-    try:
-        return changed(key, read_model(ws.verification_json, Verification))
-    except (OSError, ValueError):  # no file, or one that does not load
+    """`changed` against verification.json: nothing without the file, and one line
+    when it does not load."""
+    if not ws.verification_json.exists():
         return []
+    try:
+        record = read_model(ws.verification_json, Verification)
+    except (OSError, ValueError):  # its text may quote the file
+        return [
+            f"{ws.verification_json} does not load, so no part is checked for a"
+            " change since it was verified."
+        ]
+    return changed(key, record)
 
 
 @key_app.command("render")
@@ -516,7 +523,7 @@ def key_verify(workspace: KeyWorkspace) -> None:
         typer.echo(problem, err=True)
     if problems:
         _fail(f"{ws.key_yaml} has problems, so it was not verified.")
-    _can_verify(ws, lock)
+    _can_verify(ws, lock.models)
     lock = _with_prompts(ws, lock)
     # The key's own answer and solution stand in for the first solver's.
     first = {
@@ -710,6 +717,8 @@ def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
     if not sizes:
         _fail(f"{blank} has no pages")
     keyed = ws.key_yaml.exists()
+    if pinned and not keyed:  # the estimate prices a solve and its verification
+        _can_verify(ws, models)
     budget = config.image_budget
     costs = estimate(models, sizes, spec, keyed, summary.students, budget)
     _print_estimate(costs, models, pinned, sizes, spec, keyed, summary.students, budget)

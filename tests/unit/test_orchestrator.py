@@ -659,6 +659,28 @@ def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> Non
     assert "- The key exists, so prepare makes no call." in lines
 
 
+def test_a_dry_run_with_a_lock_that_cannot_verify_says_so_in_one_line(
+    router: OpenRouter,
+) -> None:
+    WS.key_yaml.unlink()  # so the estimate prices a solve and its verification
+    write_lock(
+        WS.config_lock_toml,
+        Lock(profile="balanced", models={**ROLES, "solver": READER}),
+    )
+    shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+
+    result = runner.invoke(
+        app, ["run", "blank.pdf", "subs", "--workspace", "ws", "--dry-run"]
+    )
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # not a KeyError
+    assert result.stderr.splitlines() == [
+        "ws/config.lock.toml: no model is pinned for checker, referee."
+    ]
+    assert router.requests == []
+
+
 def test_a_dry_run_over_another_folder_leaves_the_stored_class_alone(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:

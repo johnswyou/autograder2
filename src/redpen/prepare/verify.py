@@ -178,9 +178,9 @@ async def verify(
                 answer_of(second),
                 policies,
             )
-        except Exception as error:  # fail closed, and keep the traceback
+        except Exception as error:  # keep the traceback
             log_failure(workspace, f"verify {part.id}: the comparison", error)
-            return UNSURE
+            return DIFFER  # fail closed: no referee's "same" lifts it to verified
 
     async def one(parts: Sequence[Part]) -> list[Verdict]:
         problem = problem_of(parts)
@@ -356,9 +356,10 @@ def compare(
     """`AGREE`, `DIFFER` or `UNSURE`. Option sets are compared directly. Numbers and
     expressions go through the answer check both ways, each answer taken once as
     the key and once as the response, with no leniency for rounding: the two agree
-    when each matches the other, and differ when either is read as different. An
-    answer without the value or expression its type needs differs. Any other type
-    cannot tell."""
+    when each matches the other, and differ when either is read as different. A
+    missing unit is taken as the other's, since whether one must be written is a
+    grading policy, not a disagreement between two solvers. An answer without the
+    value or expression its type needs differs. Any other type cannot tell."""
     if response_type in CHOICE_TYPES:
         same = bool(first.choices) and set(first.choices) == set(second.choices)
         return AGREE if same else DIFFER
@@ -371,7 +372,9 @@ def compare(
         missing |= not (second.expression or "").strip()
     if missing:
         return DIFFER
-    strict = policies.model_copy(update={"penalise_sig_figs": True})
+    strict = policies.model_copy(
+        update={"penalise_sig_figs": True, "require_units": False}
+    )
     found = {
         _check(response_type, first, second, strict),
         _check(response_type, second, first, strict),
