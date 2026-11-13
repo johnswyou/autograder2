@@ -50,6 +50,9 @@ from redpen.workspace import Workspace, log_failure, write_model
 
 SHARE = Decimal("0.4")  # of the students who answered
 AT_LEAST = 5  # students
+# Output tokens allowed per case of a group, above the grade stage's own limit:
+# the longest answers measured took about 150 a case (task 4.7 report).
+PER_CASE = 160
 
 type Case = tuple[str, CriterionGrade]  # a student key and their grade of a criterion
 
@@ -104,6 +107,7 @@ async def audit_class(
                 }
             asked.append(case | {"awarded": g.awarded, "rationale": g.rationale})
         text = json.dumps({"criterion": criterion.id, "cases": asked}, default=number)
+        limit = max(PARAMS["max_tokens"], PER_CASE * len(cases))
 
         async def ask(extra: Sequence[Content]) -> Decisions:
             result = await gateway.call(
@@ -114,7 +118,7 @@ async def audit_class(
                 [text, *extra],
                 Decisions,
                 version,
-                params=PARAMS,
+                params={**PARAMS, "max_tokens": limit},
                 session_id=f"{workspace.root.name}:audit",
             )
             return result.value
