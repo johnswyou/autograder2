@@ -11,7 +11,7 @@ import hashlib
 import io
 import json
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from decimal import ROUND_HALF_UP, Decimal, Inexact, localcontext
 from pathlib import Path
 from typing import Any, cast, get_origin
@@ -25,7 +25,7 @@ from ruamel.yaml.representer import RoundTripRepresenter
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
 from redpen.schemas.key import Answer, Key, KeyPart, PointConstraint, Policies
-from redpen.schemas.spec import Spec
+from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace
 
 # --- key.yaml ----------------------------------------------------------------------
@@ -366,8 +366,8 @@ def _steps(steps: int, weights: Sequence[Decimal]) -> list[int]:
 
 
 def _shares(
-    c: PointConstraint, parts: Sequence[KeyPart]
-) -> list[tuple[str, str, Decimal, list[KeyPart]]]:
+    c: PointConstraint, parts: Sequence[KeyPart | Part]
+) -> list[tuple[str, str, Decimal, list[KeyPart | Part]]]:
     """What shares points: where, the value's name, the value and its parts. That is
     the whole assignment under a total, or else each page that has a maximum or a
     part (a page past the maximums given has 0)."""
@@ -387,10 +387,28 @@ def _shares(
 
 def point_problems(key: Key, pages: int | None = None) -> list[str]:
     """Why the key's point constraint cannot be met, one line each naming its page:
-    a value below zero or off the point step, a page with points but no part, or
-    fewer steps than the parts that share them; and, given the blank's number of
-    `pages`, page maximums of another number. Nothing for no constraint."""
-    c, step = key.points, key.policies.point_step
+    a value below zero or off the point step, a page with points but no part, fewer
+    steps than the parts that share them, or parts that weigh nothing; and, given
+    the blank's number of `pages`, page maximums of another number. Nothing for no
+    constraint."""
+    weights = {p.id: weight(p) for p in key.parts}
+    return _problems(key.points, key.policies.point_step, key.parts, pages, weights)
+
+
+def spec_point_problems(c: PointConstraint, spec: Spec, pages: int) -> list[str]:
+    """`point_problems` before the key exists, so that `prepare` refuses before it
+    pays for a solver: the step is the policies' default, which a new key takes,
+    and every part's page is in the spec. Weights come only with the criteria."""
+    return _problems(c, Policies().point_step, spec.parts, pages, None)
+
+
+def _problems(
+    c: PointConstraint | None,
+    step: Decimal,
+    all_parts: Sequence[KeyPart | Part],
+    pages: int | None,
+    weights: Mapping[str, Decimal] | None,
+) -> list[str]:
     if c is None:
         return []
     problems: list[str] = []
@@ -399,7 +417,7 @@ def point_problems(key: Key, pages: int | None = None) -> list[str]:
             f"the key gives {len(c.pages)} page maximums and the blank has"
             f" {pages} pages"
         )
-    for where, name, value, parts in _shares(c, key.parts):
+    for where, name, value, parts in _shares(c, all_parts):
         try:
             whole = step > 0 and value % step == 0
         except ArithmeticError:  # too many digits for the quotient
@@ -419,10 +437,20 @@ def point_problems(key: Key, pages: int | None = None) -> list[str]:
         elif value and not parts:
             problems.append(f"{name} is {number(value)}, but {where} has no part")
         elif value / step < len(parts):
-            n = len(parts)
+            steps, n = int(value / step), len(parts)
             problems.append(
-                f"{name} is {number(value)}, {number(value / step)} steps of"
-                f" {number(step)} for the {n} part{'s' * (n != 1)} of {where}"
+                f"{name} is {number(value)}: {steps} step{'s' * (steps != 1)} of"
+                f" {number(step)} for {n} part{'s' * (n != 1)}, and each part"
+                " needs one"
+            )
+        elif (
+            parts
+            and weights is not None
+            and not sum((weights[p.id] for p in parts), Decimal(0))
+        ):
+            problems.append(
+                f"{name} is {number(value)}, but the parts of {where} have no"
+                " criterion points to share it by"
             )
     return problems
 

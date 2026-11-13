@@ -277,15 +277,19 @@ REFUSED = [
     ),
     (
         with_points(KEY, pages=["0.5", 5, 4, 4]),
-        "page 1's maximum is 0.5, 2 steps of 0.25 for the 3 parts of page 1",
+        "page 1's maximum is 0.5: 2 steps of 0.25 for 3 parts, and each part needs one",
     ),
     (
         with_points(KEY, pages=[0, 5, 4, 4]),
-        "page 1's maximum is 0, 0 steps of 0.25 for the 3 parts of page 1",
+        "page 1's maximum is 0: 0 steps of 0.25 for 3 parts, and each part needs one",
     ),
     (
         with_points(KEY, total=2),
-        "the total is 2, 8 steps of 0.25 for the 9 parts of the assignment",
+        "the total is 2: 8 steps of 0.25 for 9 parts, and each part needs one",
+    ),
+    (
+        with_points(KEY, pages=[3, 5, 4, "0.25"]),
+        "page 4's maximum is 0.25: 1 step of 0.25 for 2 parts, and each part needs one",
     ),
 ]
 REFUSED_IDS = [
@@ -298,6 +302,7 @@ REFUSED_IDS = [
     "fewer steps than parts",
     "no step for parts",
     "total fewer steps than parts",
+    "one step for two parts",
 ]
 
 
@@ -350,6 +355,45 @@ def test_a_constraint_that_cannot_be_met_is_refused_in_one_line_naming_the_page(
     if "blank has" not in line:  # the page count is the blank's, not the key's
         with pytest.raises(ValueError, match=re.escape(line)):
             allocation(key)
+
+
+def weightless(key: Key, page: int) -> Key:
+    """`key` with every criterion of the parts on `page` worth nothing."""
+    nothing = {"points": D(0), "partial": []}
+    parts = [
+        p.model_copy(
+            update={"criteria": [c.model_copy(update=nothing) for c in p.criteria]}
+        )
+        if p.home_page == page
+        else p
+        for p in key.parts
+    ]
+    return key.model_copy(update={"parts": parts})
+
+
+def test_a_page_whose_parts_weigh_nothing_is_refused_with_its_page_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    line = (
+        "page 3's maximum is 4, but the parts of page 3 have no criterion points to"
+        " share it by"
+    )
+    key = with_points(weightless(KEY, 3), pages=[3, 5, 4, 4])
+    workspace = refused_workspace(tmp_path, key)
+    root = str(workspace.root)
+
+    for command in (["report"], ["key", "render"], ["eval", "--gold", "none.csv"]):
+        result = runner.invoke(app, [*command, "--workspace", root])
+        assert (result.exit_code, result.stderr.splitlines()) == (1, [line])
+    checked = runner.invoke(app, ["key", "check", "--workspace", root])
+    # Beside the key's own lines for criteria worth 0 points.
+    assert checked.exit_code == 1 and line in checked.output.splitlines()
+    with pytest.raises(ValueError, match=re.escape(line)):
+        allocation(key)
+    # Under a total, one weightless page among others is shared nothing but a step.
+    shared = allocation(with_points(weightless(KEY, 3), total=20))
+    assert (shared["Q4.c"], shared["Q5.a"]) == (D("0.25"), D("0.25"))
 
 
 # --- properties -----------------------------------------------------------------------
