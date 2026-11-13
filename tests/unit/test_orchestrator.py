@@ -8,6 +8,7 @@ refuses every chat request, and some tests replace stages with fakes."""
 import csv
 import functools
 import hashlib
+import json
 import shutil
 from collections.abc import Callable
 from dataclasses import fields
@@ -388,6 +389,20 @@ def test_with_the_privacy_check_passing_the_map_stage_starts(
     paths = [r.url.path for r in router.requests]
     assert paths[0] == "/api/v1/endpoints/zdr"
     assert router.chats and all(b"image_url" in r.content for r in router.chats)
+    # Each page goes to the lock's model for its role, on the endpoints that keep
+    # nothing and nowhere else.
+    role = {"Inventory": "mapper", "Resolution": "mapper", "Readings": "reader"}
+    role |= {"Grades": "grader"}
+    for request in router.chats:
+        body = json.loads(request.content)
+        model = ROLES[role[body["response_format"]["json_schema"]["name"]]]
+        assert body["model"] == model.slug
+        assert body["provider"] == {
+            "require_parameters": True,
+            "data_collection": "deny",
+            "zdr": True,
+            "only": sorted(model.providers),
+        }
     assert result.exit_code == 1  # every chat request is refused
     assert "map: 3 of 3 students failed." in result.stderr.splitlines()
     assert (WS.root / "out" / "run_report.md").exists()
