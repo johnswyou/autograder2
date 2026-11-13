@@ -7,10 +7,11 @@ function) and grades, on the session's fresh ingest. They are stored and reporte
 once for the module; a test that changes something works on a copy."""
 
 import csv
+import json
 import shutil
 import socket
 import sqlite3
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal
@@ -581,74 +582,125 @@ def test_each_flag_rule_and_the_status_it_gives(
 
 # What the stored second reading of a part read with doubt does to its flags.
 DOUBT = {F.HARD_TO_READ, F.LOW_RESOLUTION}
+UNSURE = {"medium": "handwritten", "uncertain": [1]}  # read again
+TYPED = {"medium": "typed", "uncertain": [1]}  # in doubt, but never read again
+SURE = {"medium": "handwritten"}
 
 
-@pytest.mark.parametrize(
-    ("result", "tied", "codes", "state", "counts"),
-    [
-        ("same", True, set(), "final", "1. The same: 1. Different: 0. Not decided: 0"),
-        (
-            "differ",
-            True,
-            DOUBT | {F.READERS_DISAGREE},
-            "provisional",
-            "1. The same: 0. Different: 1. Not decided: 0",
-        ),
-        (
-            "not decided",
-            True,
-            DOUBT,
-            "provisional",
-            "1. The same: 0. Different: 0. Not decided: 1",
-        ),
-        ("failed", True, DOUBT, "provisional", "1. The same: 0. Different: 0."),
-        ("same", False, DOUBT, "provisional", "0. The same: 0. Different: 0."),
-    ],
-    ids=["same", "differ", "not decided", "failed", "made for another first reading"],
-)
+@dataclass(frozen=True)
+class Case:
+    reading: Mapping[str, object]  # the first reading of Q4.b, changed
+    doubted: bool
+    result: Literal["same", "differ", "not decided", "failed"]
+    codes: set[FlagCode]
+    state: str
+    counts: tuple[tuple[int, ...], tuple[int, ...]]  # in doubt, the others
+    stale: str = ""  # how the stored result was made for something else
+
+
+CASES = {
+    "same": Case(UNSURE, True, "same", set(), "final", ((1, 1, 0, 0, 0), (0, 0, 0, 0))),
+    "differ": Case(
+        UNSURE,
+        True,
+        "differ",
+        DOUBT | {F.READERS_DISAGREE},
+        "provisional",
+        ((1, 0, 1, 0, 0), (0, 0, 0, 0)),
+    ),
+    "not decided": Case(
+        UNSURE, True, "not decided", DOUBT, "provisional", ((1, 0, 0, 1, 0), (0,) * 4)
+    ),
+    "failed": Case(
+        UNSURE, True, "failed", DOUBT, "provisional", ((1, 0, 0, 0, 1), (0,) * 4)
+    ),
+    "the first reading made again": Case(
+        UNSURE, True, "same", DOUBT, "provisional", ((0,) * 5, (0,) * 4), "edited"
+    ),
+    "another version of the part": Case(
+        UNSURE, True, "same", DOUBT, "provisional", ((0,) * 5, (0,) * 4), "hash"
+    ),
+    "a file of an earlier shape": Case(
+        UNSURE, True, "same", DOUBT, "provisional", ((0,) * 5, (0,) * 4), "shape"
+    ),
+    "the same on a part not in doubt": Case(
+        TYPED, False, "same", DOUBT, "provisional", ((0,) * 5, (1, 1, 0, 0))
+    ),
+    "differ on a part not in doubt": Case(
+        SURE,
+        False,
+        "differ",
+        {F.READERS_DISAGREE},
+        "provisional",
+        ((0,) * 5, (1, 0, 1, 0)),
+    ),
+    "not decided on a part not in doubt": Case(
+        SURE, False, "not decided", set(), "final", ((0,) * 5, (1, 0, 0, 1))
+    ),
+}
+
+
+@pytest.mark.parametrize("case", CASES.values(), ids=CASES.keys())
 def test_a_second_reading_changes_the_part_s_flags_and_never_its_score(
-    built: Built,
-    tmp_path: Path,
-    result: Literal["same", "differ", "not decided", "failed"],
-    tied: bool,
-    codes: set[FlagCode],
-    state: str,
-    counts: str,
+    built: Built, tmp_path: Path, case: Case
 ) -> None:
     workspace = new_workspace(tmp_path)
     student = copy_student(built, workspace, "typed-in-place")
 
-    def doubted(r: ReadingRecord) -> ReadingRecord:
+    def read(r: ReadingRecord) -> ReadingRecord:
         crops = [c.model_copy(update={"scale": 2.0}) for c in r.crops]
-        changed = {"medium": "handwritten", "uncertain": [1]}
-        reading = r.reading.model_copy(update=changed)
+        reading = r.reading.model_copy(update=case.reading)
         return r.model_copy(update={"reading": reading, "crops": crops})
 
-    change_reading(workspace, student, "Q4.b", doubted)
+    change_reading(workspace, student, "Q4.b", read)
     before = load(workspace, KEY, student)
     first = before.readings["Q4.b"]
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
     second = first.model_copy(update={"reading": first.reading.model_copy()})
     record = SecondReading(
         part_id="Q4.b",
-        first=digest(first) if tied else "000000000000",
-        result=result,
-        second=None if result == "failed" else second,
+        part_hash="000000000000"
+        if case.stale == "hash"
+        else part_hash(part, KEY.policies),
+        first=digest(first),
+        doubted=case.doubted,
+        result=case.result,
+        second=None if case.result == "failed" else second,
     )
-    write_model(
-        workspace.second_json(student.student_key), SecondReadings(records=[record])
-    )
+    path = workspace.second_json(student.student_key)
+    write_model(path, SecondReadings(records=[record]))
+    if case.stale == "edited":  # the first reading's final answer, read anew
+
+        def again(r: ReadingRecord) -> ReadingRecord:
+            stated = r.reading.final_answer.model_copy(update={"value": 2.6})
+            reading = r.reading.model_copy(update={"final_answer": stated})
+            return r.model_copy(update={"reading": reading})
+
+        change_reading(workspace, student, "Q4.b", again)
+    if case.stale == "shape":  # as this task's first version wrote it
+        old = record.model_dump(mode="json", exclude={"part_hash", "doubted"})
+        path.write_text(json.dumps({"records": [old]}))
 
     stored = load(workspace, KEY, student)
     raised = flags(KEY, [stored])
 
-    assert {f.code for f in raised} == codes
+    assert {f.code for f in raised} == case.codes
     assert {f.part_id for f in raised} <= {"Q4.b"}
     assert all(f.severity == "high" for f in raised if f.code == F.READERS_DISAGREE)
-    assert status(KEY, stored, raised) == state
+    assert status(KEY, stored, raised) == case.state
     assert score(KEY, stored) == score(KEY, before)
     write_report(workspace, KEY, [student])
-    report = workspace.run_report_md.read_text()
-    assert f"Parts read a second time, by another vendor's model: {counts}" in report
+    lines = workspace.run_report_md.read_text().splitlines()
+    (n, same, differ, open_, failed), (m, same2, differ2, open2) = case.counts
+    assert (
+        "Parts the reader was unsure of, read a second time by another vendor's"
+        f" model: {n}. The same: {same}. Different: {differ}. Not decided: {open_}."
+        f" Failed: {failed}."
+    ) in lines
+    assert (
+        f"The other parts of those units: {m}. The same: {same2}. Different:"
+        f" {differ2}. Not decided: {open2}."
+    ) in lines
 
 
 NAMES = [

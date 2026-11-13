@@ -16,6 +16,7 @@ from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import Readings, digest
 from redpen.grade.second import compared, read_again
 from redpen.llm.client import Gateway
+from redpen.prepare.key import part_hash
 from redpen.report.report import flags, load, write_report
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
@@ -112,8 +113,20 @@ class Second:
 
 
 def same_as(workspace: Workspace, student: str) -> Callable[[list[str]], Readings]:
+    """The first reader's readings, its doubt included."""
     first = firsts(workspace, student)
     return lambda ids: Readings(readings=[first[i] for i in ids])
+
+
+CLEAR = {"uncertain": [], "legibility": "clear"}
+
+
+def clear_as(workspace: Workspace, student: str) -> Callable[[list[str]], Readings]:
+    """What the first reader wrote, read with no doubt."""
+    first = firsts(workspace, student)
+    return lambda ids: Readings(
+        readings=[first[i].model_copy(update=CLEAR) for i in ids]
+    )
 
 
 def again(workspace: Workspace, student: str, second: Second) -> list[Any]:
@@ -164,7 +177,12 @@ def test_a_part_is_read_again_only_when_the_reader_was_unsure_of_it(
     found = again(workspace, who, second)
 
     assert [r["ids"] for r in second.requests] == ([["Q4.a", "Q4.b", "Q4.c"]] * asked)
-    assert [r.part_id for r in found] == ["Q4.b"] * asked
+    # Every part of the unit is compared, and only Q4.b was in doubt.
+    assert [(r.part_id, r.doubted) for r in found] == [
+        ("Q4.a", False),
+        ("Q4.b", True),
+        ("Q4.c", False),
+    ] * asked
     assert workspace.second_json(who).exists() == asked
 
 
@@ -177,17 +195,19 @@ def test_one_request_per_unit_however_many_of_its_parts_are_in_doubt(
     )
     who = student.student_key
     before = reading_files(workspace, who)
-    second = Second(same_as(workspace, who))
+    crop = workspace.crop_png(who, "Q4.b", 1)
+    crop.write_bytes(b"marker")  # the second read writes no file of the read stage
+    second = Second(clear_as(workspace, who))
 
     found = again(workspace, who, second)
 
     assert [r["ids"] for r in second.requests] == [["Q4.a", "Q4.b", "Q4.c"]]
     [request] = second.requests
     assert request["json"]["model"] == SECOND.slug
-    assert [(r.part_id, r.result) for r in found] == [
-        ("Q4.a", "same"),
-        ("Q4.b", "same"),
-        ("Q4.c", "same"),
+    assert [(r.part_id, r.doubted, r.result) for r in found] == [
+        ("Q4.a", True, "same"),
+        ("Q4.b", True, "same"),
+        ("Q4.c", True, "same"),
     ]
     assert read_model(workspace.second_json(who), SecondReadings).records == found
     first = {
@@ -196,10 +216,12 @@ def test_one_request_per_unit_however_many_of_its_parts_are_in_doubt(
     }
     for record in found:
         assert record.first == digest(first[record.part_id])
+        assert record.part_hash == part_hash(PARTS[record.part_id], KEY.policies)
         assert record.second is not None
         assert record.second.provenance.model_slug == SECOND.slug
         assert record.second.crops == first[record.part_id].crops
     assert reading_files(workspace, who) == before  # the first reading is graded
+    assert crop.read_bytes() == b"marker"
 
 
 def test_a_second_run_makes_no_request_and_writes_the_same_file(
@@ -217,6 +239,30 @@ def test_a_second_run_makes_no_request_and_writes_the_same_file(
 
     assert len(second.requests) == 1
     assert workspace.second_json(who).read_bytes() == written
+
+
+def test_a_run_that_finds_nothing_in_doubt_leaves_no_earlier_result(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    workspace, student = stored(
+        fixture_workspace, tmp_path, {"Q5.a": {"uncertain": [1]}}
+    )
+    who = student.student_key
+    second = Second(clear_as(workspace, who))
+    again(workspace, who, second)
+    assert workspace.second_json(who).exists()
+    path = workspace.reading_json(who, "Q5")
+    records = read_model(path, ProblemReadings).records
+    cleared = [
+        r.model_copy(update={"reading": r.reading.model_copy(update=CLEAR)})
+        for r in records
+    ]
+    write_model(path, ProblemReadings(records=cleared))  # read again, with no doubt
+
+    found = again(workspace, who, second)
+
+    assert found == [] and len(second.requests) == 1
+    assert not workspace.second_json(who).exists()
 
 
 # --- a failure ----------------------------------------------------------------------
@@ -237,18 +283,23 @@ def test_a_failed_second_read_changes_no_flag_and_is_logged_and_counted(
     before = reading_files(workspace, who)
     marked = first["Q4.a"].model_copy(update={"lines": [MARKER]})
 
+    clear = clear_as(workspace, who)
+
     def answer(ids: list[str]) -> Readings | None:
         if ids[0] != "Q4.a":
-            return Readings(readings=[first[i] for i in ids])
+            return clear(ids)
         if how == "refused":
             return None
         return Readings(readings=[marked, first["Q4.b"]])  # Q4.c is left out
 
     found = again(workspace, who, Second(answer))
 
+    # The failed unit's part in doubt is counted; the other unit's parts compared.
     assert [(r.part_id, r.result, r.second is None) for r in found] == [
         ("Q4.b", "failed", True),
         ("Q5.a", "same", False),
+        ("Q5.b", "same", False),
+        ("Q5.c", "same", False),
     ]
     log = workspace.run_log.read_text()
     assert log.count("--- ") == 1
@@ -262,16 +313,22 @@ def test_a_failed_second_read_changes_no_flag_and_is_logged_and_counted(
         ("Q4.b", FlagCode.LOW_RESOLUTION),
     }
     write_report(workspace, KEY, [student])
+    lines = workspace.run_report_md.read_text().splitlines()
     assert (
-        "Parts read a second time, by another vendor's model: 2. The same: 1."
-        " Different: 0. Not decided: 0. Failed: 1."
-    ) in workspace.run_report_md.read_text().splitlines()
+        "Parts the reader was unsure of, read a second time by another vendor's"
+        " model: 2. The same: 1. Different: 0. Not decided: 0. Failed: 1."
+    ) in lines
+    assert (
+        "The other parts of those units: 2. The same: 2. Different: 0. Not decided: 0."
+    ) in lines
 
 
 # --- the comparison -----------------------------------------------------------------
 
 
 def reading(part_id: str, **changes: Any) -> Reading:
+    """A clear answered reading of `part_id`, with `changes`; `answer` holds the
+    final answer's fields."""
     stated = changes.pop("answer", {})
     fields: dict[str, Any] = {
         "part_id": part_id,
@@ -281,7 +338,7 @@ def reading(part_id: str, **changes: Any) -> Reading:
         "final_answer": {"choices": [], "value": None, "unit": None, "expression": None}
         | stated,
         "elements": [],
-        "uncertain": [1],
+        "uncertain": [],
         "addressed_to_grader": [],
         "legibility": "clear",
     }
@@ -296,22 +353,34 @@ def says(**answer: Any) -> dict[str, Any]:
     return {"answer": answer}
 
 
-C, A = says(choices=["C"]), says(value=2.5, unit="m/s^2")
+def ms2(value: float) -> dict[str, Any]:
+    return says(value=value, unit="m/s^2")
+
+
+C, A = says(choices=["C"]), ms2(2.5)
 X = says(expression="(x - 3)^2 - 4")
 SAID = {"lines": ["It slows down and stops."]}
 FOLDED = {"lines": [" it slows  down AND stops."]}
 T = {"elements": [force("T", "right")]}
 BLANK, UNREAD = {"status": "blank", "lines": []}, {"status": "unreadable", "lines": []}
-# Each row: what it shows, the part, the first reading's changes, the second's, and
-# the result.
+EMPTY = {"lines": []}
+POOR = {"legibility": "poor"}
+UNSURE_LINE = {"lines": ["It sl?ws down."]}
+UNSURE_LABEL = {"elements": [force("?", "right")]}
+UNSURE_UNIT = says(value=2.5, unit="m/s?")
+LABELLED = UNREAD | {"elements": [force("??", "up")]}
+# Each row: what it shows, the part, the first reading's changes (it is also marked
+# uncertain, as a reading read again is), the second's, and the result.
 TABLE: list[tuple[str, str, dict[str, Any], dict[str, Any], str]] = [
     ("equal options", "Q1", C, C, "same"),
     ("unequal options", "Q1", C, says(choices=["A"]), "differ"),
     ("an option on one side only", "Q1", C, {}, "differ"),
     ("equal numbers", "Q4.b", A, A, "same"),
-    ("within tolerance", "Q4.b", A, says(value=2.52, unit="m/s^2"), "same"),
-    ("outside tolerance", "Q4.b", A, says(value=25, unit="m/s^2"), "differ"),
+    ("2.5 against 2.52", "Q4.b", A, ms2(2.52), "differ"),
+    ("2.55 against 2.6, a 2% key", "Q4.b", ms2(2.55), ms2(2.6), "differ"),
+    ("outside tolerance", "Q4.b", A, ms2(25), "differ"),
     ("in another unit", "Q4.b", A, says(value=250, unit="cm/s^2"), "same"),
+    ("2.5 against 2.50", "Q4.b", A, ms2(2.50), "same"),
     ("one unit missing", "Q4.b", A, says(value=2.5), "not decided"),
     ("a value on one side only", "Q4.b", A, {}, "differ"),
     ("no value, equal lines", "Q4.b", {}, {"lines": ["A = 1 "]}, "same"),
@@ -322,8 +391,17 @@ TABLE: list[tuple[str, str, dict[str, Any], dict[str, Any], str]] = [
     ("unequal lines", "Q4.c", SAID, {"lines": ["It speeds up."]}, "not decided"),
     ("equal elements", "Q4.a", T, {"elements": [force("t", "Right")]}, "same"),
     ("unequal elements", "Q4.a", T, {"elements": [force("T", "left")]}, "not decided"),
+    ("both readings empty", "Q4.c", EMPTY, EMPTY, "not decided"),
+    ("a ? in the second's line", "Q4.c", UNSURE_LINE, UNSURE_LINE, "not decided"),
+    ("a ? in the second's label", "Q4.a", UNSURE_LABEL, UNSURE_LABEL, "not decided"),
+    ("a ? in the second's answer", "Q4.b", A, UNSURE_UNIT, "not decided"),
+    ("a ? in the second's option", "Q1", C, says(choices=["?"]), "not decided"),
+    ("poor legibility, the same value", "Q4.b", A, A | POOR, "not decided"),
+    ("poor legibility, another value", "Q4.b", A, ms2(25) | POOR, "not decided"),
+    ("an uncertain line", "Q4.c", SAID, SAID | {"uncertain": [1]}, "not decided"),
     ("one side blank", "Q4.c", SAID, BLANK, "differ"),
     ("one side unreadable", "Q4.b", A, UNREAD, "differ"),
+    ("unreadable, a label of ?", "Q4.a", T, LABELLED, "differ"),
     ("the other side blank", "Q4.b", BLANK, A, "differ"),
 ]  # fmt: skip
 
@@ -336,5 +414,19 @@ TABLE: list[tuple[str, str, dict[str, Any], dict[str, Any], str]] = [
 def test_two_readings_are_compared_in_code(
     part: str, first: dict[str, Any], second: dict[str, Any], found: str
 ) -> None:
-    one, other = reading(part, **first), reading(part, **second)
+    one, other = reading(part, uncertain=[1], **first), reading(part, **second)
     assert compared(PARTS[part], KEY.policies, one, other) == found
+
+
+@pytest.mark.parametrize("penalised", [False, True])
+def test_equal_numbers_decide_nothing_when_significant_figures_count(
+    penalised: bool,
+) -> None:
+    # A reading's value keeps no trailing zeros, so 2.5 and 2.50 look alike to code.
+    policies = KEY.policies.model_copy(update={"penalise_sig_figs": penalised})
+    one = reading("Q4.b", uncertain=[1], answer={"value": 2.5, "unit": "m/s^2"})
+    other = reading("Q4.b", answer={"value": 2.50, "unit": "m/s^2"})
+    wanted = "not decided" if penalised else "same"
+    assert compared(PARTS["Q4.b"], policies, one, other) == wanted
+    third = reading("Q4.b", answer={"value": 3.5, "unit": "m/s^2"})
+    assert compared(PARTS["Q4.b"], policies, one, third) == "differ"

@@ -57,14 +57,18 @@ class ProblemReadings(Schema):
     records: list[ReadingRecord]
 
 
-# A part read a second time, by another vendor's model, and compared with its first
-# reading in code: "failed" when that call failed or its answer failed the read
-# stage's checks twice, and then `second` is null. `first` is the digest of the
-# first reading's stored record (`grade.read.digest`); a result made for any other
-# first reading is ignored. The first reading is the one graded.
+# A part of a unit read a second time, by another vendor's model, and compared with
+# its first reading in code: "failed" when that call failed or its answer failed the
+# read stage's checks twice, and then `second` is null. `doubted` says whether the
+# reader was unsure of the first reading. What ties the result to what it was made
+# for: `part_hash`, the key part's hash then, and `first`, the digest of the first
+# reading's stored record (`grade.read.digest`); a result made for another version of
+# either is ignored. The first reading is the one graded.
 class SecondReading(Schema):
     part_id: PartId
+    part_hash: str
     first: str
+    doubted: bool
     result: Literal["same", "differ", "not decided", "failed"]
     second: ReadingRecord | None
 

@@ -23,6 +23,7 @@ from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import digest
 from redpen.grade.second import read_again
 from redpen.llm.client import Gateway
+from redpen.prepare.key import part_hash
 from redpen.schemas.key import Key
 from redpen.schemas.reading import ProblemReadings, SecondReading
 from redpen.workspace import Workspace, read_model, write_model
@@ -37,6 +38,7 @@ from tests.fixture_truth import (
 from tests.pinned import SECOND
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
+PARTS = {p.id: p for p in KEY.parts}
 CLASS = "small-writing"
 # The reader's doubt, marked by hand on the truth reading of each part.
 DOUBT: dict[str, dict[str, Any]] = {
@@ -92,25 +94,34 @@ def test_each_unit_in_doubt_is_read_again_once_and_compared(
 
     found = asyncio.run(main())
 
-    # One call for each of the units page 1, Q4 and Q5.
-    assert [r.part_id for r in found] == list(DOUBT)
+    # One call for each of the units page 1, Q4 and Q5, and every part of them
+    # compared.
+    assert [(r.part_id, r.doubted) for r in found] == [
+        (p.id, p.id in DOUBT) for p in SPEC.parts
+    ]
     first = {
         r.reading.part_id: r
-        for problem in ("Q1", "Q4", "Q5")
+        for problem in ("Q1", "Q2", "Q3", "Q4", "Q5")
         for r in read_model(
             workspace.reading_json(student, problem), ProblemReadings
         ).records
     }
     for r in found:
         assert r.first == digest(first[r.part_id])
+        assert r.part_hash == part_hash(PARTS[r.part_id], KEY.policies)
         assert r.second is not None
         assert r.second.provenance.model_slug == SECOND.slug
-    # The graph's elements are described in other words, so code cannot tell.
+    # The drawing's and the graph's elements are described in other words, so code
+    # cannot tell.
     assert {r.part_id: r.result for r in found} == {
         "Q1": "same",
+        "Q2": "same",
+        "Q3": "same",
+        "Q4.a": "not decided",
         "Q4.b": "same",
         "Q4.c": "same",
         "Q5.a": "same",
+        "Q5.b": "same",
         "Q5.c": "not decided",
     }
     # Where the two are the same, the second reader stated the truth's answer.

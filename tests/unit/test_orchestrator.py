@@ -10,6 +10,7 @@ import csv
 import functools
 import hashlib
 import json
+import re
 import shutil
 from collections import Counter
 from collections.abc import Callable
@@ -47,7 +48,14 @@ from redpen.schemas.submission import (
 )
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
-from tests.pinned import GRADE_MODELS, GRADER, MAPPER, READER, SECOND, ZDR
+from tests.pinned import (
+    GRADE_MODELS,
+    GRADER,
+    MAPPER,
+    READER,
+    SECOND,
+    ZDR,
+)
 
 runner = CliRunner()
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
@@ -78,7 +86,9 @@ class OpenRouter:
             return self.zdr(request)
         body = json.loads(request.content)
         if self.reads and kind(body) == "Readings":
-            return httpx.Response(200, json=answer(body, readings(body, self.unsure)))
+            # The second reader is sure of what the reader was unsure of.
+            unsure = self.unsure and body["model"] != SECOND.slug
+            return httpx.Response(200, json=answer(body, readings(body, unsure)))
         if self.decides and kind(body) == "Decisions":
             cases = json.loads(body["messages"][1]["content"][2]["text"])["cases"]
             found = [{"case": c["case"], "reason": "r", "awarded": 1} for c in cases]
@@ -685,6 +695,10 @@ def test_a_part_in_doubt_is_read_again_by_the_second_model_as_the_reader_was_ask
     # Every part is in doubt, so each unit is read again with the read stage's own
     # request: its system text, parts, images, parameters and session.
     assert again and {sent(b) for b in again} == {sent(b) for b in reads}
+    # After the class's reading and before its grading.
+    order = ["reader", "second", "grader"]
+    roles = [role(b) for b in asked]
+    assert roles == sorted(roles, key=order.index)
     for request in router.chats:
         for text in [*NAMES, *students()]:
             assert text.encode() not in request.content
@@ -692,10 +706,13 @@ def test_a_part_in_doubt_is_read_again_by_the_second_model_as_the_reader_was_ask
     report = WS.run_report_md.read_text()
     parts = len(KEY.parts) * len(NAMES)
     assert (
-        f"Parts read a second time, by another vendor's model: {parts}. The same:"
-        f" {parts}. Different: 0. Not decided: 0. Failed: 0."
+        "Parts the reader was unsure of, read a second time by another vendor's"
+        f" model: {parts}. The same: {parts}. Different: 0. Not decided: 0. Failed:"
+        " 0."
     ) in report.splitlines()
-    assert "hard_to_read" not in report and "| second | " in report
+    assert "hard_to_read" not in report
+    cost = report.split("## Cost")[1].splitlines()
+    assert any(re.fullmatch(r"\| second \| \d+ \| \d+ \| [\d.]+ \|", r) for r in cost)
 
 
 WHERE = ("model", "provider")
@@ -705,31 +722,39 @@ def refuse(request: httpx.Request) -> httpx.Response:
     raise AssertionError(f"a request was made: {request.url}")
 
 
-def test_a_second_reader_of_the_reader_s_vendor_is_refused_before_anything_is_sent(
-    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def refusing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every gateway and the privacy check on a transport that fails any request."""
     transport = httpx.MockTransport(refuse)
-    monkeypatch.setattr(
-        "redpen.orchestrator.Gateway", functools.partial(Gateway, transport=transport)
-    )
+    for where in ("redpen.orchestrator.Gateway", "redpen.cli.Gateway"):
+        monkeypatch.setattr(where, functools.partial(Gateway, transport=transport))
     monkeypatch.setattr(
         "redpen.orchestrator.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
+
+
+# A second reader of the reader's vendor, but another model of it.
+SAME_VENDOR = (
+    f"ws/config.lock.toml: the second reader {MAPPER.slug} is of the reader's"
+    f" vendor, so it cannot check the reader {READER.slug}; pin a model of another"
+    " vendor."
+)
+
+
+def test_a_second_reader_of_the_reader_s_vendor_is_refused_before_anything_is_sent(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refusing(monkeypatch)
     write_lock(
         WS.config_lock_toml,
-        Lock(profile="balanced", models={**ROLES, "second": GRADER}),
+        Lock(profile="balanced", models={**ROLES, "second": MAPPER}),
     )
 
     result = grade()
 
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit)
-    assert result.stderr.splitlines() == [
-        f"ws/config.lock.toml: the second reader {GRADER.slug} is of the reader's"
-        f" vendor, so it cannot check the reader {READER.slug}; pin a model of"
-        " another vendor."
-    ]
+    assert result.stderr.splitlines() == [SAME_VENDOR]
     assert not WS.students_dir.exists()
 
 

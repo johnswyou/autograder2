@@ -197,13 +197,14 @@ def unit_images(
     unit: Unit,
     pages: Sequence[MapPage],
     image_budget: int,
+    save: bool = True,
 ) -> UnitImages:
     """What a call for `unit` is sent besides the parts' text, made with no model
     call: each page that holds an entry, whole, then each distinct mapped box grown
     by `MARGIN` and rendered from `source.pdf` to fill the image budget, all turned
     upright as `pages` (the map record's) say, and contrast-corrected on a page they
-    call a photo unless it is mostly white. Each region image is also saved with
-    `Workspace.crop_png` under each part it holds."""
+    call a photo unless it is mostly white. With `save`, each region image is also
+    saved with `Workspace.crop_png` under each part it holds."""
     kind = read_model(workspace.ingest_json(student), IngestRecord).source_kind
     facts = {p.number: p for p in pages}
     corrected: dict[int, bool] = {}
@@ -243,9 +244,10 @@ def unit_images(
                 crops[part].append(
                     Crop(page=number, box=region.box, scale=region.scale)
                 )
-                path = workspace.crop_png(student, part, len(crops[part]))
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(png)
+                if save:
+                    path = workspace.crop_png(student, part, len(crops[part]))
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(png)
             about = {
                 "image": "region",
                 "region": n,

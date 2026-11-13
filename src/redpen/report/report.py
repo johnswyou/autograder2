@@ -17,7 +17,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from redpen.config import read_lock
 from redpen.grade.grade import levels, part_points
@@ -203,7 +203,7 @@ def columns(workspace: Workspace, key: Key) -> tuple[list[str], list[int]]:
 def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     """What is stored for `student`: the readings and grade records of each of the
     key's top-level problems whose file exists, and each second reading made for
-    the first reading stored now."""
+    the first reading stored now and the key's version of its part."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -212,11 +212,17 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
             readings |= {r.reading.part_id: r for r in found.records}
         if graded := _read(workspace.grade_json(who, problem), ProblemGrades):
             grades |= {r.grade.part_id: r for r in graded.records}
-    again = _read(workspace.second_json(who), SecondReadings)
+    try:
+        again = _read(workspace.second_json(who), SecondReadings)
+    except ValidationError:  # an earlier shape: made for nothing stored now
+        again = None
+    hashes = {p.id: part_hash(p, key.policies) for p in key.parts}
     seconds = {
         s.part_id: s
         for s in (again.records if again else [])
-        if s.part_id in readings and s.first == digest(readings[s.part_id])
+        if s.part_id in readings
+        and s.first == digest(readings[s.part_id])
+        and s.part_hash == hashes.get(s.part_id)
     }
     return Stored(student, readings, grades, audits(workspace, key), seconds)
 
@@ -369,8 +375,9 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
     if found := stored.readings.get(part.id):
         reading = found.reading
         second = stored.seconds.get(part.id)
-        # A second reader that read the same settles the doubt.
-        hard = unsure(reading) and not (second and second.result == "same")
+        # A second reader that read the same settles the doubt it was asked about.
+        settled = second and second.doubted and second.result == "same"
+        hard = unsure(reading) and not settled
         if reading.status == "unreadable":
             raised.append((FlagCode.UNREADABLE, UNREADABLE))
         if hard:
@@ -580,14 +587,21 @@ def _run_report(
         for p in key.parts
     ]
     lines += ["", "## Class audit", "", *_audit_lines(audits(workspace, key))]
-    seconds = Counter(r.result for s, _ in scored for r in s.seconds.values())
+    seconds = [r for s, _ in scored for r in s.seconds.values()]
+    doubted = Counter(r.result for r in seconds if r.doubted)
+    others = Counter(r.result for r in seconds if not r.doubted)
     lines += [
         "",
         "## Second read",
         "",
-        f"Parts read a second time, by another vendor's model: {seconds.total()}."
-        f" The same: {seconds['same']}. Different: {seconds['differ']}. Not"
-        f" decided: {seconds['not decided']}. Failed: {seconds['failed']}.",
+        "Parts the reader was unsure of, read a second time by another vendor's"
+        f" model: {doubted.total()}. The same: {doubted['same']}. Different:"
+        f" {doubted['differ']}. Not decided: {doubted['not decided']}. Failed:"
+        f" {doubted['failed']}.",
+        "",
+        f"The other parts of those units: {others.total()}. The same:"
+        f" {others['same']}. Different: {others['differ']}. Not decided:"
+        f" {others['not decided']}.",
     ]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
