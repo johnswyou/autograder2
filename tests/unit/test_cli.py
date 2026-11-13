@@ -678,3 +678,27 @@ def test_a_fresh_prepare_refuses_points_that_cannot_be_met_before_any_solver(
     gap = "Warning: no problem numbered 2 was found."
     assert result.stderr.splitlines() == [gap, line]
     assert not workspace.key_yaml.exists()
+
+
+def test_run_with_a_total_sets_it_in_the_key_and_reaches_grading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)  # a key; OpenRouter refused
+    reached: list[tuple[Path, PointConstraint | None, Path, bool]] = []
+
+    def grade(
+        ws: Workspace, submissions: Path, roster: Path | None, dry_run: bool
+    ) -> None:
+        points = load_key(ws.key_yaml).points  # as grading would find it
+        reached.append((ws.key_yaml.resolve(), points, submissions, dry_run))
+
+    monkeypatch.setattr("redpen.cli._grade", grade)
+
+    result = runner.invoke(
+        app, ["run", "blank.pdf", "subs", "--workspace", "ws", "--total", "4"]
+    )
+
+    assert result.exit_code == 0, result.output
+    total = PointConstraint(total=Decimal(4))
+    assert reached == [(workspace.key_yaml.resolve(), total, Path("subs"), False)]
