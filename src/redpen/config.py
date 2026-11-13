@@ -5,7 +5,7 @@ import json
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
@@ -129,10 +129,9 @@ def write_lock(path: Path, lock: Lock) -> None:
     for role, model in lock.models.items():
         lines += ["", f"[models.{role}]"]
         # The lists are sets: sorted, so that the same lock is the same file.
-        lines += [
-            f"{k} = {json.dumps(sorted(v) if isinstance(v, list) else v)}"
-            for k, v in model.model_dump(mode="json").items()
-        ]
+        for k, v in model.model_dump(mode="json").items():
+            value = sorted(cast(list[str], v)) if isinstance(v, list) else v
+            lines.append(f"{k} = {json.dumps(value)}")
     if lock.prompts:
         lines += ["", "[prompts]"]
         lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in lock.prompts.items()]
