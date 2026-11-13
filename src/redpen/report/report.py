@@ -316,9 +316,11 @@ def _read[M: BaseModel](path: Path, model: type[M]) -> M | None:
 
 
 def points_of(key: Key, parts: Iterable[KeyPart]) -> Decimal:
-    """The parts' maximum: the sum of their points in the allocation."""
+    """The parts' maximum: the sum of their points in the allocation, under a
+    constraint in its shortest form (1.5 + 2.5 is 4, not 4.0)."""
     points = allocation(key)
-    return sum((points[p.id] for p in parts), Decimal(0))
+    total = sum((points[p.id] for p in parts), Decimal(0))
+    return total if key.points is None else Decimal(number(total))
 
 
 def sum_of(scores: Iterable[Score]) -> Decimal | None:

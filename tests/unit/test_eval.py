@@ -8,6 +8,7 @@ whose path the listing gives (no image is opened). A gold file is the tool's own
 score file, with cells changed by hand."""
 
 import csv
+import json
 import shutil
 import socket
 from collections.abc import Mapping
@@ -996,6 +997,10 @@ def test_with_points_set_the_maxima_are_the_allocation_s_and_a_gold_above_is_ref
         e = evaluate(workspace, key, summary.students, path)
         assert [(c.column, c.maximum) for c in e.columns] == maxima
         assert (e.maximum, e.mean, e.largest) == (15, 0, [])
+        # As eval.json writes them: in their shortest form, never 2.00 or 4.0.
+        written = json.loads(e.model_dump_json())
+        assert [c["maximum"] for c in written["columns"]] == [str(m) for _, m in maxima]
+        assert written["maximum"] == "15"
         accounted(e, len(maxima))
 
     rows = read_rows(workspace.scores_by_page_csv)

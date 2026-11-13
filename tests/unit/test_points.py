@@ -195,6 +195,21 @@ def test_a_score_is_rounded_to_the_nearest_step_a_tie_up(
     assert scaled(D(points), D(earned), D(weight), D("0.25")) == D(score)
 
 
+def test_allocated_points_and_scores_are_in_their_shortest_form() -> None:
+    # Unnormalised, 8 steps of 0.25 would be 2.00, and 42 steps 10.50.
+    pages = allocation(with_points(KEY, pages=[6, 4, 3, 2]))
+    alone = allocation(keyed([part("Q1", 1, "1")], pages=["10.5"]))
+
+    assert [str(v) for v in pages.values()] == [
+        *("2", "2", "2", "1.5", "2.5", "1.5", "1.5", "1", "1")
+    ]
+    assert str(alone["Q1"]) == "10.5"
+    assert str(scaled(D("10.5"), D(1), D(1), D("0.25"))) == "10.5"
+    assert [str(scaled(D(2), D(e), D(2), D("0.25"))) for e in (0, 1, 2)] == [
+        *("0", "1", "2")
+    ]
+
+
 # --- the constraint in the key --------------------------------------------------------
 
 

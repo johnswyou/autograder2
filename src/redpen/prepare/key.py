@@ -341,7 +341,11 @@ def allocation(key: Key) -> dict[str, Decimal]:
     for _, _, value, parts in _shares(key.points, key.parts):
         if parts:
             steps = _steps(int(value / step), [weights[p.id] for p in parts])
-            points |= {p.id: n * step for p, n in zip(parts, steps, strict=True)}
+            # In its shortest form, as `number` prints it: 2, not 2.00.
+            points |= {
+                p.id: Decimal(number(n * step))
+                for p, n in zip(parts, steps, strict=True)
+            }
     return {p.id: points[p.id] for p in key.parts}
 
 
@@ -458,9 +462,10 @@ def _problems(
 def scaled(points: Decimal, earned: Decimal, weight: Decimal, step: Decimal) -> Decimal:
     """The score of a part worth `points` whose criteria gave `earned` of their
     `weight`: `points` x `earned` / `weight`, rounded to the nearest `step`, a tie
-    rounding up. Nothing earned is 0, and everything earned is `points` exactly."""
+    rounding up. Nothing earned is 0, and everything earned is `points` exactly. In
+    its shortest form: 2, not 2.00."""
     steps = points * earned / (weight * step)
-    return steps.to_integral_value(ROUND_HALF_UP) * step
+    return Decimal(number(steps.to_integral_value(ROUND_HALF_UP) * step))
 
 
 def constraint_text(c: PointConstraint) -> str:
