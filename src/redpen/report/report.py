@@ -37,7 +37,7 @@ type Status = Literal["incomplete", "provisional", "final"]
 UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
-UNGRADED = "No grade was recorded for it."
+UNGRADED = "No reading or no grade was recorded for it."
 
 # The other flags' details, in fixed words: never text a student or a model wrote.
 DETAIL = {
@@ -246,24 +246,28 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
     raised: list[tuple[FlagCode, str]] = []
     if found := stored.readings.get(part.id):
         reading = found.reading
-        unsure = bool(reading.uncertain) or reading.legibility == "poor"
+        hard = reading.status == "answered" and (
+            bool(reading.uncertain) or reading.legibility == "poor"
+        )
         if reading.status == "unreadable":
             raised.append((FlagCode.UNREADABLE, UNREADABLE))
-        if reading.status == "answered" and unsure:
+        if hard:
             raised.append((FlagCode.HARD_TO_READ, DETAIL[FlagCode.HARD_TO_READ]))
         # Zooming cannot help when every crop already shows the source at full size.
+        # Never on a blank reading: nothing there was read.
         native = found.crops and all(c.scale and c.scale >= 1 for c in found.crops)
-        if (reading.status == "unreadable" or unsure) and native:
+        if (reading.status == "unreadable" or hard) and native:
             raised.append((FlagCode.LOW_RESOLUTION, DETAIL[FlagCode.LOW_RESOLUTION]))
         if reading.addressed_to_grader:
             code = FlagCode.ADDRESSED_TO_GRADER
             raised.append((code, DETAIL[code]))
     if why is None:
         grade = stored.grades[part.id].grade
-        if grade.transcript_dispute:
+        # A reason of only white space is no reason.
+        if (grade.transcript_dispute or "").strip():
             code = FlagCode.TRANSCRIPT_DISPUTE
             raised.append((code, DETAIL[code]))
-        if grade.code_overruled:
+        if (grade.code_overruled or "").strip():
             raised.append((FlagCode.CODE_OVERRULED, DETAIL[FlagCode.CODE_OVERRULED]))
     elif why != UNREADABLE:
         raised.append((FlagCode.INCOMPLETE, why))

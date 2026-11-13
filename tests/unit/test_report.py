@@ -519,6 +519,9 @@ F = FlagCode
             {F.HARD_TO_READ, F.LOW_RESOLUTION},
             "provisional",
         ),
+        ({"status": "blank", "legibility": "poor"}, 2.0, {}, set(), "final"),
+        ({}, 2.0, {"transcript_dispute": " \n\t"}, set(), "final"),
+        ({}, 2.0, {"code_overruled": "   "}, set(), "final"),
     ],
     ids=[
         "uncertain line at native size",
@@ -530,6 +533,9 @@ F = FlagCode
         "unreadable below native size",
         "unreadable with no raster ceiling",
         "poor legibility at native size",
+        "blank of poor legibility",
+        "dispute of only white space",
+        "overruling of only white space",
     ],
 )
 def test_each_flag_rule_and_the_status_it_gives(
@@ -561,7 +567,7 @@ def test_each_flag_rule_and_the_status_it_gives(
     raised = flags(KEY, [stored])
 
     assert {f.code for f in raised} == codes
-    assert {f.part_id for f in raised} == {"Q4.b"}
+    assert {f.part_id for f in raised} <= {"Q4.b"}
     assert status(KEY, stored, raised) == state
 
 
