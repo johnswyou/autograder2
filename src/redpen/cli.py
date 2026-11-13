@@ -34,6 +34,7 @@ from redpen.config import (
     read_lock,
     write_lock,
 )
+from redpen.eval.eval import GoldError, evaluate, markdown, table
 from redpen.grade.ingest import IngestSummary, ingest
 from redpen.imaging import render
 from redpen.llm.client import (
@@ -626,9 +627,34 @@ def eval_(
     gold: Annotated[
         Path, typer.Option(metavar="FILE.csv", help="Human scores to compare with.")
     ],
+    workspace: KeyWorkspace,
+    top: Annotated[
+        int, typer.Option(min=0, help="How many of the largest disagreements to list.")
+    ] = 20,
 ) -> None:
-    """Compare the tool's scores with human scores."""
-    _not_implemented()
+    """Compare the tool's scores with human scores, from stored files. No model
+    call. Writes out/eval.md and out/eval.json."""
+    ws = Workspace(workspace)
+    try:
+        key = load_key(ws.key_yaml)
+        summary = read_model(ws.ingest_summary_json, IngestSummary)
+    except (OSError, YAMLError, ValidationError) as error:
+        _fail(
+            f"{ws.root} holds no key or no ingest to compare with"
+            f" ({type(error).__name__})."
+        )
+    try:
+        result = evaluate(ws, key, summary.students, gold, top)
+        write_model(ws.eval_json, result)
+        ws.eval_md.write_text(markdown(result), encoding="utf-8")
+    except GoldError as error:
+        _fail(str(error))
+    except Exception as error:  # written to the log: it may quote stored work
+        log_failure(ws, "eval", error)
+        _fail(f"The comparison could not be made. The traceback is in {ws.run_log}.")
+    for line in table(result):
+        typer.echo(line)
+    typer.echo(f"Wrote {ws.eval_md} and {ws.eval_json.name}")
 
 
 @models_app.command("check")

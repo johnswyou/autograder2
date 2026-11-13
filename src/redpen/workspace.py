@@ -166,3 +166,11 @@ class Workspace:
     @property
     def run_report_md(self) -> Path:
         return self.root / "out" / "run_report.md"
+
+    @property
+    def eval_md(self) -> Path:
+        return self.root / "out" / "eval.md"
+
+    @property
+    def eval_json(self) -> Path:
+        return self.root / "out" / "eval.json"
