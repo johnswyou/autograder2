@@ -11,13 +11,14 @@ from redpen.schemas.common import CriterionId, PartId, Points, Provenance, Schem
 
 
 # The evidence is a line number or a diagram element number in the reading,
-# counting from 1, or null.
+# counting from 1, or null. A model writes its answer in field order, so the
+# rationale and the evidence come before the award they decide.
 class CriterionGrade(Schema):
     id: CriterionId
-    awarded: Points
+    rationale: str
     evidence_line: PositiveInt | None
     evidence_element: PositiveInt | None
-    rationale: str
+    awarded: Points
     feedback: str
 
 

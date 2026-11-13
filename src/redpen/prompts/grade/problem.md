@@ -27,7 +27,7 @@ Grade exactly the parts that come as `grade` items. A part of the key that has n
 
 The reading is the record of what the student wrote. Grade from it. The images are for layout and drawings: where the pieces of work sit, and what a drawing shows. If you believe the reading is wrong in a way that changes the score, say so in `transcript_dispute`, and still grade from the reading.
 
-Decide each criterion on its own, against its own requirement. A criterion is not lost because of a mistake that another criterion is about, and not earned because another criterion is.
+A criterion is decided by whether the work meets its own requirement. One that the work meets is not lost because of a mistake elsewhere, and one that the work does not meet is not earned, whatever caused that.
 
 An award is one of: zero, the criterion's full `points`, or the `points` of one of its `partial` levels whose `when` describes the work. Nothing in between and nothing above the full value. A partial level is the only way to give part of a criterion's points.
 
@@ -35,7 +35,7 @@ An award is one of: zero, the criterion's full `points`, or the `points` of one 
 
 The policies object has these keys, each applying to the whole assignment:
 
-- `carry_forward`: when true, a criterion marked `carry_forward` is judged against what follows from the student's own earlier results, in place of the key's values: a wrong result from an earlier part, used correctly in this part, earns its points. A criterion that is not marked is judged against the key. Before you decide that a part's work is wrong, find the student's own result in the reading of each part in its `depends_on`, whether that reading is a `context` item or a part you grade in this request, and check whether the work follows correctly from it. An error made inside this part is never carried forward: a criterion this part's own error breaks is not earned, even when the work after the error follows from it correctly. When false, every criterion is judged against the key.
+- `carry_forward`: when true, a criterion marked `carry_forward` is met in either of two ways: by what the key asks for, as any criterion is, and also by what follows correctly from the student's own earlier results. So a wrong result from an earlier part, used correctly in this part, earns its points, and work that meets what the key asks for earns them whatever the earlier parts hold. A criterion that is not marked is met only by what the key asks for. Before you decide that a part's work is wrong, find the student's own result in the reading of each part in its `depends_on`, whether that reading is a `context` item or a part you grade in this request, and check whether the work follows correctly from it. An error made inside this part is never carried forward: a criterion this part's own error breaks is not earned, even when the work after the error follows from it correctly. When false, every criterion is met only by what the key asks for.
 - `alternative_methods`: when true, any valid method earns method credit, not only the method in the solution.
 - `rel_tol`: a numeric answer is correct when it is within this relative difference of the key's `value` or of a value in `accept_also`. A part's own `answer.rel_tol` takes its place when it is set.
 - `require_units`: when true, a final-answer criterion about a quantity with a unit needs the correct unit.
@@ -48,15 +48,15 @@ The policies object has these keys, each applying to the whole assignment:
 `grades`: one grade for each part given to you as `{"grade": ...}`, once each, and for no other part. Each grade has:
 
 - `part_id`: the part's `id`.
-- `criteria`: one decision for each criterion of the part in the key, once each, with exactly the key's ids. Each decision has:
+- `criteria`: one decision for each criterion of the part in the key, once each, with exactly the key's ids. Each decision has these fields, in this order. The rationale is written first, and the award follows from it.
   - `id`: the criterion's `id`.
-  - `awarded`: the points awarded, as a number: zero, the criterion's `points`, or the `points` of one of its `partial` levels.
+  - `rationale`: for the instructor, one or two sentences naming what in the work meets or fails the criterion's requirement, and so which award it earns.
   - `evidence_line`: the number of the line in the part's reading, counting from 1, that earns the points; or null.
   - `evidence_element`: the number of the element in the part's reading, counting from 1, that earns the points; or null.
 
     An award above zero cites the line or the element that earns it in at least one of these two fields. An award of zero may cite where the work goes wrong, or neither. Whatever the award, a line or element you cite must exist in that part's reading.
-  - `rationale`: for the instructor, one or two sentences on why this award, naming what in the work decided it.
-  - `feedback`: for the student, addressed to them: what to fix, in a sentence or two. Empty when the criterion is fully earned.
+  - `awarded`: the points awarded, as a number: zero, the criterion's `points`, or the `points` of one of its `partial` levels. It is the award the rationale arrives at.
+  - `feedback`: for the student, addressed to them: what to fix, in a sentence or two. It is never empty when the award is below the criterion's full points, and it is empty when the criterion is fully earned.
 
   Neither `rationale` nor `feedback` mentions any other student or their work.
 - `transcript_dispute`: null, or a sentence saying where you believe the reading is wrong in a way that changes the score, and what you believe the student wrote.

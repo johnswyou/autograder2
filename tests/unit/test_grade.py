@@ -103,7 +103,8 @@ def store(
 
 
 def full(key: Key, part_id: str) -> Grade:
-    """Every criterion of `part_id` earned, citing line 1."""
+    """Every criterion of `part_id` earned, citing line 1. Each has feedback, so that
+    a test may lower an award without breaking the feedback rule."""
     [part] = [p for p in key.parts if p.id == part_id]
     return Grade(
         part_id=part_id,
@@ -114,7 +115,7 @@ def full(key: Key, part_id: str) -> Grade:
                 evidence_line=1,
                 evidence_element=None,
                 rationale="Meets it.",
-                feedback="",
+                feedback="Check the units.",
             )
             for c in part.criteria
         ],
@@ -366,6 +367,11 @@ VIOLATIONS: list[tuple[str, Grades, list[str]]] = [
         ["Q4.b.c1: it cites element 1, and the reading of Q4.b has no element 1"],
     ),
     (
+        "an award below full with no feedback",
+        q4_with(awarded=Decimal(1), feedback=""),
+        ["Q4.b.c1: an award below its full points gives feedback to the student"],
+    ),
+    (
         "part missing",
         Grades(grades=[full(Q4, "Q4.a"), full(Q4, "Q4.b")]),
         ["Q4.c has no grade"],
@@ -395,8 +401,10 @@ VIOLATIONS: list[tuple[str, Grades, list[str]]] = [
 
 @pytest.mark.parametrize(
     ("found", "wrong"),
-    [(found, wrong) for _, found, wrong in VIOLATIONS] + [(q4_with(), [])],
-    ids=[name for name, _, _ in VIOLATIONS] + ["valid"],
+    [(found, wrong) for _, found, wrong in VIOLATIONS]
+    + [(q4_with(), []), (q4_with(feedback=""), [])],
+    ids=[name for name, _, _ in VIOLATIONS]
+    + ["valid", "a full award with no feedback"],
 )
 def test_each_check_catches_its_failure(found: Grades, wrong: list[str]) -> None:
     assert problems(SMALL, ASKED, found) == wrong
@@ -471,6 +479,19 @@ def test_a_negative_award_fails_the_schema_and_is_repaired_once_then_raises(
     # error, which the mock counts as a second request for the same parts.
     assert len(grader.requests) == 2
     assert not workspace.grade_json(STUDENT, "Q4").exists()
+
+
+def test_the_grader_writes_its_reasoning_before_the_award() -> None:
+    # A model writes its answer in the schema's order.
+    order = list(Grade.model_json_schema()["$defs"]["CriterionGrade"]["properties"])
+    assert order == [
+        "id",
+        "rationale",
+        "evidence_line",
+        "evidence_element",
+        "awarded",
+        "feedback",
+    ]
 
 
 # --- calls -------------------------------------------------------------------------

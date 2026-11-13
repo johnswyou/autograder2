@@ -240,6 +240,13 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
                     f"{c.id}: an award above zero cites a line or an element"
                     " of the reading"
                 )
+            # A student who loses points is told why. This also catches an award
+            # written against its own reasoning.
+            if c.awarded < want.points and not c.feedback.strip():
+                wrong.append(
+                    f"{c.id}: an award below its full points gives feedback to the"
+                    " student"
+                )
     return list(dict.fromkeys(wrong))
 
 
