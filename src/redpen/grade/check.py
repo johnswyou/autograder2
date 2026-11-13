@@ -124,10 +124,20 @@ def _number(part: KeyPart, stated: FinalAnswer, policies: Policies) -> Check:
     if key_unit is None or unit is None:
         return Check(UNSURE, "A unit is not one the check can read.")
     rel_tol = policies.rel_tol if answer.rel_tol is None else answer.rel_tol
+    keys = [x for x in [answer.value, *answer.accept_also] if x is not None]
+    # Decimal arithmetic with an infinity does not raise: it would match anything.
+    if not all(math.isfinite(x) for x in [stated.value, rel_tol, *keys]):
+        return Check(UNSURE, "A value or the tolerance is not a finite number.")
     tol, figures = Decimal(str(rel_tol)), not policies.penalise_sig_figs
     written = Decimal(str(stated.value))
-    keys = [x for x in [answer.value, *answer.accept_also] if x is not None]
     targets = [Decimal(str(x)) for x in keys]
+    try:
+        # The key's own unit, as read: the same, or one it converts to by exactly 1.
+        own = unit == key_unit or _convert(1.0, unit, key_unit) == 1
+    except pint.DimensionalityError:
+        own = False
+    except pint.PintError:
+        return Check(UNSURE, "A unit is not one the check can read.")
     try:
         # The value in the key's unit for the tolerance, and each key value in the
         # student's unit for the rounding rule.
@@ -153,16 +163,13 @@ def _number(part: KeyPart, stated: FinalAnswer, policies: Policies) -> Check:
             "The value is a key value rounded to one figure, and the reading cannot"
             " show whether more figures were written.",
         )
-    # A number that agrees as written is never a mismatch because of its unit: Pint
-    # may have read the unit as something the student did not mean.
-    if any(_how(written, t, written, t, tol, figures) for t in targets):
+    # In another unit, a conversion can make an answer match and nothing else: Pint
+    # may have read the unit as something the student did not mean (`Mm` for mm).
+    if not own:
         return Check(
             UNSURE,
-            "The number agrees with a key value as written, but its unit was not read"
-            " as the key's.",
+            "The answer is in a unit other than the key's, and does not match as read.",
         )
-    if not found:
-        return Check(NO_MATCH, "The unit cannot be converted to the key's unit.")
     return Check(
         NO_MATCH, "The value is outside the tolerance of every value the key accepts."
     )

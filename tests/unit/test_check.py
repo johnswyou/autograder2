@@ -46,6 +46,7 @@ def stated(**fields: Any) -> Reading:
 
 
 ACCEL = {"value": 2.5, "unit": "m/s^2"}
+INF = float("inf")
 # (case, the key's answer, the stated value, the stated unit, policies, verdict)
 NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str]] = [
     ("the key's value", ACCEL, 2.5, "m/s^2", ON, MATCH),
@@ -69,19 +70,25 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
     ("spaces in the unit", {"value": 10, "unit": "N"}, 10, "kg m / s^2", ON, MATCH),
     ("J/kg/K for J/(kg*K)", {"value": 4, "unit": "J/(kg*K)"}, 4, "J/kg/K", ON, MATCH),
     ("degC for K", {"value": 293.15, "unit": "K"}, 20, "degC", ON, MATCH),
-    # A number that agrees as written is never a mismatch because of its unit.
+    # In a unit other than the key's own, a conversion can make an answer match and
+    # nothing else: Pint may have read the unit as something the student did not
+    # mean.
     ("wrong dimension", ACCEL, 2.5, "m/s", ON, UNSURE),
     ("mass for force", {"value": 10, "unit": "N"}, 10, "kg", ON, UNSURE),
     ("a unit for a pure number", {"value": -4.0}, -4.0, "m", ON, UNSURE),
-    ("wrong dimension, wrong number", ACCEL, 3.0, "m/s", ON, NO_MATCH),
-    (
-        "converted and as written, wrong",
-        {"value": 2.5, "unit": "m/s"},
-        5,
-        "km/h",
-        ON,
-        NO_MATCH,
-    ),
+    ("wrong dimension, wrong number", ACCEL, 3.0, "m/s", ON, UNSURE),
+    ("km/h for m/s, wrong", {"value": 2.5, "unit": "m/s"}, 5, "km/h", ON, UNSURE),
+    ("cm for m, wrong", {"value": 2.5, "unit": "m"}, 240, "cm", ON, UNSURE),
+    ("MM for m, converted", {"value": 2.5, "unit": "m"}, 2500, "MM", ON, UNSURE),
+    ("Mm for m, converted", {"value": 2.5, "unit": "m"}, 2500, "Mm", ON, UNSURE),
+    ("M/S for km/h, converted", {"value": 90, "unit": "km/h"}, 25, "M/S", ON, UNSURE),
+    ("G for kg, converted", {"value": 0.5, "unit": "kg"}, 500, "G", ON, UNSURE),
+    ("MA for A, converted", {"value": 3, "unit": "A"}, 3000, "MA", ON, UNSURE),
+    ("M/S, rounded", {"value": 14.7, "unit": "m/s"}, 15, "M/S", ON, UNSURE),
+    # The key's own unit as read: the same, or one it converts to by exactly 1.
+    ("the same unit, wrong", ACCEL, 3.0, "m/s^2", ON, NO_MATCH),
+    ("N m for J, wrong", {"value": 10, "unit": "J"}, 12, "N m", ON, NO_MATCH),
+    ("N m for J", {"value": 10, "unit": "J"}, 10, "N m", ON, MATCH),
     ("M/S for m/s", {"value": 2.5, "unit": "m/s"}, 2.5, "M/S", ON, UNSURE),
     ("S for s", {"value": 3, "unit": "s"}, 3, "S", ON, UNSURE),
     ("G for g", {"value": 500, "unit": "g"}, 500, "G", ON, UNSURE),
@@ -98,7 +105,7 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
     ("ms^-2 for m/s^2", {"value": 9.8, "unit": "m/s^2"}, 9.8, "ms^-2", ON, UNSURE),
     ("degrees for a pure number", {"value": 30}, 30, "degrees", ON, UNSURE),
     ("percent for a pure number", {"value": 25}, 25, "percent", ON, UNSURE),
-    ("Mm for mm, wrong number", {"value": 5, "unit": "mm"}, 7, "Mm", ON, NO_MATCH),
+    ("Mm for mm, wrong number", {"value": 5, "unit": "mm"}, 7, "Mm", ON, UNSURE),
     ("no unit, units required", ACCEL, 2.5, None, ON, NO_MATCH),
     ("no unit, units not required", ACCEL, 2.5, None, OFF, MATCH),
     ("no unit, not required, wrong", ACCEL, 2.0, None, OFF, NO_MATCH),
@@ -150,6 +157,20 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
         NO_MATCH,
     ),
     ("no value stated", ACCEL, None, "m/s^2", ON, UNSURE),
+    # Decimal arithmetic with an infinity does not raise, so this is checked.
+    ("a key of infinity", {"value": INF, "unit": "m"}, 5, "m", ON, UNSURE),
+    ("a key of minus infinity", {"value": -INF, "unit": "m"}, -3, "m", ON, UNSURE),
+    (
+        "an alternative of infinity",
+        {**ACCEL, "accept_also": [INF]},
+        99,
+        "m/s^2",
+        ON,
+        UNSURE,
+    ),
+    ("a value of infinity", ACCEL, INF, "m/s^2", ON, UNSURE),
+    ("a tolerance of infinity", {**ACCEL, "rel_tol": INF}, 99, "m/s^2", ON, UNSURE),
+    ("a tolerance nan", {**ACCEL, "rel_tol": float("nan")}, 2.6, "m/s^2", ON, UNSURE),
     ("a unit Pint does not know", ACCEL, 2.5, "furlongz", ON, UNSURE),
     (
         "a unit grouped unclearly",
@@ -283,9 +304,8 @@ HOSTILE = [
         ({"value": 2.5, "unit": "m"}, 2.5, "nan"),
         ({"value": 2.5, "unit": "nan"}, 2.5, "m"),
         ({"value": 1e300, "unit": "m"}, 1, "nm"),
-        ({"value": 2.5, "unit": "m", "rel_tol": float("nan")}, 2.6, "m"),
     ],
-    ids=["a unit nan", "a key unit nan", "out of Decimal's range", "a tolerance nan"],
+    ids=["a unit nan", "a key unit nan", "out of Decimal's range"],
 )
 def test_a_check_that_raises_cannot_tell(
     key: dict[str, Any], value: float, unit: str
