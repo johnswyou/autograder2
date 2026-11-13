@@ -71,8 +71,14 @@ CHECKER = ModelInfo(
     completion_price=Decimal("0.00001"),
     providers=frozenset({"azure", "azure/eu", "azure/us"}),
 )
-# The roles `redpen prepare` and `redpen key verify` call once the spec exists.
-KEY_MODELS = {"solver": SOLVER, "checker": CHECKER, "referee": REFEREE}
+# The roles `redpen prepare` and `redpen key verify` call once the spec exists: the
+# grader tries the rubric.
+KEY_MODELS = {
+    "solver": SOLVER,
+    "checker": CHECKER,
+    "referee": REFEREE,
+    "grader": GRADER,
+}
 # ~anthropic/claude-haiku-latest
 MAPPER = ModelInfo(
     slug="anthropic/claude-haiku-5.5",

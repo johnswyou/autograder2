@@ -24,6 +24,7 @@ from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
+from tests.grader import grades
 
 MODEL = ModelInfo(
     slug="vendor/vision-1",
@@ -34,6 +35,7 @@ MODEL = ModelInfo(
     providers=frozenset({"zero"}),
 )
 OTHER = MODEL.model_copy(update={"slug": "maker/vision-2"})  # the checker
+GRADER = MODEL.model_copy(update={"slug": "vendor/sense-1"})  # tries the rubric
 SPEC = read_model(FIXTURES / "spec.json", Spec)
 
 
@@ -52,7 +54,8 @@ class Server:
     """Answers every part it is asked about, except the parts in `skip`: those
     always if `stubborn`, else only when no problems are attached; in the calls of
     the response model named `only`, when given, else in every call. Every
-    solution of a part is the same, and a referee finds the two the same."""
+    solution of a part is the same, a referee finds the two the same, and the
+    grader gives every criterion its full points."""
 
     def __init__(
         self,
@@ -67,8 +70,18 @@ class Server:
         body = json.loads(request.content)
         content = body["messages"][1]["content"]
         texts = [c["text"] for c in content if c["type"] == "text"]
-        parts = json.loads(texts[0])["parts"]
-        retry = texts[1:]
+        schema = body["response_format"]["json_schema"]["name"]
+        if schema == "Grades":  # the asked parts are in the `grade` items
+            asked = [json.loads(t) for t in texts]
+            parts = [
+                t["grade"] | {"id": t["grade"]["part_id"]}
+                for t in asked
+                if "grade" in t
+            ]
+            retry = []
+        else:
+            parts = json.loads(texts[0])["parts"]
+            retry = texts[1:]
         self.requests.append(
             {
                 "model": body["model"],
@@ -79,13 +92,14 @@ class Server:
                 "session": body["session_id"],
             }
         )
-        schema = body["response_format"]["json_schema"]["name"]
         skip = self.skip if self.only in (None, schema) else frozenset()
         answered = [
             p for p in parts if p["id"] not in skip or (retry and not self.stubborn)
         ]
         value: BaseModel
-        if body["response_format"]["json_schema"]["name"] == "Solution":
+        if schema == "Grades":
+            value = grades(body)
+        elif schema == "Solution":
             value = Solution(
                 parts=[
                     PartSolution(
@@ -293,6 +307,7 @@ providers = ["zero"]"""
                 ("solver", MODEL.slug),
                 ("checker", OTHER.slug),
                 ("referee", MODEL.slug),
+                ("grader", GRADER.slug),
             )
         ),
     ]
@@ -302,7 +317,9 @@ providers = ["zero"]"""
 def answered_in(response: dict[str, Any]) -> tuple[str, str, str]:
     """Who answered a cached response, what it answers, and its first part."""
     content = json.loads(response["choices"][0]["message"]["content"])
-    who = "checker" if response["model"] == OTHER.slug else "solver"
+    who = {OTHER.slug: "checker", GRADER.slug: "grader"}.get(
+        response["model"], "solver"
+    )
     if "rulings" in content:
         return who, "Rulings", content["rulings"][0]["part_id"]
     first = content["parts"][0]
@@ -321,6 +338,10 @@ FIRSTS = ["Q1", "Q2", "Q3", "Q4.a", "Q5.a"]  # the first part of each problem
             {("solver", "Solution", p) for p in FIRSTS[:4]},
             [
                 *(("checker", "Solution", p) for p in FIRSTS),
+                # The rubric's self-test: the second solutions are the same as the
+                # key's, so their requests are the same and come from the cache.
+                ("grader", "Grades", "Q4.a"),
+                ("grader", "Grades", "Q5.a"),
                 ("solver", "Rubric", "Q4.a"),
                 ("solver", "Rubric", "Q5.a"),
                 # The parts of Q4 and Q5 that code cannot compare.
@@ -336,7 +357,11 @@ FIRSTS = ["Q1", "Q2", "Q3", "Q4.a", "Q5.a"]  # the first part of each problem
             # The first part ruled on: Q5.c, the graph, is the only one of Q5.
             | {("solver", "Rulings", "Q4.a"), ("solver", "Rulings", "Q5.c")}
             | {("solver", "Rubric", "Q4.a")},
-            [("solver", "Rubric", "Q5.a")],
+            [
+                ("grader", "Grades", "Q4.a"),
+                ("grader", "Grades", "Q5.a"),
+                ("solver", "Rubric", "Q5.a"),
+            ],
         ),
     ],
     ids=["solve", "rubric"],
@@ -389,7 +414,7 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     assert rerun.exit_code == 0, rerun.output
     asked = [
         (
-            "checker" if r["model"] == OTHER.slug else "solver",
+            {OTHER.slug: "checker", GRADER.slug: "grader"}.get(r["model"], "solver"),
             r["schema"],
             r["parts"][0],
         )

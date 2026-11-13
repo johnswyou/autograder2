@@ -1,9 +1,9 @@
-"""Preparing the fixture blank's key with recorded calls to the real solver, checker
-and referee models.
+"""Preparing the fixture blank's key with recorded calls to the real solver, checker,
+referee and grader models.
 
 The run starts from the fixtures' spec.json, not from a recorded parse, so that
 recording the parse again never orphans these recordings. The recording is a dump
-of the cache of a live `redpen prepare` in a scratch workspace (about $0.45).
+of the calls a live `redpen prepare` made in a scratch workspace (about $0.62).
 """
 
 import os
@@ -28,10 +28,11 @@ from redpen.cli import app
 from redpen.config import Lock, write_lock
 from redpen.llm.client import Gateway
 from redpen.prepare.key import load_key, part_hash, save_key
+from redpen.prepare.verify import Trial, Verification
 from redpen.schemas.common import DiagramElement
 from redpen.schemas.key import Answer, Key
 from redpen.schemas.spec import CHOICE_TYPES
-from redpen.workspace import Workspace
+from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
 from tests.pinned import KEY_MODELS
@@ -179,6 +180,23 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
     assert "States: 9 verified, 0 refereed, 0 unverified" in prepared.output
     report = workspace.verification_md.read_text()
     assert report.count("Referee: the two agree in substance") == 3
+    assert_every_rubric_passes(workspace, prepared.output)
+
+
+def assert_every_rubric_passes(workspace: Workspace, output: str) -> None:
+    """The key's own solution earned every criterion on the first rubric, and so
+    did the second solution, of every part a model grades."""
+    record = read_model(workspace.verification_json, Verification)
+    passed = Trial(outcome="passed", lost=[])
+    for v in record.parts:
+        free = v.part_id.startswith(("Q4", "Q5"))
+        assert v.tried == ([passed] if free else []), v.part_id
+        assert v.second_tried == (passed if free else None), v.part_id
+        assert v.key_check is None or v.key_check.verdict == "matches", v.part_id
+    assert (
+        "Rubric self-test: 6 passed, 0 failed, 0 not graded; 0 with the rubric"
+        " written a second time." in output.splitlines()
+    )
 
 
 def test_key_verify_of_the_truth_key_moves_no_part_hash(
@@ -213,3 +231,4 @@ def test_key_verify_of_the_truth_key_moves_no_part_hash(
         result.output.splitlines()[0] == "States: 9 verified, 0 refereed, 0 unverified"
     )
     assert workspace.verification_md.read_text().count("Referee: not asked") == 6
+    assert_every_rubric_passes(workspace, result.output)

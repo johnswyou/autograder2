@@ -456,7 +456,8 @@ prompt_price = "0"
 completion_price = "0"
 providers = ["zero"]
 """
-# LOCK with the roles a fresh prepare verifies with: a checker of another vendor.
+# LOCK with the roles a fresh prepare verifies with: a checker of another vendor,
+# and the grader that tries the rubric.
 KEY_LOCK = LOCK + "".join(
     f'\n[models.{role}]\nslug = "{slug}"\nsupported_parameters = ["structured_outputs"]'
     '\naccepts_images = true\nprompt_price = "0"\ncompletion_price = "0"'
@@ -465,6 +466,7 @@ KEY_LOCK = LOCK + "".join(
         ("solver", "vendor/vision-1"),
         ("checker", "maker/vision-2"),
         ("referee", "vendor/vision-1"),
+        ("grader", "vendor/vision-1"),
     )
 )
 RETAINING_BELOW = {

@@ -46,6 +46,7 @@ from redpen.schemas.key import Key, KeyPart, Policies
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
+from tests.grader import Loses, grades
 
 POLICIES = Policies()
 INF, NAN = float("inf"), float("nan")
@@ -66,7 +67,8 @@ def model(slug: str) -> ModelInfo:
 
 
 SOLVER, CHECKER = model("vendor/vision-1"), model("maker/vision-2")
-MODELS = {"solver": SOLVER, "checker": CHECKER, "referee": SOLVER}
+GRADER = model("vendor/sense-1")
+MODELS = {"solver": SOLVER, "checker": CHECKER, "referee": SOLVER, "grader": GRADER}
 LOCK = "\n".join(
     ['profile = "balanced"']
     + [
@@ -273,16 +275,19 @@ class OpenRouter:
     """Answers the checker's solve with `seconds`, by part id, and the referee with
     `ruling` ("same", "first", "second" or "neither", turned into A or B as the
     request has them) and `reason` for every part it is asked about; with no ruling
-    at all for "omitted", or HTTP 400 for "failed". Keeps every chat request's
-    body."""
+    at all for "omitted", or HTTP 400 for "failed". The grader gives every
+    criterion its full points, except where `lose` gives a rationale. Keeps every
+    chat request's body."""
 
     def __init__(
         self,
         seconds: dict[str, PartSolution],
         ruling: str = "same",
         reason: str = "Decided.",
+        lose: Loses = lambda reading, c: None,
     ) -> None:
         self.seconds, self.ruling, self.reason = seconds, ruling, reason
+        self.lose = lose
         self.bodies: list[dict[str, Any]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -292,10 +297,14 @@ class OpenRouter:
         texts = [
             c["text"] for c in body["messages"][1]["content"] if c["type"] == "text"
         ]
-        parts = json.loads(texts[0])["parts"]
-        if name == "Solution":
+        parts = [] if name == "Grades" else json.loads(texts[0])["parts"]
+        value: Any
+        if name == "Grades":
+            assert body["model"] == GRADER.slug
+            value = grades(body, self.lose)
+        elif name == "Solution":
             assert body["model"] == CHECKER.slug
-            value: Any = Solution(parts=[self.seconds[p["id"]] for p in parts])
+            value = Solution(parts=[self.seconds[p["id"]] for p in parts])
         else:
             assert name == "Rulings" and body["model"] == SOLVER.slug
             if self.ruling == "failed":
@@ -706,8 +715,11 @@ def test_key_verify_changes_nothing_but_state(
     look = [id for id, state in states.items() if state == "unverified"]
     assert report.startswith(
         "# Verification\n\nThe second solution of each problem was made by"
-        f" {CHECKER.slug}. The first solution is the key's own.\n\nThe key keeps no"
-        " final computation, so its side has no arithmetic check.\n\nStates: "
+        f" {CHECKER.slug}. The first solution is the key's own. Then the key's own"
+        " solution of each part a model grades was graded against its rubric as a"
+        " response, by the grade stage, and has to earn every criterion in full.\n\n"
+        "The key keeps no final computation, so its side has no arithmetic check."
+        "\n\nStates: "
     )
     assert (
         f"Parts that need a look: {', '.join(look)}. For each, correct key.yaml if it"
@@ -728,6 +740,64 @@ def test_key_verify_changes_nothing_but_state(
     assert {p.id: p.state for p in load_key(workspace.key_yaml).parts} == states
     # A failed call is tried again; anything answered is not paid for twice.
     assert len(router.bodies) == asked + (2 if ruling == "failed" else 0)
+
+
+def test_key_verify_makes_a_part_its_key_fails_unverified_and_rewrites_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def lose(reading: dict[str, Any], c: dict[str, Any]) -> str | None:
+        mine = reading["lines"] != ["Other work."]  # the key's own, not the second
+        return "The rubric asks for more." if mine and c["id"] == "Q4.b.c1" else None
+
+    router = OpenRouter(AGREEING, "same", lose=lose)
+    workspace = keyed_workspace(tmp_path, monkeypatch, router)
+    text = workspace.key_yaml.read_text().replace(
+        "  - id: Q4.b\n", "  - id: Q4.b  # checked by hand\n"
+    )
+    workspace.key_yaml.write_text("# The key of the practice set.\n" + text)
+    before = load_key(workspace.key_yaml)
+
+    result = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    after = load_key(workspace.key_yaml)
+    assert {p.id: part_hash(p, after.policies) for p in after.parts} == {
+        p.id: part_hash(p, before.policies) for p in before.parts
+    }
+    states = {p.id: p.state for p in after.parts}
+    assert states == {**dict.fromkeys(states, "verified"), "Q4.b": "unverified"}
+    assert after == before.model_copy(
+        update={
+            "parts": [
+                p.model_copy(update={"state": states[p.id]}) for p in before.parts
+            ]
+        }
+    )
+    written = workspace.key_yaml.read_text()
+    assert written.startswith("# The key of the practice set.\n")
+    assert "  - id: Q4.b  # checked by hand\n" in written
+    names = {b["response_format"]["json_schema"]["name"] for b in router.bodies}
+    assert names == {"Solution", "Rulings", "Grades"}  # no rubric is written again
+    record = read_model(workspace.verification_json, Verification)
+    q4b = record.parts[[v.part_id for v in record.parts].index("Q4.b")]
+    assert [(t.outcome, [c.id for c in t.lost]) for t in q4b.tried] == [
+        ("failed", ["Q4.b.c1"])
+    ]
+    report = workspace.verification_md.read_text()
+    assert "Parts that need a look: Q4.b. For each" in report
+    assert "Grader: The rubric asks for more." in report.split("## Q4.b:")[1]
+    assert (
+        "Rubric self-test: 5 passed, 1 failed, 0 not graded; 0 with the rubric"
+        " written a second time." in result.output.splitlines()
+    )
+    assert "asks for more" not in result.output + result.stderr
+    asked = len(router.bodies)
+
+    again = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
+
+    assert again.exit_code == 0, again.output
+    assert len(router.bodies) == asked  # nothing is asked twice
+    assert load_key(workspace.key_yaml) == after
 
 
 def test_text_addressed_to_the_referee_is_passed_as_data_and_never_printed(
@@ -798,10 +868,10 @@ def test_a_model_s_text_cannot_forge_the_structure_of_verification_md(
         ),
         (
             LOCK.split("\n[models.checker]")[0],
-            "ws/config.lock.toml: no model is pinned for checker, referee.",
+            "ws/config.lock.toml: no model is pinned for checker, referee, grader.",
         ),
     ],
-    ids=["checker of the solver's vendor", "no checker or referee"],
+    ids=["checker of the solver's vendor", "no checker, referee or grader"],
 )
 @pytest.mark.parametrize("command", ["prepare", "key verify"])
 def test_a_lock_that_cannot_verify_stops_before_any_call(
@@ -879,6 +949,10 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
     workspace.blank_pdf.parent.mkdir(parents=True)
     shutil.copy("blank.pdf", workspace.blank_pdf)
     workspace.config_lock_toml.write_text(LOCK)
+    monkeypatch.setattr(  # only the self-test's grader is asked
+        "redpen.cli.Gateway",
+        functools.partial(Gateway, transport=httpx.MockTransport(OpenRouter({}))),
+    )
     spec = Spec(
         parts=[
             part("Q1", "numeric"),

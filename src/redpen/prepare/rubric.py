@@ -47,10 +47,13 @@ async def write_rubric(
     model: ModelInfo,
     spec: Spec,
     solutions: Mapping[str, PartSolution],
+    not_earned: Mapping[str, Sequence[Mapping[str, str]]] | None = None,
 ) -> dict[str, PartRubric]:
     """The proposed criteria of every part that is not a choice part, by part id.
     The problems are written concurrently. Raises `StageError` if a problem's rubric
-    still fails its checks after one retry."""
+    still fails its checks after one retry. With `not_earned`, by problem id, only
+    those problems are written, each given, after what it is given the first time,
+    the criteria of its earlier rubric that the key's own solution did not earn."""
     system, version = prompts.load("rubric", "problem")
     session = f"{workspace.root.name}:rubric"
 
@@ -66,13 +69,19 @@ async def write_rubric(
             ]
         }
 
+        given = (
+            [json.dumps({"not_earned": not_earned[problem_of(parts)]})]
+            if not_earned is not None
+            else []
+        )
+
         async def ask(extra: Sequence[Content]) -> Rubric:
             result = await gateway.call(
                 ROLE,
                 model,
                 system,
                 [],
-                [json.dumps(data), *extra],
+                [json.dumps(data), *given, *extra],
                 Rubric,
                 version,
                 params=PARAMS,
@@ -89,7 +98,10 @@ async def write_rubric(
         [p for p in parts if p.response_type not in CHOICE_TYPES]
         for parts in by_problem(spec)
     ]
-    written = await finish_all(one(parts) for parts in free if parts)
+    wanted = [
+        p for p in free if p and (not_earned is None or problem_of(p) in not_earned)
+    ]
+    written = await finish_all(one(parts) for parts in wanted)
     return {r.part_id: r for found in written for r in found}
 
 

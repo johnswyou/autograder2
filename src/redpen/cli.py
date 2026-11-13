@@ -78,15 +78,19 @@ from redpen.prepare.key import (
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
+from redpen.prepare.selftest import NotEarned, self_test
 from redpen.prepare.solve import PartSolution, solve
 from redpen.prepare.verify import (
     CHECKER,
+    GRADER,
     REFEREE,
+    State,
     Verdict,
     Verification,
     changed,
     role_problems,
     state_counts,
+    summary,
     verification,
     verification_md,
     verify,
@@ -361,7 +365,8 @@ async def _key(
     ws: Workspace, config: Config, lock: Lock, api_key: str, spec: Spec
 ) -> tuple[Key, Verification]:
     """Solve, verify, write the rubric from the solution that stands for each part,
-    and assemble the key; with what verification found, for its files."""
+    assemble the key, and try its rubric, writing a failed problem's rubric once
+    more; with what verification found, for its files."""
     strict = config.strict_privacy
     model, budget = lock.models["solver"], config.image_budget
     async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gateway:
@@ -370,8 +375,19 @@ async def _key(
             ws, gateway, lock.models, budget, spec, solutions, Policies(), False
         )
         standing = {id: v.stands for id, v in found.items()}
+        states: dict[str, State] = {id: v.state for id, v in found.items()}
         rubrics = await write_rubric(ws, gateway, model, spec, standing)
-    key = assemble(spec, standing, rubrics, {id: v.state for id, v in found.items()})
+
+        async def again(not_earned: NotEarned) -> Key:
+            rubrics.update(
+                await write_rubric(ws, gateway, model, spec, standing, not_earned)
+            )
+            return assemble(spec, standing, rubrics, states)
+
+        first = assemble(spec, standing, rubrics, states)
+        key, found = await self_test(
+            ws, gateway, lock.models[GRADER], first, found, again
+        )
     return key, verification(found, key, lock.models[CHECKER].slug, False)
 
 
@@ -388,13 +404,19 @@ def _write_verification(ws: Workspace, record: Verification, key: Key) -> None:
 
 
 def _states(ws: Workspace, key: Key, record: Verification) -> int:
-    """Say the counts by state, how many parts need a look and where it says why,
-    and on stderr how many a failed call left unverified. Returns that number."""
+    """Say the counts by state and of the self-test, how many parts need a look and
+    where it says why, and on stderr how many a failed call left unverified. Returns
+    that number. Nothing a model wrote is printed."""
     states = [p.state for p in key.parts]
     typer.echo(f"States: {state_counts(states)}")
+    for line in summary(record.parts):
+        typer.echo(line)
     look = states.count("unverified")
     typer.echo(f"Parts that need a look: {look}. {ws.verification_md} says why.")
-    failed = sum(v.ruling == "failed" for v in record.parts)
+    failed = sum(
+        v.ruling == "failed" or bool(v.tried and v.tried[-1].outcome == "not graded")
+        for v in record.parts
+    )
     if failed:
         typer.echo(
             f"{failed} parts are unverified because a call failed;"
@@ -538,21 +560,17 @@ def key_verify(workspace: KeyWorkspace) -> None:
         for p in key.parts
     }
 
-    async def run() -> dict[str, Verdict]:
+    async def run() -> tuple[Key, dict[str, Verdict]]:
         strict = config.strict_privacy
         async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gw:
             budget = config.image_budget
-            return await verify(
+            found = await verify(
                 ws, gw, lock.models, budget, spec, first, key.policies, True
             )
+            # No rewrite: only `state` changes, so no part hash moves.
+            return await self_test(ws, gw, lock.models[GRADER], key, found)
 
-    found = asyncio.run(run())
-    states = {id: v.state for id, v in found.items()}
-    verified = key.model_copy(
-        update={
-            "parts": [p.model_copy(update={"state": states[p.id]}) for p in key.parts]
-        }
-    )
+    verified, found = asyncio.run(run())
     record = verification(found, verified, lock.models[CHECKER].slug, True)
     try:
         save_key(ws.key_yaml, verified)

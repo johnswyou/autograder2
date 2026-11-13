@@ -18,10 +18,11 @@ from typing import Any, Final, Literal
 
 from redpen import prompts
 from redpen.grade.check import MATCH, NO_MATCH, check_answer, evaluate
+from redpen.grade.grade import ROLE as GRADER
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
-from redpen.prepare.key import answer_lines, part_hash
+from redpen.prepare.key import answer_lines, number, part_hash
 from redpen.prepare.parse import render_blank
 from redpen.prepare.solve import (
     PARAMS,
@@ -33,7 +34,8 @@ from redpen.prepare.solve import (
     solver,
 )
 from redpen.report.report import one_line
-from redpen.schemas.common import ResponseType, Schema
+from redpen.schemas.common import Points, ResponseType, Schema
+from redpen.schemas.grade import AnswerCheck
 from redpen.schemas.key import Answer, Key, KeyPart, Policies
 from redpen.schemas.reading import FinalAnswer, Reading
 from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
@@ -66,13 +68,39 @@ class Rulings(Schema):
     rulings: list[Ruling]
 
 
+# A criterion a response graded against the rubric did not earn in full: its
+# requirement as the rubric then wrote it, and the grader's rationale.
+class Lost(Schema):
+    id: str
+    kind: Literal["method", "final_answer"]
+    requirement: str
+    awarded: Points
+    points: Points
+    rationale: str
+
+
+# A response built in code, graded against the key's rubric (design 6.5): "passed"
+# when every criterion is at its full points, else "failed" with those below it in
+# `lost`; "not graded" when the call failed or its answer failed the grade stage's
+# checks twice.
+class Trial(Schema):
+    outcome: Literal["passed", "failed", "not graded"]
+    lost: list[Lost]
+
+
 # What verification found for one part. `checks` holds the arithmetic check of the
 # first solution and the second: None when none was made, "passes", or the words of
 # its failure. `ruling` is the referee's, as "same", "first", "second" or
 # "neither"; "failed" when a call the part needed failed; None when the referee was
 # not asked. `reason` is the referee's own text, or the fixed words of a failure.
 # `stands` is what the key is written from. `part_hash` is the key part's when its
-# state was set, filled in once the key is written.
+# state was set, filled in once the key is written. The self-test's fields keep
+# their defaults in a record written before it existed, and for a part scored by
+# code: `tried`, the key's own solution graded against the rubric, once, or twice
+# when a fresh prepare wrote the problem's rubric again; `key_check`, the answer
+# check of the key's own answer (None when it has nothing to check); and
+# `second_tried`, the second solution graded the same way where the two solvers
+# agreed, which sets no state.
 class Verdict(Schema):
     part_id: str
     state: State
@@ -84,6 +112,9 @@ class Verdict(Schema):
     first: PartSolution
     second: PartSolution | None  # None when the second solve failed
     stands: PartSolution
+    tried: list[Trial] = []
+    key_check: AnswerCheck | None = None
+    second_tried: Trial | None = None
 
 
 # key/verification.json: the model that made the second solutions, whether the
@@ -100,10 +131,12 @@ def vendor(slug: str) -> str:
 
 
 def role_problems(models: Mapping[str, ModelInfo]) -> list[str]:
-    """Why `models` cannot verify a key: a role among solver, checker and referee
-    that has no model, or a checker of the solver's own vendor, which would reuse
-    the solver's answers. Nothing when it can."""
-    if missing := [r for r in ("solver", CHECKER, REFEREE) if r not in models]:
+    """Why `models` cannot verify a key: a role among solver, checker, referee and
+    the grader of the rubric's self-test that has no model, or a checker of the
+    solver's own vendor, which would reuse the solver's answers. Nothing when it
+    can."""
+    roles = ("solver", CHECKER, REFEREE, GRADER)
+    if missing := [r for r in roles if r not in models]:
         return [f"no model is pinned for {', '.join(missing)}"]
     solver_, checker = models["solver"].slug, models[CHECKER].slug
     if vendor(solver_) == vendor(checker):
@@ -426,14 +459,70 @@ def state_counts(states: Iterable[str]) -> str:
     return ", ".join(f"{found[s]} {s}" for s in STATES)
 
 
+def summary(parts: Sequence[Verdict]) -> list[str]:
+    """The self-test in counts and fixed words, for the terminal and the top of
+    verification.md: the rubric's test, the key answers the answer check does not
+    read as matching, and the criteria the second solution lost, by kind."""
+    last = Counter(v.tried[-1].outcome for v in parts if v.tried)
+    again = sum(len(v.tried) > 1 for v in parts)
+    unread = sum(bool(v.key_check and v.key_check.verdict != MATCH) for v in parts)
+    seconds = [v.second_tried for v in parts if v.second_tried]
+    kinds = Counter(c.kind for t in seconds for c in t.lost)
+    return [
+        f"Rubric self-test: {last['passed']} passed, {last['failed']} failed,"
+        f" {last['not graded']} not graded; {again} with the rubric written a second"
+        " time.",
+        f"Key answers the answer check does not read as matching: {unread}.",
+        f"Second solution graded on {len(seconds)} parts: {kinds['method']} method and"
+        f" {kinds['final_answer']} final-answer criteria lost.",
+    ]
+
+
+def _lost(found: Lost) -> str:
+    """One Markdown item on one line: the model's text cannot break out of it."""
+    kind = found.kind.replace("_", " ")
+    worth = f"{number(found.awarded)} of {number(found.points)}"
+    return "- " + one_line(
+        f"{found.id} ({kind}, {worth}): {found.requirement} Grader: {found.rationale}"
+    )
+
+
+def _tried(v: Verdict) -> list[str]:
+    """The self-test's lines of one part: each try of the rubric, the answer check
+    of the key's own answer, and the second solution graded."""
+    twice = len(v.tried) > 1
+    lines = ["Its rubric was written a second time.", ""] if twice else []
+    if not v.tried:
+        lines = ["Self-test: not made, as code scores this part.", ""]
+    which = ["first rubric", "rubric written again"] if twice else ["rubric"]
+    for name, t in zip(which, v.tried, strict=False):
+        lines += [f"Self-test on the {name}: {t.outcome}", ""]
+        lines += [*map(_lost, t.lost), ""] if t.lost else []
+    if v.key_check and v.key_check.verdict != MATCH:
+        lines += [
+            f"The answer check of the key's own answer: {v.key_check.verdict}."
+            f" {v.key_check.reason} So the check will never decide this part for a"
+            " student.",
+            "",
+        ]
+    if second := v.second_tried:
+        lines += [
+            "The second solution graded the same way, as evidence that changes no"
+            f" state: {second.outcome}",
+            "",
+        ]
+        lines += [*map(_lost, second.lost), ""] if second.lost else []
+    return lines
+
+
 def verification_md(record: Verification, key: Key) -> str:
     """For the instructor, never read back, rendered from `record` with the
     headings of `key`: who made the second solutions, the counts by state, the parts
     that need a look and what to do; then each part's state, both final answers,
     the arithmetic checks and the referee's reason. Where the referee preferred the
     second solution to an existing key, the second solution in full, so that the key
-    can be corrected by hand. Whatever a model wrote is kept to one line, or fenced
-    by more backticks than it holds."""
+    can be corrected by hand. Then the part's self-test. Whatever a model wrote is
+    kept to one line, or fenced by more backticks than it holds."""
     keyed = record.keyed
     whose = "the key's own" if keyed else "the first solver's"
     look = [v.part_id for v in record.parts if v.state == "unverified"]
@@ -441,7 +530,9 @@ def verification_md(record: Verification, key: Key) -> str:
         "# Verification",
         "",
         f"The second solution of each problem was made by {one_line(record.checker)}."
-        f" The first solution is {whose}.",
+        f" The first solution is {whose}. Then the key's own solution of each part a"
+        " model grades was graded against its rubric as a response, by the grade"
+        " stage, and has to earn every criterion in full.",
         "",
         *(
             [
@@ -454,6 +545,7 @@ def verification_md(record: Verification, key: Key) -> str:
         ),
         f"States: {state_counts(v.state for v in record.parts)}",
         "",
+        *(line for found in summary(record.parts) for line in (found, "")),
         f"Parts that need a look: {', '.join(look)}. For each, correct key.yaml if"
         " it is wrong, then run `redpen key verify` again."
         if look
@@ -505,4 +597,5 @@ def verification_md(record: Verification, key: Key) -> str:
             fence = "`" * max(3, max(map(len, re.findall("`+", text)), default=0) + 1)
             lines += ["The second solution in full:", "", f"{fence}text", text, fence]
             lines.append("")
+        lines += _tried(v)
     return "\n".join(lines)
