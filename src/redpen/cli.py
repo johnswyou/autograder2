@@ -407,7 +407,6 @@ def _grade(
         return
     summary = _ingest(ws, submissions, roster)
     strict = config.strict_privacy
-    lock = _with_prompts(ws, lock.model_copy(update={"strict_privacy": strict}))
     gate = privacy_problems(lock, api_key, strict)
     if found := asyncio.run(gate):
         for problem in found:
@@ -415,6 +414,10 @@ def _grade(
         _fail(
             "Nothing was sent: the pinned endpoints are not verified to keep nothing."
         )
+    # Recorded only now, as pages are about to go. Once off it stays off: stored
+    # answers may still come from that run, and only a fresh workspace clears it.
+    kept = strict and lock.strict_privacy is not False
+    lock = _with_prompts(ws, lock.model_copy(update={"strict_privacy": kept}))
     if not strict:
         typer.echo(
             "strict_privacy is off: the endpoints are not checked, and student pages"

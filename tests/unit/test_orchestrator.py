@@ -636,6 +636,30 @@ def test_strict_privacy_switched_off_is_said_and_recorded(
         assert "strict" not in report.lower()
 
 
+@pytest.mark.parametrize("gate_passes", [False, True], ids=["stopped", "passed"])
+def test_strict_privacy_once_off_stays_recorded(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, gate_passes: bool
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    Path("redpen.toml").write_text("strict_privacy = false\n")
+    assert grade().exit_code == 0
+    Path("redpen.toml").unlink()  # strict privacy on again
+    lock = WS.config_lock_toml.read_bytes()
+    if not gate_passes:
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+
+    again = grade()
+    report = runner.invoke(app, ["report", "--workspace", "ws"])
+
+    assert again.exit_code == (0 if gate_passes else 1), again.output
+    if not gate_passes:  # nothing sent, and the lock as the earlier run left it
+        assert "Nothing was sent" in again.stderr.splitlines()[-1]
+        assert WS.config_lock_toml.read_bytes() == lock
+    assert read_lock(WS.config_lock_toml).strict_privacy is False
+    assert report.exit_code == 0, report.output
+    assert STRICT_OFF_RUN in WS.run_report_md.read_text().splitlines()
+
+
 def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
     found, pages = shape(SPEC), 4
     assert {f.name: getattr(found, f.name) for f in fields(found)} == {

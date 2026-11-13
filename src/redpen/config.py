@@ -87,8 +87,8 @@ class Lock(BaseModel):
     prompts: dict[str, str] = Field(default_factory=dict[str, str])
     """The version of every prompt file at the latest run, by `<stage>/<name>`."""
     strict_privacy: bool | None = None
-    """Whether strict privacy was in force for the latest grade run; None before
-    any."""
+    """False once a grade run of this workspace sent pages with strict privacy off,
+    and False from then on; True when every grade run had it on; None before any."""
 
 
 async def pin(

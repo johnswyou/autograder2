@@ -42,10 +42,11 @@ OTHER_KEY = "It was graded under another version of the key and is to be graded 
 UNGRADED = "No reading or no grade was recorded for it."
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
-# Under the pinned models, when the latest grade run had strict privacy off.
+# Under the pinned models, once a grade run of the workspace had strict privacy off.
 STRICT_OFF_RUN = (
-    "Strict privacy was off for the latest grade run: the endpoints were not"
-    " checked, and student pages may have gone to providers that keep them."
+    "Strict privacy was off for a grade run of this workspace: the endpoints were"
+    " not checked, and student pages may have gone to providers that keep them."
+    " This stays recorded; only a fresh workspace clears it."
 )
 
 # The other flags' details, in fixed words: never text a student or a model wrote.
