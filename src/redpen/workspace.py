@@ -3,7 +3,9 @@
 Attribute names follow the file names, with the dot replaced by an underscore.
 """
 
+import traceback
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
@@ -73,6 +75,10 @@ class Workspace:
     @property
     def verification_md(self) -> Path:
         return self.root / "key" / "verification.md"
+
+    @property
+    def verification_json(self) -> Path:
+        return self.root / "key" / "verification.json"
 
     @property
     def key_report_json(self) -> Path:
@@ -178,3 +184,10 @@ class Workspace:
     @property
     def eval_json(self) -> Path:
         return self.root / "out" / "eval.json"
+
+
+def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
+    """Append `error`'s traceback, under `what` and the time, to the run log."""
+    with workspace.run_log.open("a", encoding="utf-8") as log:
+        log.write(f"--- {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {what}\n")
+        log.write("".join(traceback.format_exception(error)))

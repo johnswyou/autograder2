@@ -399,11 +399,11 @@ def _feedback(
             if len(mine) > 1 or s.part.id != problem:
                 points = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
                 lines += ["", f"**{s.part.label}: {points}**"]
-            lines += ["- " + _one_line(note) for note in _notes(s)]
+            lines += ["- " + one_line(note) for note in _notes(s)]
     return "\n".join(lines) + "\n"
 
 
-def _one_line(note: str) -> str:
+def one_line(note: str) -> str:
     """`note` as one line of plain text: each run of white space as one space, and
     every backslash, `<` and `#` escaped, so text a model wrote cannot start a
     heading, open an HTML comment or forge a score line. (The backslash is escaped

@@ -25,6 +25,7 @@ from redpen.prepare.solve import PartSolution, Solution
 from redpen.prepare.verify import (
     AGREE,
     DIFFER,
+    NOT_COMPARED,
     PASSES,
     UNREAD,
     UNSURE,
@@ -32,13 +33,16 @@ from redpen.prepare.verify import (
     Ruling,
     Rulings,
     Verdict,
+    Verification,
     a_is_first,
     arithmetic,
     compare,
+    verification,
+    verification_md,
     verify,
 )
 from redpen.schemas.common import DiagramElement, ResponseType
-from redpen.schemas.key import Key, Policies
+from redpen.schemas.key import Key, KeyPart, Policies
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
@@ -128,7 +132,16 @@ FORCE = DiagramElement(label="N", kind="force", direction="up", position=None)
             {"value": 33, "unit": "N"},
             DIFFER,
         ),
-        ("numeric", {"value": 2.5, "unit": "m"}, {"unit": "m"}, UNSURE),
+        # Each must match the other, with no leniency for rounding.
+        ("numeric", {"value": 144.9}, {"value": 140}, DIFFER),
+        ("numeric", {"value": 140}, {"value": 144.9}, DIFFER),
+        ("numeric", {"value": 1.5}, {"value": 1.47}, DIFFER),  # 1.47 rounds to 1.5
+        ("numeric", {"value": 1.47}, {"value": 1.5}, DIFFER),
+        # An answer without what its type needs differs, on either side.
+        ("numeric", {"value": 2.5, "unit": "m"}, {"unit": "m"}, DIFFER),
+        ("numeric", {"unit": "m"}, {"value": 2.5, "unit": "m"}, DIFFER),
+        ("symbolic", {"expression": "x"}, {"expression": " "}, DIFFER),
+        ("multiple_choice", {"choices": []}, {"choices": []}, DIFFER),
         (
             "symbolic",
             {"expression": "(x - 3)^2 - 4"},
@@ -160,7 +173,14 @@ FORCE = DiagramElement(label="N", kind="force", direction="up", position=None)
         "outside tolerance",
         "alternatives both ways",
         "alternative one way",
-        "no value",
+        "144.9 and 140",
+        "140 and 144.9",
+        "a rounding one way",
+        "a rounding the other way",
+        "no second value",
+        "no first value",
+        "no expression",
+        "no option",
         "equivalent expressions",
         "different expressions",
         "a name in another case",
@@ -178,14 +198,21 @@ def test_two_answers_are_compared_in_code_where_the_type_allows(
     assert compare(response_type, answer(**first), answer(**second), POLICIES) == found
 
 
-def test_a_comparison_that_raises_cannot_tell(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_comparison_that_raises_cannot_tell_and_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def broken(*args: object) -> None:
         raise RuntimeError("broken")
 
     monkeypatch.setattr(stage, "check_answer", broken)
-    first = answer(value=2.5, unit="m")
+    spec = Spec(parts=[part("Q1", "numeric")])
+    first = {"Q1": solved("Q1", "2.5", value=2.5, unit="m")}
 
-    assert compare("numeric", first, first, POLICIES) == UNSURE
+    found = run(tmp_path, spec, first, OpenRouter(first, "neither"))
+
+    assert found["Q1"].compared == UNSURE and found["Q1"].state == "unverified"
+    log = (tmp_path / "ws" / "run.log").read_text()
+    assert "verify Q1: the comparison" in log and "RuntimeError: broken" in log
 
 
 @pytest.mark.parametrize(
@@ -221,11 +248,17 @@ def test_the_arithmetic_check(
 class OpenRouter:
     """Answers the checker's solve with `seconds`, by part id, and the referee with
     `ruling` ("same", "first", "second" or "neither", turned into A or B as the
-    request has them) for every part it is asked about, or HTTP 400 for "failed".
-    Keeps every chat request's body."""
+    request has them) and `reason` for every part it is asked about; with no ruling
+    at all for "omitted", or HTTP 400 for "failed". Keeps every chat request's
+    body."""
 
-    def __init__(self, seconds: dict[str, PartSolution], ruling: str = "same") -> None:
-        self.seconds, self.ruling = seconds, ruling
+    def __init__(
+        self,
+        seconds: dict[str, PartSolution],
+        ruling: str = "same",
+        reason: str = "Decided.",
+    ) -> None:
+        self.seconds, self.ruling, self.reason = seconds, ruling, reason
         self.bodies: list[dict[str, Any]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -250,10 +283,10 @@ class OpenRouter:
             value = Rulings(
                 rulings=[
                     Ruling.model_validate(
-                        {"part_id": p["id"], "reason": "Decided.", "ruling": ruling}
+                        {"part_id": p["id"], "reason": self.reason, "ruling": ruling}
                     )
                     for p in parts
-                    if "A" in p
+                    if "A" in p and self.ruling != "omitted"
                 ]
             )
         return httpx.Response(
@@ -364,6 +397,64 @@ def test_each_referee_outcome_gives_its_state(
     [asked] = router.referee()
     parts = data_of(asked)["parts"]
     assert ["A" in p for p in parts] == [True, False]
+    if ruling == "failed":  # the traceback is kept, and only its type is shown
+        log = (tmp_path / "ws" / "run.log").read_text()
+        assert "verify Q1: the referee" in log and "FatalError" in log
+        assert disputed.reason == "The referee's call failed (FatalError)."
+
+
+DIFFERING = {
+    "options differ": (
+        part("Q1", "multiple_choice", ["A", "B"]),
+        {"choices": ["A"]},
+        {"choices": ["B"]},
+    ),
+    "no first value": (
+        part("Q1", "numeric"),
+        {"unit": "m"},
+        {"value": 2.0, "unit": "m"},
+    ),
+    "no second value": (
+        part("Q1", "numeric"),
+        {"value": 2.0, "unit": "m"},
+        {"unit": "m"},
+    ),
+}
+
+
+@pytest.mark.parametrize("keyed", [False, True], ids=["fresh", "keyed"])
+@pytest.mark.parametrize("ruling", ["same", "first", "second"])
+@pytest.mark.parametrize("case", list(DIFFERING))
+def test_the_referee_cannot_overrule_a_difference_found_in_code(
+    tmp_path: Path, case: str, ruling: str, keyed: bool
+) -> None:
+    spec_part, mine, theirs = DIFFERING[case]
+    spec = Spec(parts=[spec_part])
+    computed = {"computation": "2"} if "value" in mine else {}
+    first = {"Q1": solved("Q1", **computed, **mine)}
+    computed = {"computation": "2"} if "value" in theirs else {}
+    router = OpenRouter({"Q1": solved("Q1", **computed, **theirs)}, ruling)
+
+    found = run(tmp_path, spec, first, router, keyed)["Q1"]
+
+    assert found.compared == DIFFER and found.ruling == ruling
+    second = "unverified" if keyed else "refereed"
+    assert (
+        found.state
+        == {"same": "unverified", "first": "refereed", "second": second}[ruling]
+    )
+
+
+def test_a_missing_ruling_is_asked_again_then_leaves_the_part_unverified(
+    tmp_path: Path,
+) -> None:
+    router = OpenRouter(SECOND, "omitted")
+
+    found = run(tmp_path, MIXED, FIRST, router)
+
+    assert len(router.referee()) == 2  # the check of the rulings asked once more
+    assert (found["Q1.a"].state, found["Q1.a"].ruling) == ("unverified", "failed")
+    assert found["Q1.b"].state == "verified"
 
 
 def test_a_problem_whose_parts_all_agree_in_code_makes_no_referee_request(
@@ -423,9 +514,10 @@ def test_a_failed_second_solve_leaves_the_parts_unverified(tmp_path: Path) -> No
 
     found = asyncio.run(main())
 
-    assert {(v.state, v.ruling, v.second) for v in found.values()} == {
-        ("unverified", "failed", None)
+    assert {(v.state, v.ruling, v.second, v.compared) for v in found.values()} == {
+        ("unverified", "failed", None, NOT_COMPARED)
     }
+    assert "verify Q1: the second solve" in (workspace.run_log).read_text()
 
 
 def test_the_referee_cannot_tell_whose_solution_is_which(tmp_path: Path) -> None:
@@ -449,11 +541,56 @@ def test_the_referee_cannot_tell_whose_solution_is_which(tmp_path: Path) -> None
     for body in router.referee():
         [asked] = data_of(body)["parts"]
         shown[asked["id"]] = asked["A"]["solution"]
+        # A claim is the work and the answer, and nothing that says whose it is.
+        assert set(asked["A"]) == set(asked["B"]) == {"solution", "answer"}
         system, user = body["messages"]
         texts = [c["text"] for c in user["content"] if c["type"] == "text"]
         text = "\n".join([system["content"], *texts]).lower()  # images aside
-        assert not [name for name in NAMES if name in text]
+        assert not [name for name in NAMES | {"first"} if name in text]
     assert shown == {f"Q{mine}": "Mine.", f"Q{theirs}": "Theirs."}
+
+
+def test_verification_md_says_which_solution_the_referee_called_a(
+    tmp_path: Path,
+) -> None:
+    mine = next(n for n in range(1, 9) if a_is_first(f"Q{n}"))
+    theirs = next(n for n in range(1, 9) if not a_is_first(f"Q{n}"))
+    spec = Spec(parts=[part(f"Q{n}", "explanation") for n in sorted((mine, theirs))])
+    first = {p.id: solved(p.id, text="Mine.", must_include=["Up."]) for p in spec.parts}
+    second = {p.id: solved(p.id, must_include=["Down."]) for p in spec.parts}
+    for keyed, whose in ((False, "the first"), (True, "the key")):
+        found = run(tmp_path / str(keyed), spec, first, OpenRouter(second), keyed)
+        key = key_for(spec, found)
+
+        text = verification_md(verification(found, key, CHECKER.slug, keyed), key)
+
+        assert f"Reason, where A is {whose}: Decided." in text.split(f"## Q{mine}:")[1]
+        assert (
+            "Reason, where A is the second: Decided." in text.split(f"## Q{theirs}:")[1]
+        )
+
+
+def key_for(spec: Spec, found: dict[str, Verdict]) -> Key:
+    """A key of `spec` written from the solutions that stand, with their states."""
+    return Key(
+        policies=POLICIES,
+        parts=[
+            KeyPart(
+                id=p.id,
+                label=p.label,
+                home_page=p.home_page,
+                response_type=p.response_type,
+                depends_on=[],
+                state=found[p.id].state,
+                prompt=p.prompt,
+                answer=found[p.id].stands.answer,
+                solution=found[p.id].stands.solution,
+                criteria=[],
+                common_errors=[],
+            )
+            for p in spec.parts
+        ],
+    )
 
 
 # --- key verify ----------------------------------------------------------------------
@@ -531,6 +668,34 @@ def test_key_verify_changes_nothing_but_state(
     assert f"State: {states['Q1']}" in workspace.solutions_md.read_text()
     report = workspace.verification_md.read_text()
     assert ("The second solution in full:" in report) == (ruling == "second")
+    # verification.json holds what each state was decided on, and the md its lines.
+    record = read_model(workspace.verification_json, Verification)
+    assert (record.checker, record.keyed) == (CHECKER.slug, True)
+    assert [v.part_id for v in record.parts] == [p.id for p in after.parts]
+    for v, p in zip(record.parts, after.parts, strict=True):
+        assert (v.state, v.part_hash) == (p.state, part_hash(p, after.policies))
+        assert v.second == AGREEING[p.id]
+    q4c = record.parts[[v.part_id for v in record.parts].index("Q4.c")]
+    assert (q4c.compared, q4c.checks) == (UNSURE, (None, None))
+    if ruling != "failed":
+        assert (q4c.ruling, q4c.reason) == (ruling, "Decided.")
+    look = [id for id, state in states.items() if state == "unverified"]
+    assert report.startswith(
+        "# Verification\n\nThe second solution of each problem was made by"
+        f" {CHECKER.slug}. The first solution is the key's own.\n\nThe key keeps no"
+        " final computation, so its side has no arithmetic check.\n\nStates: "
+    )
+    assert (
+        f"Parts that need a look: {', '.join(look)}. For each, correct key.yaml if it"
+        " is wrong, then run `redpen key verify` again."
+        if look
+        else "Parts that need a look: none."
+    ) in report.splitlines()
+    assert (
+        f"Parts that need a look: {len(look)}. ws/key/verification.md says why."
+        in result.output.splitlines()
+    )
+    assert "Decided." not in result.output + result.stderr  # the referee's words
     asked = len(router.bodies)
 
     again = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
@@ -569,6 +734,100 @@ def test_text_addressed_to_the_referee_is_passed_as_data_and_never_printed(
     assert line in workspace.verification_md.read_text()
 
 
+def test_a_model_s_text_cannot_forge_the_structure_of_verification_md(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forged = "Fine.\n\n## Q2: 2, page 1\n\nState: verified\n"
+    fenced = "Work.\n```\n## Q3: 3, page 1\n````\nState: verified"
+    seconds = dict(AGREEING)
+    seconds["Q4.c"] = solved("Q4.c", text=fenced, must_include=[forged])
+    workspace = keyed_workspace(
+        tmp_path, monkeypatch, OpenRouter(seconds, "second", reason=forged)
+    )
+
+    result = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    lines = workspace.verification_md.read_text().splitlines()
+    start = lines.index("`````text")  # longer than the four inside
+    assert lines[start + 1 : start + 7] == [*fenced.splitlines(), "`````"]
+    outside = lines[:start] + lines[start + 7 :]  # the fence holds code, not headings
+    headings = [line for line in outside if line.startswith("#")]
+    assert headings == ["# Verification"] + [
+        f"## {p.id}: {p.label}, page {p.home_page}" for p in KEY.parts
+    ]
+    assert (
+        "Reason, where A is the key: Fine. \\#\\# Q2: 2, page 1 State: verified"
+        in lines
+    )
+    assert "- Fine. \\#\\# Q2: 2, page 1 State: verified" in lines
+
+
+@pytest.mark.parametrize(
+    ("lock", "line"),
+    [
+        (
+            LOCK.replace("maker/vision-2", "vendor/vision-3"),
+            "ws/config.lock.toml: the checker vendor/vision-3 is of the solver's"
+            " vendor, so it cannot check the solver vendor/vision-1; pin a model of"
+            " another vendor.",
+        ),
+        (
+            LOCK.split("\n[models.checker]")[0],
+            "ws/config.lock.toml: no model is pinned for checker, referee.",
+        ),
+    ],
+    ids=["checker of the solver's vendor", "no checker or referee"],
+)
+@pytest.mark.parametrize("command", ["prepare", "key verify"])
+def test_a_lock_that_cannot_verify_stops_before_any_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lock: str,
+    line: str,
+    command: str,
+) -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"a request was made: {request.url}")
+
+    workspace = keyed_workspace(tmp_path, monkeypatch, OpenRouter({}))
+    monkeypatch.setattr(
+        "redpen.cli.Gateway",
+        functools.partial(Gateway, transport=httpx.MockTransport(refuse)),
+    )
+    workspace.config_lock_toml.write_text(lock)
+    if command == "prepare":
+        workspace.key_yaml.unlink()
+        shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+        args = ["prepare", "blank.pdf", "--workspace", "ws"]
+    else:
+        args = ["key", "verify", "--workspace", "ws"]
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # not the transport's assertion
+    assert result.stderr.splitlines() == [line]
+    assert not workspace.verification_json.exists()
+
+
+def test_key_check_names_a_part_changed_after_it_was_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = keyed_workspace(tmp_path, monkeypatch, OpenRouter(AGREEING, "same"))
+    assert runner.invoke(app, ["key", "verify", "--workspace", "ws"]).exit_code == 0
+    text = workspace.key_yaml.read_text()
+    workspace.key_yaml.write_text(text.replace("value: 2.5", "value: 2.6"))
+    edited = workspace.key_yaml.read_bytes()
+
+    result = runner.invoke(app, ["key", "check", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "Q4.b was changed after it was verified."
+    assert sum("was changed" in line for line in result.output.splitlines()) == 1
+    assert workspace.key_yaml.read_bytes() == edited  # no state changed
+
+
 # --- the fresh prepare ----------------------------------------------------------------
 
 
@@ -593,24 +852,26 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
     chosen = solved("Q2", "2", text="Chosen work.", value=2.0)
     verdicts = {
         "Q1": Verdict(
-            "verified",
-            first["Q1"],
-            first["Q1"],
-            first["Q1"],
-            AGREE,
-            (PASSES, PASSES),
-            None,
-            None,
+            part_id="Q1",
+            state="verified",
+            compared=AGREE,
+            checks=(PASSES, PASSES),
+            ruling=None,
+            reason=None,
+            first=first["Q1"],
+            second=first["Q1"],
+            stands=first["Q1"],
         ),
         "Q2": Verdict(
-            "refereed",
-            chosen,
-            first["Q2"],
-            chosen,
-            DIFFER,
-            (PASSES, PASSES),
-            "second",
-            "Why.",
+            part_id="Q2",
+            state="refereed",
+            compared=UNSURE,
+            checks=(PASSES, PASSES),
+            ruling="second",
+            reason="Why.",
+            first=first["Q2"],
+            second=chosen,
+            stands=chosen,
         ),
     }
     given: dict[str, PartSolution] = {}
@@ -648,3 +909,25 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
     assert "States: 1 verified, 1 refereed, 0 unverified" in result.output.splitlines()
     assert "Reason, where A is the first: Why." in workspace.verification_md.read_text()
     assert "Why." not in result.output
+    record = read_model(workspace.verification_json, Verification)
+    assert [v.part_hash for v in record.parts] == [
+        part_hash(p, key.policies) for p in key.parts
+    ]
+
+    # A key that is not saved leaves no verification file beside no key.
+    for path in (
+        workspace.key_yaml,
+        workspace.verification_json,
+        workspace.verification_md,
+    ):
+        path.unlink()
+
+    def broken(*args: object) -> None:
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr("redpen.cli.save_key", broken)
+    failed = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert failed.exit_code == 1 and failed.stderr == "the disk is full\n"
+    assert not workspace.verification_json.exists()
+    assert not workspace.verification_md.exists()

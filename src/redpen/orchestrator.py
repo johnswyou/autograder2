@@ -14,12 +14,10 @@ because a file exists.
 import asyncio
 import math
 import sqlite3
-import traceback
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, fields
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -38,7 +36,7 @@ from redpen.prepare.verify import CHECKER, COMPARED, REFEREE
 from redpen.schemas.key import Key
 from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
 from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace
+from redpen.workspace import Workspace, log_failure
 
 # Each grade stage and the role whose model it sends student pages to.
 STAGES = {"map": "mapper", "read": "reader", "grade": "grader"}
@@ -120,13 +118,6 @@ async def grade_class(
             for stage in runs:
                 await asyncio.gather(*(one(stage, s) for s in students))
     return failed
-
-
-def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
-    """Append `error`'s traceback, under `what` and the time, to the run log."""
-    with workspace.run_log.open("a", encoding="utf-8") as log:
-        log.write(f"--- {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {what}\n")
-        log.write("".join(traceback.format_exception(error)))
 
 
 # --- the dry run's estimate ----------------------------------------------------------

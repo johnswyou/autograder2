@@ -24,11 +24,12 @@ from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog
 from redpen.prepare.key import load_key, save_key
 from redpen.prepare.parse import parse
+from redpen.prepare.verify import Verification
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
-from tests.pinned import PARSER
+from tests.pinned import CHECKER, PARSER
 
 TRUTH: list[dict[str, Any]] = json.loads((FIXTURES / "key.json").read_text())["parts"]
 
@@ -69,30 +70,41 @@ def test_the_fixture_blank_parses_into_the_parts_of_its_key(
 
 
 def catalog() -> Catalog:
-    """OpenRouter listing PARSER behind every default role."""
-    entry = {
-        "id": PARSER.slug,
-        "architecture": {"input_modalities": ["text", "image"]},
-        "supported_parameters": sorted(PARSER.supported_parameters),
-        "pricing": {
-            "prompt": str(PARSER.prompt_price),
-            "completion": str(PARSER.completion_price),
-        },
+    """OpenRouter listing PARSER behind every default role but the checker's alias,
+    which lists CHECKER, a model of another vendor."""
+    models = (PARSER, CHECKER)
+    entries = {
+        m.slug: {
+            "id": m.slug,
+            "architecture": {"input_modalities": ["text", "image"]},
+            "supported_parameters": sorted(m.supported_parameters),
+            "pricing": {
+                "prompt": str(m.prompt_price),
+                "completion": str(m.completion_price),
+            },
+        }
+        for m in models
     }
     aliases = {
-        name: {"id": name, "alias_target": {"slug": PARSER.slug}}
+        name: {
+            "id": name,
+            "alias_target": {
+                "slug": (CHECKER if name == Models().checker else PARSER).slug
+            },
+        }
         for name in Models().model_dump().values()
     }
     endpoints = [
         {
-            "model_id": PARSER.slug,
+            "model_id": m.slug,
             "tag": tag,
             "safety_retention": False,
             "supported_parameters": ["structured_outputs"],
         }
-        for tag in PARSER.providers
+        for m in models
+        for tag in m.providers
     ]
-    return Catalog({**aliases, PARSER.slug: entry}, endpoints)
+    return Catalog({**aliases, **entries}, endpoints)
 
 
 def recorded(db_path: Path, api_key: str, **options: Any) -> Gateway:
@@ -113,10 +125,10 @@ def refuse(*args: object, **kwargs: object) -> NoReturn:
 TRUTH_KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 
 
-async def truth_key(*args: object) -> Key:
-    """Stands in for the solve and rubric stages, whose replay tests start from the
-    fixtures' spec rather than from this parse."""
-    return TRUTH_KEY
+async def truth_key(*args: object) -> tuple[Key, Verification]:
+    """Stands in for the solve, verify and rubric stages, whose replay tests start
+    from the fixtures' spec rather than from this parse."""
+    return TRUTH_KEY, Verification(checker=CHECKER.slug, keyed=False, parts=[])
 
 
 def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(

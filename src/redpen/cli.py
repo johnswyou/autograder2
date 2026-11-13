@@ -60,7 +60,6 @@ from redpen.orchestrator import (
     blank_sizes,
     estimate,
     grade_class,
-    log_failure,
     privacy_problems,
 )
 from redpen.prepare.assemble import assemble
@@ -84,7 +83,11 @@ from redpen.prepare.verify import (
     CHECKER,
     REFEREE,
     Verdict,
+    Verification,
+    changed,
+    role_problems,
     state_counts,
+    verification,
     verification_md,
     verify,
 )
@@ -92,7 +95,7 @@ from redpen.report.report import write_report
 from redpen.schemas.key import Key, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from redpen.workspace import Workspace, log_failure, read_model, write_model
 
 app = typer.Typer()
 key_app = typer.Typer(help="Check or render the key.")
@@ -247,6 +250,8 @@ def prepare(
                 f" wins over --profile {profile}.",
                 err=True,
             )
+        if not ws.key_yaml.exists():  # a key will be solved and verified
+            _can_verify(ws, lock)
         if ws.spec_json.exists():
             typer.echo(f"Reusing {ws.spec_json}")
             spec = _checked(ws.spec_json, pages)
@@ -301,12 +306,13 @@ def prepare(
     if points is not None and (found := spec_point_problems(points, spec, pages)):
         _fail("\n".join(found))
     try:
-        key = asyncio.run(_key(ws, config, lock, api_key, spec))
+        key, record = asyncio.run(_key(ws, config, lock, api_key, spec))
         key = key.model_copy(update={"points": points})
         if found := _point_problems(ws, key):
             _fail("\n".join(found))
         save_key(ws.key_yaml, key)
         write_markdown(ws, key)
+        _write_verification(ws, record, key)
     except (
         OSError,
         StageError,
@@ -316,10 +322,10 @@ def prepare(
         KeyFileError,
     ) as error:
         _fail(str(error))
-    typer.echo(f"States: {state_counts(p.state for p in key.parts)}")
+    _states(ws, key, record)
     typer.echo(
-        f"Wrote {ws.key_yaml}, {ws.solutions_md.name}, {ws.rubric_md.name} and"
-        f" {ws.verification_md.name}"
+        f"Wrote {ws.key_yaml}, {ws.solutions_md.name}, {ws.rubric_md.name},"
+        f" {ws.verification_md.name} and {ws.verification_json.name}"
     )
     _points(key)
 
@@ -353,9 +359,9 @@ async def _parse(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Spe
 
 async def _key(
     ws: Workspace, config: Config, lock: Lock, api_key: str, spec: Spec
-) -> Key:
+) -> tuple[Key, Verification]:
     """Solve, verify, write the rubric from the solution that stands for each part,
-    and assemble the key. Writes verification.md."""
+    and assemble the key; with what verification found, for its files."""
     strict = config.strict_privacy
     model, budget = lock.models["solver"], config.image_budget
     async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gateway:
@@ -365,14 +371,30 @@ async def _key(
         )
         standing = {id: v.stands for id, v in found.items()}
         rubrics = await write_rubric(ws, gateway, model, spec, standing)
-    _unverifiable(found)
-    ws.verification_md.write_text(verification_md(spec, found, False), "utf-8")
-    return assemble(spec, standing, rubrics, {id: v.state for id, v in found.items()})
+    key = assemble(spec, standing, rubrics, {id: v.state for id, v in found.items()})
+    return key, verification(found, key, lock.models[CHECKER].slug, False)
 
 
-def _unverifiable(found: Mapping[str, Verdict]) -> int:
-    """How many parts a failed call left unverified, said on stderr if any."""
-    failed = sum(v.ruling == "failed" for v in found.values())
+def _can_verify(ws: Workspace, lock: Lock) -> None:
+    """Exit with one line, before any call, unless the lock pins a solver, a
+    referee and a checker of another vendor than the solver's."""
+    if found := role_problems(lock.models):
+        _fail(f"{ws.config_lock_toml}: {'; '.join(found)}.")
+
+
+def _write_verification(ws: Workspace, record: Verification, key: Key) -> None:
+    write_model(ws.verification_json, record)
+    ws.verification_md.write_text(verification_md(record, key), "utf-8")
+
+
+def _states(ws: Workspace, key: Key, record: Verification) -> int:
+    """Say the counts by state, how many parts need a look and where it says why,
+    and on stderr how many a failed call left unverified. Returns that number."""
+    states = [p.state for p in key.parts]
+    typer.echo(f"States: {state_counts(states)}")
+    look = states.count("unverified")
+    typer.echo(f"Parts that need a look: {look}. {ws.verification_md} says why.")
+    failed = sum(v.ruling == "failed" for v in record.parts)
     if failed:
         typer.echo(
             f"{failed} parts are unverified because a call failed;"
@@ -433,12 +455,22 @@ def key_check(workspace: KeyWorkspace) -> None:
     key, problems = examine(ws.key_yaml, spec)
     if key is not None:
         problems += _point_problems(ws, key)
+        for line in _changed_by_hand(ws, key):  # a note, not a problem
+            typer.echo(line)
     for problem in problems:
         typer.echo(problem)
     if problems or key is None:
         raise typer.Exit(code=1)
     typer.echo(f"{ws.key_yaml}: no problem found.")
     _points(key)
+
+
+def _changed_by_hand(ws: Workspace, key: Key) -> list[str]:
+    """`changed` against verification.json, or nothing without a readable one."""
+    try:
+        return changed(key, read_model(ws.verification_json, Verification))
+    except (OSError, ValueError):  # no file, or one that does not load
+        return []
 
 
 @key_app.command("render")
@@ -484,6 +516,7 @@ def key_verify(workspace: KeyWorkspace) -> None:
         typer.echo(problem, err=True)
     if problems:
         _fail(f"{ws.key_yaml} has problems, so it was not verified.")
+    _can_verify(ws, lock)
     lock = _with_prompts(ws, lock)
     # The key's own answer and solution stand in for the first solver's.
     first = {
@@ -513,17 +546,19 @@ def key_verify(workspace: KeyWorkspace) -> None:
             "parts": [p.model_copy(update={"state": states[p.id]}) for p in key.parts]
         }
     )
+    record = verification(found, verified, lock.models[CHECKER].slug, True)
     try:
         save_key(ws.key_yaml, verified)
         write_markdown(ws, verified)
-        ws.verification_md.write_text(verification_md(spec, found, True), "utf-8")
+        _write_verification(ws, record, verified)
     except (OSError, KeyFileError) as error:
         _fail(str(error))
-    typer.echo(f"States: {state_counts(states.values())}")
+    failed = _states(ws, verified, record)
     typer.echo(
-        f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.verification_md.name}"
+        f"Wrote {ws.key_yaml}, {ws.solutions_md.name}, {ws.verification_md.name} and"
+        f" {ws.verification_json.name}"
     )
-    if _unverifiable(found):
+    if failed:
         raise typer.Exit(code=1)
 
 

@@ -16,6 +16,7 @@ from redpen.cli import _point_value, app
 from redpen.config import Models, read_lock
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.prepare.key import load_key, part_hash, save_key
+from redpen.prepare.verify import Verification
 from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, write_model
@@ -304,7 +305,7 @@ def prepared_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Workspace:
     workspace = Workspace(tmp_path / "ws")
     workspace.blank_pdf.parent.mkdir(parents=True)
     shutil.copy("blank.pdf", workspace.blank_pdf)
-    workspace.config_lock_toml.write_text(LOCK)
+    workspace.config_lock_toml.write_text(KEY_LOCK)
     spec = reused_spec(2)
     write_model(workspace.spec_json, spec)
     save_key(workspace.key_yaml, key_of(spec))
@@ -455,6 +456,17 @@ prompt_price = "0"
 completion_price = "0"
 providers = ["zero"]
 """
+# LOCK with the roles a fresh prepare verifies with: a checker of another vendor.
+KEY_LOCK = LOCK + "".join(
+    f'\n[models.{role}]\nslug = "{slug}"\nsupported_parameters = ["structured_outputs"]'
+    '\naccepts_images = true\nprompt_price = "0"\ncompletion_price = "0"'
+    '\nproviders = ["zero"]\n'
+    for role, slug in (
+        ("solver", "vendor/vision-1"),
+        ("checker", "maker/vision-2"),
+        ("referee", "vendor/vision-1"),
+    )
+)
 RETAINING_BELOW = {
     "model_id": "vendor/vision-1",
     "tag": "zero/eu",
@@ -552,8 +564,10 @@ def test_a_fresh_prepare_writes_the_points_given_into_the_key(
     workspace.key_yaml.unlink()
     spec = reused_spec(2)
 
-    async def stages(*args: object) -> Key:  # solve and rubric, replaced
-        return key_of(spec)
+    async def stages(*args: object) -> tuple[Key, Verification]:  # replaced
+        return key_of(spec), Verification(
+            checker="maker/vision-2", keyed=False, parts=[]
+        )
 
     monkeypatch.setattr("redpen.cli._key", stages)
 
