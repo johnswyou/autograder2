@@ -55,3 +55,16 @@ MAPPER = ModelInfo(
     completion_price=Decimal("5E-7"),
     providers=_VERTEX,
 )
+# The roles `redpen grade` sends student pages to.
+GRADE_MODELS = {"mapper": MAPPER, "reader": READER, "grader": GRADER}
+# OpenRouter's ZDR listing as it held those models' pinned endpoints: none retains.
+ZDR = [
+    {
+        "model_id": slug,
+        "tag": tag,
+        "safety_retention": False,
+        "supported_parameters": ["structured_outputs"],
+    }
+    for slug in sorted({m.slug for m in GRADE_MODELS.values()})
+    for tag in sorted(_VERTEX)
+]

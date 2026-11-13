@@ -12,8 +12,8 @@ from reportlab.pdfgen import canvas
 from rich.text import Text
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Models
+from redpen.cli import _point_value, app
+from redpen.config import Models, read_lock
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.prepare.key import save_key
 from redpen.schemas.key import Criterion, Key, KeyPart, Policies
@@ -54,21 +54,12 @@ def test_help_lists_every_command(group: list[str], commands: set[str]) -> None:
     assert commands <= first_column(result.output)
 
 
-run_options = [
-    "--total", "50", "--page-points", "10", "--profile", "thorough",
-    "--roster", "roster.csv", "--dry-run", "--workspace", "ws",
-]  # fmt: skip
-
-
 @pytest.mark.parametrize(
     "args",
     [
-        ["run", "blank.pdf", "submissions", *run_options],
-        ["grade", "submissions"],
         ["regrade", "--part", "Q7.b", "--student", "s1"],
-        ["report"],
         ["review"],
-        ["override", "s1", "Q7.b-1", "2"],
+        ["override", "s1", "Q7.b-1", "2.5"],
         ["eval", "--gold", "gold.csv"],
     ],
 )
@@ -84,21 +75,50 @@ def test_stub_accepts_its_arguments_and_reports_not_implemented(
 @pytest.mark.parametrize(
     ("args", "flag"),
     [
-        (["--total", "50"], "--total"),
-        (["--page-points", "10"], "--page-points"),
-        (["--dry-run"], "--dry-run"),
+        (["prepare", "--total", "50"], "--total"),
+        (["prepare", "--page-points", "10"], "--page-points"),
+        (["prepare", "--dry-run"], "--dry-run"),
+        (["run", "subs", "--total", "0.1"], "--total"),
+        (["run", "subs", "--page-points", "1e999999", "--dry-run"], "--page-points"),
     ],
 )
-def test_prepare_refuses_what_it_does_not_support_yet(
+def test_prepare_and_run_refuse_what_they_do_not_support_yet(
     tmp_path: Path, args: list[str], flag: str
 ) -> None:
+    command, *rest = args
     result = runner.invoke(
-        app, ["prepare", "blank.pdf", "--workspace", str(tmp_path / "ws"), *args]
+        app, [command, "blank.pdf", "--workspace", str(tmp_path / "ws"), *rest]
     )
 
     assert result.exit_code == 1
     assert result.stderr.strip() == f"{flag} is not supported yet"
     assert not (tmp_path / "ws").exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["run", "blank.pdf", "subs", "--total", "fifty"],
+        ["prepare", "blank.pdf", "--page-points", "nan"],
+        ["prepare", "blank.pdf", "--total", "-3"],
+        ["override", "s1", "Q7.b.c1", "Infinity"],
+        ["override", "s1", "Q7.b.c1", "0x10"],
+    ],
+)
+def test_points_that_are_not_a_number_are_refused_with_a_clear_message(
+    args: list[str],
+) -> None:
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 2
+    # Typer draws the error in a box, wrapped to the terminal's width.
+    text = " ".join(Text.from_ansi(result.stderr).plain.replace("│", " ").split())
+    assert "is not a number of points, such as 50 or 2.5" in text
+
+
+def test_points_are_read_as_decimals_never_through_float() -> None:
+    assert _point_value("0.10000000000000000001") == Decimal("0.10000000000000000001")
+    assert _point_value(" 2.50 ") == Decimal("2.50")
 
 
 def test_prepare_refuses_a_workspace_prepared_from_another_blank(
@@ -281,6 +301,53 @@ def test_prepare_checks_an_existing_key_leaves_it_as_it_is_and_calls_no_model(
     assert result.output.splitlines()[-len(lines) :] == lines
     assert workspace.key_yaml.read_bytes() == edited
     assert not workspace.solutions_md.exists()
+
+
+def prepared_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Workspace:
+    """A workspace prepared from the fixture blank, with a valid key and LOCK; any
+    reach for OpenRouter fails."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
+    monkeypatch.setattr("redpen.cli.Gateway", refuse)
+    shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copy("blank.pdf", workspace.blank_pdf)
+    workspace.config_lock_toml.write_text(LOCK)
+    spec = reused_spec(2)
+    write_model(workspace.spec_json, spec)
+    save_key(workspace.key_yaml, key_of(spec))
+    return workspace
+
+
+def test_a_profile_the_lock_does_not_pin_is_named_and_the_lock_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+
+    result = runner.invoke(
+        app, ["prepare", "blank.pdf", "--workspace", "ws", "--profile", "thorough"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "The workspace's lock pins the profile balanced, and the lock wins over"
+        " --profile thorough." in result.stderr.splitlines()
+    )
+    assert read_lock(workspace.config_lock_toml).profile == "balanced"
+
+
+def test_key_check_asks_for_no_api_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    prepared_key(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["key", "check", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    assert "no problem found" in result.output
 
 
 @pytest.mark.parametrize(

@@ -1,10 +1,16 @@
-"""The `redpen` command line (design section 12). Most commands are stubs for now."""
+"""The `redpen` command line (design section 12). Some commands are stubs for now.
+
+Nothing printed to the terminal names a student or repeats what a student or a
+model wrote: counts and the workspace's own paths only. The run log in the
+workspace holds the tracebacks."""
 
 import asyncio
 import contextlib
 import logging
+import zipfile
 from collections import Counter
-from decimal import Decimal
+from collections.abc import Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -15,6 +21,7 @@ from rich.logging import RichHandler
 from rich.table import Table
 from ruamel.yaml.error import YAMLError
 
+from redpen import prompts
 from redpen.config import (
     Config,
     ConfigError,
@@ -24,7 +31,9 @@ from redpen.config import (
     openrouter_api_key,
     pin,
     read_lock,
+    write_lock,
 )
+from redpen.grade.ingest import IngestSummary, ingest
 from redpen.imaging import render
 from redpen.llm.client import (
     FatalError,
@@ -33,7 +42,25 @@ from redpen.llm.client import (
     RetryableError,
     StageError,
 )
-from redpen.llm.models import ModelError, check, fetch_catalog, recheck_providers
+from redpen.llm.models import (
+    ModelError,
+    ModelInfo,
+    check,
+    fetch_catalog,
+    recheck_providers,
+)
+from redpen.orchestrator import (
+    GRADE_CROP,
+    PATCH,
+    READ_REGION,
+    STAGES,
+    Cost,
+    blank_sizes,
+    estimate,
+    grade_class,
+    log_failure,
+    privacy_problems,
+)
 from redpen.prepare.assemble import assemble
 from redpen.prepare.key import (
     KeyFileError,
@@ -48,9 +75,11 @@ from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
 from redpen.prepare.solve import solve
+from redpen.report.report import write_report
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
-from redpen.workspace import Workspace, read_model
+from redpen.schemas.submission import IngestRecord
+from redpen.workspace import Workspace, read_model, write_model
 
 app = typer.Typer()
 key_app = typer.Typer(help="Check or render the key.")
@@ -61,10 +90,29 @@ app.add_typer(models_app, name="models")
 Blank = Annotated[
     Path, typer.Argument(metavar="BLANK.pdf", help="The blank assignment.")
 ]
-Submissions = Annotated[Path, typer.Argument(help="Folder of student PDFs.")]
+Submissions = Annotated[Path, typer.Argument(help="Folder or ZIP of student PDFs.")]
+
+
+def _point_value(text: str) -> Decimal:
+    """A number of points, read as a Decimal and never through float."""
+    try:
+        value = Decimal(text.strip())
+    except InvalidOperation:
+        value = Decimal("NaN")
+    if not value.is_finite() or value < 0:
+        raise typer.BadParameter(
+            f"{text!r} is not a number of points, such as 50 or 2.5"
+        )
+    return value
+
+
 # Options on `run` and `prepare`.
-Total = Annotated[str | None, typer.Option(help="Point total.")]
-PagePoints = Annotated[str | None, typer.Option(help="Points per page.")]
+Total = Annotated[
+    Decimal | None, typer.Option(parser=_point_value, help="Point total.")
+]
+PagePoints = Annotated[
+    Decimal | None, typer.Option(parser=_point_value, help="Points per page.")
+]
 ProfileOption = Annotated[
     Profile | None, typer.Option(help="Verification profile. Overrides redpen.toml.")
 ]
@@ -112,8 +160,17 @@ def run(
     dry_run: DryRun = False,
     workspace: WorkspaceDir = None,
 ) -> None:
-    """Everything, start to finish: prepare, grade, audit, report."""
-    _not_implemented()
+    """Everything, start to finish: prepare, grade and report. Safe to run again:
+    what was answered before is not paid for twice."""
+    for flag, given in [("--total", total), ("--page-points", page_points)]:
+        if given is not None:
+            _fail(f"{flag} is not supported yet")
+    ws = Workspace.for_blank(blank, workspace)
+    if dry_run:
+        _estimate(ws, blank, _ingest(ws, submissions, roster))
+        return
+    prepare(blank, None, None, profile, roster, False, workspace)
+    _grade(ws, submissions, roster, dry_run=False)
 
 
 @app.command()
@@ -154,7 +211,13 @@ def prepare(
             _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
         ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
         ws.blank_pdf.write_bytes(data)
-        lock = asyncio.run(pin(ws, config, api_key))
+        lock = _with_prompts(ws, asyncio.run(pin(ws, config, api_key)))
+        if profile is not None and profile != lock.profile:
+            typer.echo(
+                f"The workspace's lock pins the profile {lock.profile}, and the lock"
+                f" wins over --profile {profile}.",
+                err=True,
+            )
         if ws.spec_json.exists():
             typer.echo(f"Reusing {ws.spec_json}")
             spec = _checked(ws.spec_json, pages)
@@ -203,6 +266,13 @@ def prepare(
         _fail(str(error))
     typer.echo(f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.rubric_md.name}")
     _points(key)
+
+
+def _with_prompts(ws: Workspace, lock: Lock) -> Lock:
+    """`lock` with the version of every prompt file now, written back."""
+    lock = lock.model_copy(update={"prompts": prompts.versions()})
+    write_lock(ws.config_lock_toml, lock)
+    return lock
 
 
 def _checked(path: Path, pages: int) -> Spec:
@@ -282,9 +352,189 @@ def key_render(workspace: KeyWorkspace) -> None:
 
 
 @app.command()
-def grade(submissions: Submissions) -> None:
-    """Ingest, fingerprint, map, read, grade and audit against the existing key."""
-    _not_implemented()
+def grade(
+    submissions: Submissions,
+    workspace: KeyWorkspace,
+    roster: Roster = None,
+    dry_run: DryRun = False,
+) -> None:
+    """Ingest, map, read, grade and report against the existing key."""
+    _grade(Workspace(workspace), submissions, roster, dry_run)
+
+
+def _grade(
+    ws: Workspace, submissions: Path, roster: Path | None, dry_run: bool
+) -> None:
+    """Grade the class in `submissions` against the key in `ws`: ingest, the check
+    that the pinned endpoints keep nothing, then map, read and grade, and the
+    report. Exit code 0 only when nothing failed; with `dry_run`, an estimate."""
+    try:
+        config = load_config()
+        api_key = "" if dry_run else openrouter_api_key()
+    except ConfigError as error:
+        _fail(str(error))
+    try:
+        spec = read_model(ws.spec_json, Spec)
+        lock = read_lock(ws.config_lock_toml)
+    except (OSError, ValueError) as error:  # missing, or a TOML or schema error
+        _fail(f"{ws.root} holds no prepared key ({type(error).__name__}).")
+    key, problems = examine(ws.key_yaml, spec)
+    for problem in problems:
+        typer.echo(problem, err=True)
+    if key is None or problems:
+        _fail(f"{ws.key_yaml} has problems, so nothing was graded.")
+    summary = _ingest(ws, submissions, roster)
+    if dry_run:
+        _estimate(ws, ws.blank_pdf, summary)
+        return
+    lock = _with_prompts(ws, lock)
+    gate = privacy_problems(lock, api_key, config.strict_privacy)
+    if found := asyncio.run(gate):
+        for problem in found:
+            typer.echo(problem, err=True)
+        _fail(
+            "Nothing was sent: the pinned endpoints are not verified to keep nothing."
+        )
+    students = [s.student_key for s in summary.students]
+    run = grade_class(ws, spec, key, lock.models, config, api_key, students)
+    failed = asyncio.run(run)
+    try:
+        write_report(ws, key, summary.students, [f.file for f in summary.failed])
+    except Exception as error:  # written to the log: it may quote stored work
+        log_failure(ws, "report", error)
+        _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
+    for stage in STAGES:
+        if count := sum(1 for done, _ in failed if done == stage):
+            typer.echo(
+                f"{stage}: {count} of {len(students)} students failed.", err=True
+            )
+    if failed:
+        typer.echo(f"Each traceback is in {ws.run_log}.", err=True)
+    if summary.failed:
+        typer.echo(
+            f"Files not ingested: {len(summary.failed)}. {ws.run_report_md} lists"
+            " them.",
+            err=True,
+        )
+    typer.echo(f"Wrote {ws.root / 'out'}")
+    if failed or summary.failed:
+        raise typer.Exit(code=1)
+
+
+def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSummary:
+    """Ingest `submissions` and store the summary, whose students every later step
+    takes. No student at all is a failure."""
+    try:
+        summary = ingest(submissions, ws, roster)
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
+        _fail(
+            f"{submissions} cannot be read as a folder or ZIP of PDFs, or the roster"
+            f" cannot be read ({type(error).__name__})."
+        )
+    write_model(ws.ingest_summary_json, summary)
+    if not summary.students:
+        failed = len(summary.failed)
+        _fail(
+            f"No student PDF could be ingested from {submissions}: {failed} could"
+            f" not be read (see {ws.ingest_summary_json})."
+            if failed
+            else f"No student PDF was found in {submissions}."
+        )
+    return summary
+
+
+# The roles the estimate prices.
+ESTIMATED = ("parser", "solver", *STAGES.values())
+
+
+def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
+    """Print what preparing (unless the key exists) and grading the ingested class
+    will cost, with the assumptions. No model is asked anything."""
+    try:
+        config = load_config()
+        if ws.config_lock_toml.exists():
+            models, pinned = read_lock(ws.config_lock_toml).models, True
+        else:  # listing the models is free
+            catalog = asyncio.run(fetch_catalog(openrouter_api_key()))
+            names = config.models.model_dump()
+            strict = config.strict_privacy
+            models = {
+                r: catalog.resolve(names[r], strict_privacy=strict) for r in ESTIMATED
+            }
+            pinned = False
+        spec = read_model(ws.spec_json, Spec) if ws.spec_json.exists() else None
+    except (ConfigError, ModelError, OSError, ValueError) as error:
+        _fail(f"No estimate: {error}")
+    try:
+        sizes = blank_sizes(blank)
+    except Exception as error:  # pdfium reports a file it cannot open as PdfiumError
+        _fail(f"{blank} cannot be opened as a PDF: {error}")
+    if not sizes:
+        _fail(f"{blank} has no pages")
+    keyed = ws.key_yaml.exists()
+    budget = config.image_budget
+    costs = estimate(models, sizes, spec, keyed, summary.students, budget)
+    _print_estimate(costs, models, pinned, sizes, spec, keyed, summary.students, budget)
+    if summary.failed:
+        _fail(f"Files not ingested: {len(summary.failed)}.")
+
+
+def _print_estimate(
+    costs: Mapping[str, Cost],
+    models: Mapping[str, ModelInfo],
+    pinned: bool,
+    blank: Sequence[tuple[int, int]],
+    spec: Spec | None,
+    keyed: bool,
+    students: Sequence[IngestRecord],
+    budget: int,
+) -> None:
+    total = Cost(
+        sum(c.calls for c in costs.values()),
+        sum(c.tokens_in for c in costs.values()),
+        sum(c.tokens_out for c in costs.values()),
+        sum((c.usd for c in costs.values()), Decimal(0)),
+    )
+    typer.echo("Estimate, with nothing sent to a model:")
+    typer.echo(
+        f"  {'stage':<8}{'calls':>7}{'tokens in':>12}{'tokens out':>12}{'USD':>9}"
+    )
+    for stage, c in [*costs.items(), ("total", total)]:
+        typer.echo(
+            f"  {stage:<8}{c.calls:>7.0f}{c.tokens_in:>12,.0f}"
+            f"{c.tokens_out:>12,.0f}{c.usd:>9.4f}"
+        )
+    pages = sum(len(s.pages) for s in students)
+    whose = "pinned in the lock" if pinned else "configured, not pinned yet"
+    prices = "; ".join(
+        f"{role} {m.slug} {number(m.prompt_price * 10**6)} in,"
+        f" {number(m.completion_price * 10**6)} out"
+        for role, m in models.items()
+        if role in ESTIMATED
+    )
+    typer.echo("Assumptions:")
+    lines = [
+        f"{len(students)} students, {pages} pages in all; each answers every part,"
+        " so blank or unreadable work costs less than this.",
+        f"Images fit to {budget} px, one token per {PATCH} x {PATCH} px; a mapped"
+        f" region is {READ_REGION} tokens to the reader and {GRADE_CROP} to the"
+        " grader.",
+        "Text and output tokens per call as measured on the fixture run. No retry,"
+        " second look or gap re-read; prompt caching, not counted, costs less.",
+        f"USD per million tokens of the models {whose}: {prices}.",
+    ]
+    if keyed:
+        lines.append("The key exists, so prepare makes no call.")
+    elif spec is not None:
+        lines.append("The spec exists, so parse makes no call.")
+    else:
+        lines.append(
+            f"No spec yet: prepare is estimated from the blank's {len(blank)} pages,"
+            " with the fixture assignment's problems and parts per page, so the"
+            " grade estimate is rougher too."
+        )
+    for line in lines:
+        typer.echo(f"- {line}")
 
 
 @app.command()
@@ -297,9 +547,19 @@ def regrade(
 
 
 @app.command()
-def report() -> None:
-    """Rebuild the files in out/ from stored grades and overrides."""
-    _not_implemented()
+def report(workspace: KeyWorkspace) -> None:
+    """Rebuild the files in out/ from stored readings and grades. No model call."""
+    ws = Workspace(workspace)
+    try:
+        key = load_key(ws.key_yaml)
+        summary = read_model(ws.ingest_summary_json, IngestSummary)
+    except (OSError, YAMLError, ValidationError) as error:
+        _fail(
+            f"{ws.root} holds no key or no ingest to report on"
+            f" ({type(error).__name__})."
+        )
+    write_report(ws, key, summary.students, [f.file for f in summary.failed])
+    typer.echo(f"Wrote {ws.root / 'out'}")
 
 
 @app.command()
@@ -309,7 +569,11 @@ def review() -> None:
 
 
 @app.command()
-def override(student: str, criterion: str, points: str) -> None:
+def override(
+    student: str,
+    criterion: str,
+    points: Annotated[Decimal, typer.Argument(parser=_point_value)],
+) -> None:
     """Record a correction."""
     _not_implemented()
 

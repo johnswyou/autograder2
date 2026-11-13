@@ -6,7 +6,9 @@ The caller supplies the students. The `students/` directory is never listed: a
 respelled name leaves an old folder behind."""
 
 import csv
+import re
 import sqlite3
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from contextlib import closing
@@ -38,6 +40,8 @@ UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
 UNGRADED = "No reading or no grade was recorded for it."
+# Why a file is in the run report's list of files not ingested, in fixed words.
+NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
 
 # The other flags' details, in fixed words: never text a student or a model wrote.
 DETAIL = {
@@ -79,11 +83,15 @@ class Score:
 
 
 def write_report(
-    workspace: Workspace, key: Key, students: Sequence[IngestRecord]
+    workspace: Workspace,
+    key: Key,
+    students: Sequence[IngestRecord],
+    not_ingested: Sequence[str] = (),
 ) -> list[Flag]:
     """Write `out/` for `students`, in the order given: the three score files, one
-    feedback file per student (any other is removed) and the run report. Returns
-    every flag derived."""
+    feedback file per student (any other is removed) and the run report, which
+    also lists the files of `not_ingested` (names inside the submissions, never
+    opened here). Returns every flag derived."""
     with render.open_pdf(workspace.blank_pdf) as pdf:
         last = len(pdf)
     # A part moved by hand past the blank's last page keeps its points on a column.
@@ -127,7 +135,7 @@ def write_report(
                 detail.append(row)
         text = _feedback(title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
-    run_report = _run_report(workspace, key, pages, scored, raised)
+    run_report = _run_report(workspace, key, pages, scored, raised, not_ingested)
     # Everything is rendered before any old file is removed.
     workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
     for old in workspace.feedback_dir.glob("*.md"):
@@ -371,6 +379,18 @@ def _one_line(note: str) -> str:
     return text.replace("\\", "\\\\").replace("<", "\\<").replace("#", "\\#")
 
 
+def _code(text: str) -> str:
+    """Untrusted `text`, such as a file name, as a Markdown code span on one line:
+    each control or line-separating character (a newline, a bidi override) as `?`,
+    and fenced by more backticks than any run of them inside."""
+    plain = "".join(
+        "?" if unicodedata.category(c)[0] == "C" or c in "  " else c for c in text
+    )
+    fence = "`" * (max(map(len, re.findall("`+", plain)), default=0) + 1)
+    pad = " " if plain[:1] in ("`", " ") or plain[-1:] in ("`", " ") else ""
+    return f"{fence}{pad}{plain}{pad}{fence}"
+
+
 def _notes(s: Score) -> list[str]:
     if s.record is None:
         return [s.withheld or UNGRADED]
@@ -388,10 +408,11 @@ def _run_report(
     pages: Sequence[int],
     scored: Sequence[tuple[Stored, list[Score]]],
     raised: Sequence[Flag],
+    not_ingested: Sequence[str],
 ) -> str:
     """The state of every key part, each page's maximum and the total, the students
-    with parts not scored and why, the flags by code, the pinned models, and the
-    cost by role from the usage ledger."""
+    with parts not scored and why, the files not ingested, the flags by code, the
+    pinned models, and the cost by role from the usage ledger."""
     maxima = page_points(key)
     lines = ["# Run report", "", "## Key", "", "| Part | Page | Points | State |"]
     lines.append("|---|---|---|---|")
@@ -413,6 +434,11 @@ def _run_report(
         for why in dict.fromkeys(x.withheld for x in scores if x.withheld):
             parts = ", ".join(x.part.id for x in scores if x.withheld == why)
             lines.append(f"- `{s.student.student_key}`: {parts}. {why}")
+    if not_ingested:
+        lines += ["", "## Files not ingested", ""]
+        lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
+        lines.append("")
+        lines += [f"- {_code(file)}: {NOT_INGESTED}" for file in not_ingested]
     counts = Counter(f.code for f in raised)
     lines += ["", "## Flags", ""]
     if counts:

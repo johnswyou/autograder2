@@ -25,6 +25,7 @@ from redpen.llm.ledger import Ledger, Usage
 from redpen.prepare.key import number, page_points, part_hash
 from redpen.report.report import (
     NO_OPTION,
+    NOT_INGESTED,
     OTHER_KEY,
     UNGRADED,
     UNREADABLE,
@@ -636,6 +637,37 @@ def test_a_display_name_never_becomes_a_path(built: Built, tmp_path: Path) -> No
     feedback = workspace.root / "out" / "feedback" / "escape-0a1b2c.md"
     assert sorted(tmp_path.rglob("*.md")) == [feedback, workspace.run_report_md]
     assert workspace.feedback_md("escape-0a1b2c") == feedback
+
+
+def test_files_not_ingested_are_listed_one_per_line_in_code_and_never_opened(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    names = [
+        "HW - Lee.pdf",
+        "a`b ``c.pdf",
+        "x\n# Total: 16 / 16‮.pdf",
+        "../../etc/passwd",
+    ]
+    write_report(workspace, KEY, [student], names)
+
+    text = workspace.run_report_md.read_text()
+    listed = text.split("## Files not ingested\n")[1].split("\n## ")[0]
+    assert [line for line in listed.splitlines() if line.startswith("- ")] == [
+        f"- `HW - Lee.pdf`: {NOT_INGESTED}",
+        f"- ```a`b ``c.pdf```: {NOT_INGESTED}",
+        f"- `x?# Total: 16 / 16?.pdf`: {NOT_INGESTED}",
+        f"- `../../etc/passwd`: {NOT_INGESTED}",
+    ]
+    assert not any(line.startswith("# Total") for line in text.splitlines())
+    assert [p for p in tmp_path.iterdir()] == [workspace.root]
+
+
+def test_the_run_report_has_no_list_of_files_not_ingested_when_there_are_none(
+    built: Built,
+) -> None:
+    assert "Files not ingested" not in built.workspace.run_report_md.read_text()
 
 
 def test_a_feedback_file_left_by_an_earlier_run_is_removed(

@@ -77,6 +77,11 @@ class Workspace:
     # students/<student_key>/
 
     @property
+    def ingest_summary_json(self) -> Path:
+        """The latest ingest's summary: the students every later stage takes."""
+        return self.root / "ingest_summary.json"
+
+    @property
     def students_dir(self) -> Path:
         return self.root / "students"
 
@@ -125,6 +130,11 @@ class Workspace:
     @property
     def cache_sqlite(self) -> Path:
         return self.root / "cache.sqlite"
+
+    @property
+    def run_log(self) -> Path:
+        """The traceback of each failure a run recorded, appended."""
+        return self.root / "run.log"
 
     # out/
 

@@ -84,6 +84,8 @@ class Lock(BaseModel):
     profile: Profile
     models: dict[str, ModelInfo]
     """The concrete model behind each role."""
+    prompts: dict[str, str] = Field(default_factory=dict[str, str])
+    """The version of every prompt file at the latest run, by `<stage>/<name>`."""
 
 
 async def pin(
@@ -111,16 +113,24 @@ async def pin(
             for role, name in names.items()
         },
     )
+    write_lock(path, lock)
+    return lock
+
+
+def write_lock(path: Path, lock: Lock) -> None:
+    # JSON's strings, booleans and arrays of strings are also TOML, and so is a
+    # JSON string as a key.
     lines = [f"profile = {json.dumps(lock.profile)}"]
     for role, model in lock.models.items():
         lines += ["", f"[models.{role}]"]
-        # JSON's strings, booleans and arrays of strings are also TOML.
         lines += [
             f"{k} = {json.dumps(v)}" for k, v in model.model_dump(mode="json").items()
         ]
+    if lock.prompts:
+        lines += ["", "[prompts]"]
+        lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in lock.prompts.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
-    return lock
 
 
 def read_lock(path: Path) -> Lock:
