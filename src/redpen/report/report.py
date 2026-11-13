@@ -83,6 +83,10 @@ DETAIL = {
     FlagCode.AUDIT_CHANGED: "The class audit changed an award on this part.",
 }
 
+# The whole review list when no flag is open, after its title.
+NOTHING_TO_REVIEW = "Nothing needs review: no flag is open."
+SEVERITIES = ("high", "medium", "low")
+
 # A spreadsheet runs a cell that begins with one of these as a formula.
 FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 
@@ -122,9 +126,9 @@ def write_report(
     not_ingested: Sequence[str] = (),
 ) -> list[Flag]:
     """Write `out/` for `students`, in the order given: the three score files, one
-    feedback file per student (any other is removed) and the run report, which
-    also lists the files of `not_ingested` (names inside the submissions, never
-    opened here). Returns every flag derived."""
+    feedback file per student (any other is removed), the review list and the run
+    report, which also lists the files of `not_ingested` (names inside the
+    submissions, never opened here). Returns every flag derived."""
     problems, pages = columns(workspace, key)
     stored = [load(workspace, key, s) for s in students]
     raised = flags(key, stored)
@@ -165,6 +169,7 @@ def write_report(
         text = _feedback(key, title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
     run_report = _run_report(workspace, key, pages, scored, raised, not_ingested)
+    review_md = review(workspace, key, scored, raised)
     # Everything is rendered before any old file is removed.
     workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
     for old in workspace.feedback_dir.glob("*.md"):
@@ -186,6 +191,7 @@ def write_report(
         ["student", "part", "criterion", "awarded", "points", "rationale"],
         detail,
     )
+    workspace.review_md.write_text(review_md, encoding="utf-8")
     workspace.run_report_md.write_text(run_report, encoding="utf-8")
     return raised
 
@@ -631,7 +637,7 @@ def _run_report(
         ]
     else:
         lines.append("No flags.")
-    lines += ["", "## Models", ""]
+    lines += ["", review_line(workspace, raised), "", "## Models", ""]
     if workspace.config_lock_toml.exists():
         lines += ["| Role | Model |", "|---|---|"]
         lock = read_lock(workspace.config_lock_toml)
@@ -650,3 +656,120 @@ def _run_report(
         cost = number(u.cost)
         lines.append(f"| {role} | {u.prompt_tokens} | {u.completion_tokens} | {cost} |")
     return "\n".join(lines) + "\n"
+
+
+# --- the review list -----------------------------------------------------------------
+
+
+def review_line(workspace: Workspace, raised: Sequence[Flag]) -> str:
+    """The run report's and the terminal's line on the review list: its path in the
+    workspace and its number of entries, one for each key part, student and part,
+    and whole submission flagged."""
+    path = workspace.review_md.relative_to(workspace.root).as_posix()
+    entries = len({(f.student_key, f.part_id) for f in raised})
+    return f"Entries in the review list, {path}: {entries}."
+
+
+def review(
+    workspace: Workspace,
+    key: Key,
+    scored: Sequence[tuple[Stored, list[Score]]],
+    raised: Sequence[Flag],
+) -> str:
+    """`out/review.md` (design 8.4): an entry for each key part flagged, with its
+    points and the number of students scored on it; then one for each student and
+    part, or whole submission, flagged, with every flag on it, the proposed score,
+    the transcript and links to the crops and the stored files. Students' entries
+    come by their highest severity, the points at stake, the student key and the
+    key's part order. Text a student wrote is only ever in a code span."""
+    lines = ["# Review list", ""]
+    if not raised:
+        return "\n".join([*lines, NOTHING_TO_REVIEW]) + "\n"
+    entries: dict[tuple[str | None, str | None], list[Flag]] = {}
+    for f in raised:
+        entries.setdefault((f.student_key, f.part_id), []).append(f)
+    on_key = [p for p in key.parts if (None, p.id) in entries]
+    if on_key:
+        lines += ["## The key", ""]
+    for part in on_key:
+        count = sum(
+            x.part.id == part.id and x.awarded is not None
+            for _, xs in scored
+            for x in xs
+        )
+        lines += [
+            f"### {part.id}, worth {number(points_of(key, [part]))}",
+            "",
+            *_flagged(entries[None, part.id]),
+            f"- Students scored on it: {count}.",
+            "",
+        ]
+    order = [p.id for p in key.parts]
+
+    def at_stake(entry: tuple[str, str | None]) -> tuple[int, Decimal, str, int]:
+        who, part_id = entry
+        worst = min(SEVERITIES.index(f.severity) for f in entries[entry])
+        parts = [p for p in key.parts if p.id == part_id] if part_id else key.parts
+        # A whole submission is at stake for the key's total, before any part.
+        at = order.index(part_id) if part_id else -1
+        return worst, -points_of(key, parts), who, at
+
+    theirs = sorted(((w, p) for w, p in entries if w is not None), key=at_stake)
+    if theirs:
+        lines += ["## Students", ""]
+    by_key = {s.student.student_key: (s, xs) for s, xs in scored}
+    for who, part_id in theirs:
+        stored, scores = by_key[who]
+        found = entries[who, part_id]
+        name = f"{code_span(stored.student.student_name)} (`{who}`)"
+        if part_id is None:
+            lines += [f"### {name}, the whole submission", "", *_flagged(found), ""]
+            continue
+        [s] = [x for x in scores if x.part.id == part_id]
+        worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
+        lines += [f"### {name}, {part_id}", "", *_flagged(found)]
+        lines.append(
+            f"- Proposed score: {worth}." + (f" {s.withheld}" if s.withheld else "")
+        )
+        files: list[tuple[str, Path]] = []
+        if first := stored.readings.get(part_id):
+            lines += _transcript("First reading", first)
+            files += [
+                (f"crop {n}", workspace.crop_png(who, part_id, n))
+                for n in range(1, len(first.crops) + 1)
+            ]
+            files.append(("reading", workspace.reading_json(who, problem_of(part_id))))
+        second = stored.seconds.get(part_id)
+        if (
+            second
+            and second.second
+            and FlagCode.READERS_DISAGREE in {f.code for f in found}
+        ):
+            lines += _transcript(
+                "Second reading, by another vendor's model", second.second
+            )
+        if part_id in stored.grades:
+            files.append(("grade", workspace.grade_json(who, problem_of(part_id))))
+        out = workspace.review_md.parent
+        links = [
+            f"[{t}]({p.relative_to(out, walk_up=True).as_posix()})" for t, p in files
+        ]
+        lines += [f"- Files: {', '.join(links) or 'none'}.", ""]
+    return "\n".join(lines)
+
+
+def _flagged(found: Sequence[Flag]) -> list[str]:
+    return [f"- `{f.code}`, {f.severity}: {f.detail}" for f in found]
+
+
+def _transcript(title: str, record: ReadingRecord) -> list[str]:
+    """`record`'s lines and final answer, as stored, each in a code span."""
+    reading = record.reading
+    return [
+        f"- {title}:",
+        *(
+            f"  - Line {n}: {code_span(text)}"
+            for n, text in enumerate(reading.lines, 1)
+        ),
+        f"  - Final answer: {code_span(reading.final_answer.model_dump_json())}",
+    ]

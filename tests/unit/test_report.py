@@ -8,6 +8,7 @@ once for the module; a test that changes something works on a copy."""
 
 import csv
 import json
+import re
 import shutil
 import socket
 import sqlite3
@@ -29,19 +30,26 @@ from redpen.grade.read import digest, problem_of
 from redpen.llm.ledger import Ledger, Usage
 from redpen.prepare.key import load_key, number, page_points, part_hash, save_key
 from redpen.report.report import (
+    DETAIL,
     NO_OPTION,
     NOT_INGESTED,
+    NOTHING_TO_REVIEW,
     OTHER_KEY,
     UNGRADED,
     UNREADABLE,
+    code_span,
     flags,
     load,
+    review,
+    review_line,
     score,
     status,
     write_report,
 )
+from redpen.schemas.audit import Change as AuditChange
+from redpen.schemas.audit import PartAudit
 from redpen.schemas.common import Provenance
-from redpen.schemas.flags import FlagCode
+from redpen.schemas.flags import Flag, FlagCode
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.reading import (
@@ -766,7 +774,11 @@ def test_a_display_name_never_becomes_a_path(built: Built, tmp_path: Path) -> No
     write_report(workspace, KEY, [student])
 
     feedback = workspace.root / "out" / "feedback" / "escape-0a1b2c.md"
-    assert sorted(tmp_path.rglob("*.md")) == [feedback, workspace.run_report_md]
+    assert sorted(tmp_path.rglob("*.md")) == [
+        feedback,
+        workspace.review_md,
+        workspace.run_report_md,
+    ]
     assert workspace.feedback_md("escape-0a1b2c") == feedback
 
 
@@ -972,6 +984,7 @@ def test_the_report_is_the_same_when_written_again(
 ) -> None:
     out = built.workspace.root / "out"
     before = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+    assert built.workspace.review_md in before
     write_report(built.workspace, KEY, built.students)
     assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == before
 
@@ -1292,3 +1305,391 @@ def test_setting_changing_and_removing_the_points_regrades_nobody(
             assert (row["status"] == "incomplete") == unread
         assert not any(OTHER_KEY.encode() in text for text in files.values())
     assert report(KEY) == before
+
+
+# --- the review list (task 4.8) ------------------------------------------------------
+
+
+def entries(text: str) -> list[tuple[str, list[str]]]:
+    """The review list's entries in order: each one's heading and its lines up to the
+    next heading, blank lines left out."""
+    found: list[tuple[str, list[str]]] = []
+    for line in text.splitlines():
+        if line.startswith("### "):
+            found.append((line.removeprefix("### "), []))
+        elif found and line and not line.startswith("#"):
+            found[-1][1].append(line)
+    return found
+
+
+def listed(workspace: Workspace) -> list[tuple[str, list[str]]]:
+    return entries(workspace.review_md.read_text())
+
+
+def students_of(built: Built, workspace: Workspace, count: int) -> list[IngestRecord]:
+    """`count` copies of the typed-in-place student: `Student 1` (`s1`) and on."""
+    return [
+        copy_student(built, workspace, "typed-in-place", f"Student {n}", f"s{n}")
+        for n in range(1, count + 1)
+    ]
+
+
+def poorly_read(
+    workspace: Workspace, student: IngestRecord, part: str, scale: float = 0.5
+) -> None:
+    """`part` read with poor legibility: `hard_to_read`, and `low_resolution` too
+    when every crop is at native size or above."""
+
+    def poor(r: ReadingRecord) -> ReadingRecord:
+        crops = [c.model_copy(update={"scale": scale}) for c in r.crops]
+        reading = r.reading.model_copy(update={"legibility": "poor"})
+        return r.model_copy(update={"reading": reading, "crops": crops})
+
+    change_reading(workspace, student, part, poor)
+
+
+def graded_with(
+    workspace: Workspace, student: IngestRecord, part: str, **reasons: str
+) -> None:
+    """The grade of `part` with `reasons` (a transcript dispute, an overruling)."""
+
+    def change(r: GradeRecord) -> GradeRecord:
+        if r.grade.part_id != part:
+            return r
+        return r.model_copy(update={"grade": r.grade.model_copy(update=reasons)})
+
+    change_grades(workspace, student, problem_of(part), change)
+
+
+def entries_line(count: int) -> str:
+    return f"Entries in the review list, out/review.md: {count}."
+
+
+def test_with_no_flag_the_review_list_says_so_in_one_fixed_line(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+
+    assert write_report(workspace, KEY, [student]) == []
+    assert workspace.review_md.read_text() == f"# Review list\n\n{NOTHING_TO_REVIEW}\n"
+    assert entries_line(0) in workspace.run_report_md.read_text().splitlines()
+
+
+def test_a_part_with_two_flags_is_one_entry_and_two_students_are_two(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    students = students_of(built, workspace, 2)
+    for student in students:
+        poorly_read(workspace, student, "Q4.b", scale=2.0)
+
+    raised = write_report(workspace, KEY, students)
+
+    assert len(raised) == 4
+    found = listed(workspace)
+    assert [heading for heading, _ in found] == [
+        "`Student 1` (`s1`), Q4.b",
+        "`Student 2` (`s2`), Q4.b",
+    ]
+    for _, lines in found:
+        assert [line for line in lines if line.startswith("- `")] == [
+            f"- `hard_to_read`, medium: {DETAIL[F.HARD_TO_READ]}",
+            f"- `low_resolution`, medium: {DETAIL[F.LOW_RESOLUTION]}",
+        ]
+    assert entries_line(2) in workspace.run_report_md.read_text().splitlines()
+
+
+def test_entries_come_by_severity_then_points_then_student_key_then_part_order(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    s1, s2, s3 = students_of(built, workspace, 3)
+    # The key's parts reversed, so that its order is not the ids'. Q1 to Q3 are
+    # worth 1, Q4.a and Q5.a 2, Q4.b 3.
+    key = KEY.model_copy(
+        update={
+            "parts": [
+                p.model_copy(update={"state": "unverified"}) if p.id == "Q2" else p
+                for p in reversed(KEY.parts)
+            ]
+        }
+    )
+
+    def unreadable(r: ReadingRecord) -> ReadingRecord:
+        reading = r.reading.model_copy(update={"status": "unreadable"})
+        crops = [c.model_copy(update={"scale": 0.5}) for c in r.crops]
+        return r.model_copy(update={"reading": reading, "crops": crops})
+
+    change_reading(workspace, s3, "Q2", unreadable)  # high
+    graded_with(workspace, s1, "Q4.b", transcript_dispute="x")  # medium
+    for student, part in [(s2, "Q4.a"), (s2, "Q5.a"), (s1, "Q5.a"), (s1, "Q1")]:
+        poorly_read(workspace, student, part)  # medium
+    graded_with(workspace, s3, "Q4.b", code_overruled="x")  # low
+
+    write_report(workspace, key, [s1, s2, s3])
+
+    found = listed(workspace)
+    assert [heading for heading, _ in found] == [
+        "Q2, worth 1",
+        "`Student 3` (`s3`), Q2",
+        "`Student 1` (`s1`), Q4.b",
+        "`Student 1` (`s1`), Q5.a",
+        "`Student 2` (`s2`), Q5.a",
+        "`Student 2` (`s2`), Q4.a",
+        "`Student 1` (`s1`), Q1",
+        "`Student 3` (`s3`), Q4.b",
+    ]
+    # The key's own section, first: no transcript, and s3 is not scored on Q2.
+    assert found[0][1] == [
+        f"- `key_unverified`, high: {DETAIL[F.KEY_UNVERIFIED]}",
+        "- Students scored on it: 2.",
+    ]
+    text = workspace.review_md.read_text()
+    assert text.index("## The key") < text.index("## Students")
+
+
+def test_the_proposed_score_is_the_feedback_s_awarded_withheld_or_after_the_audit(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    shown, stale, changed = students_of(built, workspace, 3)
+    graded_with(workspace, shown, "Q4.b", code_overruled="x")
+    other_key(workspace, stale)
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    hashed = part_hash(part, KEY.policies)
+    # The class audit lowers s3's method on Q4.b from 2 to its partial level 1.
+    lowered = AuditChange(
+        student_key="s3",
+        criterion="Q4.b.c1",
+        part_hash=hashed,
+        before=Decimal(2),
+        after=Decimal(1),
+        reason="r",
+    )
+    audit = PartAudit(
+        part_id="Q4.b",
+        part_hash=hashed,
+        groups=1,
+        changed=1,
+        undecided=0,
+        changes=[lowered],
+        key_suspect=None,
+    )
+    write_model(workspace.audit_json("Q4.b"), audit)
+
+    write_report(workspace, KEY, [shown, stale, changed])
+
+    proposed = {
+        heading: [line for line in lines if line.startswith("- Proposed score:")]
+        for heading, lines in listed(workspace)
+    }
+    assert proposed == {
+        "`Student 1` (`s1`), Q4.b": ["- Proposed score: 3 / 3."],
+        "`Student 2` (`s2`), Q4.b": [
+            f"- Proposed score: not scored, out of 3. {OTHER_KEY}"
+        ],
+        "`Student 3` (`s3`), Q4.b": ["- Proposed score: 2 / 3."],
+    }
+    for student, line in [
+        (shown, "**4(b): 3 / 3**"),
+        (stale, "**4(b): not scored, out of 3**"),
+        (changed, "**4(b): 2 / 3**"),
+    ]:
+        assert line in workspace.feedback_md(student.student_key).read_text()
+
+
+FIRST = [
+    "- First reading:",
+    "  - Line 1: `f = µmg = 0.25(4.0)(10) = 10 N`",
+    "  - Line 2: `Fnet = T − f = 20 − 10 = 10 N`",
+    "  - Line 3: `a = Fnet/m = 10/4.0 = 2.5 m/s²`",
+    '  - Final answer: `{"choices":[],"value":2.5,"unit":"m/s^2","expression":null}`',
+]
+SECOND = [
+    "- Second reading, by another vendor's model:",
+    "  - Line 1: `a = 25 m/s^2`",
+    '  - Final answer: `{"choices":[],"value":25.0,"unit":"m/s^2","expression":null}`',
+]
+
+
+@pytest.mark.parametrize(
+    ("result", "doubted", "shown"),
+    [
+        ("differ", True, FIRST + SECOND),
+        ("differ", False, FIRST + SECOND),
+        ("not decided", True, FIRST),
+    ],
+    ids=["differ", "differ on a part not in doubt", "not decided"],
+)
+def test_the_second_reader_s_text_shows_only_where_the_readers_disagree(
+    built: Built,
+    tmp_path: Path,
+    result: Literal["differ", "not decided"],
+    doubted: bool,
+    shown: list[str],
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    if doubted:
+        poorly_read(workspace, student, "Q4.b")
+    first = load(workspace, KEY, student).readings["Q4.b"]
+    stated = first.reading.final_answer.model_copy(update={"value": 25.0})
+    reading = first.reading.model_copy(
+        update={"lines": ["a = 25 m/s^2"], "final_answer": stated, "legibility": None}
+    )
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    record = SecondReading(
+        part_id="Q4.b",
+        part_hash=part_hash(part, KEY.policies),
+        first=digest(first),
+        doubted=doubted,
+        result=result,
+        second=first.model_copy(update={"reading": reading}),
+    )
+    write_model(
+        workspace.second_json(student.student_key), SecondReadings(records=[record])
+    )
+
+    write_report(workspace, KEY, [student])
+
+    [(_, lines)] = listed(workspace)
+    transcript = lines[lines.index("- First reading:") :]
+    assert transcript[:-1] == shown
+    assert transcript[-1].startswith("- Files: ")
+
+
+def test_a_flag_on_a_whole_submission_is_one_entry_with_no_transcript(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    s1, s2 = students_of(built, workspace, 2)
+    poorly_read(workspace, s1, "Q4.b")
+    stored = [load(workspace, KEY, s) for s in (s1, s2)]
+    # No code raises one yet: by hand, of medium severity like s1's.
+    whole = Flag(
+        code=F.UNCLAIMED_WORK,
+        part_id=None,
+        student_key="s2",
+        detail="Some work is on a page that no part claims.",
+    )
+    raised = [*flags(KEY, stored), whole]
+
+    text = review(workspace, KEY, [(s, score(KEY, s)) for s in stored], raised)
+
+    # Both medium: a whole submission is at stake for the key's 16 points.
+    found = entries(text)
+    assert found[0] == (
+        "`Student 2` (`s2`), the whole submission",
+        [f"- `unclaimed_work`, medium: {whole.detail}"],
+    )
+    assert [heading for heading, _ in found[1:]] == ["`Student 1` (`s1`), Q4.b"]
+    assert review_line(workspace, raised) == entries_line(2)
+
+
+HOSTILE_NAME = "# Total: 16 / 16\n[x](http://x.test) | a | b |\n```\n<b>bold</b>"
+HOSTILE_LINES = [
+    "# Total: 16 / 16",
+    "[x](http://x.test)",
+    "| a | b |",
+    "|---|---|",
+    "```",
+    "<b>bold</b>",
+    "two\nlines",
+]
+
+
+def test_text_a_student_wrote_cannot_leave_its_place_in_the_entry(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", HOSTILE_NAME, "s1")
+
+    def hostile(r: ReadingRecord) -> ReadingRecord:
+        stated = r.reading.final_answer.model_copy(
+            update={"unit": "```\n# m", "expression": "<b>x</b>"}
+        )
+        reading = r.reading.model_copy(
+            update={
+                "lines": HOSTILE_LINES,
+                "final_answer": stated,
+                "legibility": "poor",
+            }
+        )
+        crops = [c.model_copy(update={"scale": 0.5}) for c in r.crops]
+        return r.model_copy(update={"reading": reading, "crops": crops})
+
+    change_reading(workspace, student, "Q4.b", hostile)
+    write_report(workspace, KEY, [student])
+
+    lines = workspace.review_md.read_text().splitlines()
+    starts = ("# Review list", "## ", "### ", "- ", "  - ")
+    assert all(line.startswith(starts) for line in lines if line)
+    assert [line for line in lines if line.startswith("#")] == [
+        "# Review list",
+        "## Students",
+        "### ````# Total: 16 / 16?[x](http://x.test) | a | b |?```?<b>bold</b>````"
+        " (`s1`), Q4.b",
+    ]
+    assert [line for line in lines if line.startswith("  - ")] == [
+        "  - Line 1: `# Total: 16 / 16`",
+        "  - Line 2: `[x](http://x.test)`",
+        "  - Line 3: `| a | b |`",
+        "  - Line 4: `|---|---|`",
+        "  - Line 5: ```` ``` ````",
+        "  - Line 6: `<b>bold</b>`",
+        "  - Line 7: `two?lines`",
+        '  - Final answer: ````{"choices":[],"value":2.5,"unit":"```\\n# m",'
+        '"expression":"<b>x</b>"}````',
+    ]
+    assert code_span(HOSTILE_NAME) in lines[4]
+
+
+def test_every_link_opens_a_stored_file_from_out(built: Built) -> None:
+    text = built.workspace.review_md.read_text()
+    out = built.workspace.review_md.parent
+    targets = re.findall(r"\]\(([^)]*)\)", text)
+
+    assert all(t.startswith("../students/") and (out / t).is_file() for t in targets)
+    assert {Path(t).parent.name for t in targets} == {"crops", "readings", "grades"}
+    assert "![" not in text  # links, not images
+
+
+MARK = "MARKER-48 written by a student"
+
+
+def test_report_gives_the_review_list_s_size_and_no_student_text_on_the_terminal(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", MARK, "s1")
+
+    def marked(r: ReadingRecord) -> ReadingRecord:
+        reading = r.reading.model_copy(update={"lines": [MARK], "legibility": "poor"})
+        return r.model_copy(update={"reading": reading})
+
+    change_reading(workspace, student, "Q4.b", marked)
+    save_key(workspace.key_yaml, KEY)
+    summary = IngestSummary(
+        students=[student],
+        duplicates=[],
+        not_on_roster=[],
+        missing_from_roster=[],
+        ignored_files=0,
+        unsafe_members=[],
+        failed=[],
+    )
+    write_model(workspace.ingest_summary_json, summary)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    result = CliRunner().invoke(app, ["report", "--workspace", str(workspace.root)])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        f"Wrote {workspace.root / 'out'}",
+        entries_line(1),
+    ]
+    assert result.stderr == ""
+    assert entries_line(1) in workspace.run_report_md.read_text().splitlines()
+    assert MARK in workspace.review_md.read_text()
+    assert not workspace.run_log.exists()

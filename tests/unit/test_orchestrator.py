@@ -368,6 +368,10 @@ def test_one_student_s_failure_is_recorded_and_the_class_goes_on(
     parts = ", ".join(p.id for p in KEY.parts)
     assert f"- `{key}`: {parts}. {UNGRADED}" in WS.run_report_md.read_text()
     assert f"| incomplete | high | {len(KEY.parts)} |" in WS.run_report_md.read_text()
+    # One entry for each of Ben's parts, on the terminal as in the run report.
+    review = f"Entries in the review list, out/review.md: {len(KEY.parts)}."
+    assert review in result.stdout.splitlines()
+    assert review in WS.run_report_md.read_text().splitlines()
 
 
 MARKER = "MARKER-7f3a written by a student"

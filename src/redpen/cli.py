@@ -96,7 +96,7 @@ from redpen.prepare.verify import (
     verification_md,
     verify,
 )
-from redpen.report.report import write_report
+from redpen.report.report import review_line, write_report
 from redpen.schemas.key import Key, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
@@ -669,7 +669,9 @@ def _grade(
     if failed:
         typer.echo(f"Each traceback is in {ws.run_log}.", err=True)
     try:
-        write_report(ws, key, summary.students, [f.file for f in summary.failed])
+        raised = write_report(
+            ws, key, summary.students, [f.file for f in summary.failed]
+        )
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
@@ -680,6 +682,7 @@ def _grade(
             err=True,
         )
     typer.echo(f"Wrote {ws.root / 'out'}")
+    typer.echo(review_line(ws, raised))
     if failed or summary.failed:
         raise typer.Exit(code=1)
 
@@ -839,11 +842,14 @@ def report(workspace: KeyWorkspace) -> None:
     if found := _point_problems(ws, key):
         _fail("\n".join(found))
     try:
-        write_report(ws, key, summary.students, [f.file for f in summary.failed])
+        raised = write_report(
+            ws, key, summary.students, [f.file for f in summary.failed]
+        )
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
     typer.echo(f"Wrote {ws.root / 'out'}")
+    typer.echo(review_line(ws, raised))
 
 
 @app.command()
