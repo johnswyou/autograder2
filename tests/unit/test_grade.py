@@ -651,6 +651,34 @@ def test_a_part_with_two_final_answer_criteria_gets_the_check_and_is_not_held(
     assert awards(records["Q4.b"]) == [Decimal(2), Decimal(0)]
 
 
+@pytest.mark.parametrize(
+    ("first", "kept"),
+    [(0, "a reason"), (2, None)],
+    ids=["every final answer against: kept", "one of two against: cleared"],
+)
+def test_on_a_part_with_two_final_answers_a_reason_is_kept_only_against_both(
+    tmp_path: Path, first: int, kept: str | None
+) -> None:
+    # A match; the second final-answer criterion at zero, and the first at `first`.
+    workspace = Workspace(tmp_path / "ws")
+    right = stated("Q4.b", value=RIGHT, unit="m/s^2")
+    store(workspace, [ASKED["Q4.a"], right, ASKED["Q4.c"]])
+
+    def answer(ids: list[str], n: int) -> Grades:
+        grades = q4b_final(0, "a reason").grades
+        c1 = grades[1].criteria[0].model_copy(update={"awarded": Decimal(first)})
+        grades[1].criteria[0] = c1
+        return Grades(grades=grades)
+
+    grader = Grader(TWO_FINAL, answer)
+
+    records = run(workspace, TWO_FINAL, grader)
+
+    assert len(grader.requests) == 1
+    assert awards(records["Q4.b"]) == [Decimal(first), Decimal(0)]
+    assert records["Q4.b"].grade.code_overruled == kept
+
+
 def test_the_check_given_to_the_grader_is_stored_with_the_grade(
     tmp_path: Path,
 ) -> None:

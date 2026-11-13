@@ -159,7 +159,10 @@ async def grade_student(
                 ]
                 # A reason that overrules no verdict is not an overrule.
                 verdict = checks[g.part_id]
-                overruled = _against(by_id[g.part_id], verdict, g)
+                # On a part with several final-answer criteria, a reason is kept,
+                # unasked, only when every one of them goes against the check.
+                against = _against(by_id[g.part_id], verdict, g)
+                overruled = bool(against) and len(against) == _finals(by_id[g.part_id])
                 kept = g.model_copy(
                     update={
                         "criteria": criteria,
@@ -271,15 +274,14 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
                     f"{c.id}: an award below its full points gives feedback to the"
                     " student"
                 )
-        if not (g.code_overruled or "").strip():
+        # Only a part with exactly one final-answer criterion is held: with two,
+        # one is often about something the check did not compare.
+        part = parts[g.part_id]
+        if not (g.code_overruled or "").strip() and _finals(part) == 1:
             wrong += [
                 f"{id}: the award goes against the answer check, so code_overruled"
                 " gives the reason"
-                for id in _against(
-                    parts[g.part_id],
-                    check_answer(parts[g.part_id], reading, key.policies),
-                    g,
-                )
+                for id in _against(part, check_answer(part, reading, key.policies), g)
             ]
     return list(dict.fromkeys(wrong))
 
@@ -298,13 +300,11 @@ def part_points(record: GradeRecord, key: Key) -> tuple[Decimal, Decimal]:
 
 
 def _against(part: KeyPart, found: Check | None, grade: Grade) -> list[str]:
-    """The final-answer criterion whose award in `grade` goes against the answer
+    """The final-answer criteria whose awards in `grade` go against the answer
     check `found`: below full points on a match, full points on a mismatch (a
-    partial level the key lists is a wrong answer's, so it agrees with a mismatch).
-    Only a part with exactly one final-answer criterion is held: with two, one is
-    often about something the check did not compare."""
+    partial level the key lists is a wrong answer's, so it agrees with a mismatch)."""
     full = {c.id: c.points for c in part.criteria if c.kind == "final_answer"}
-    if found is None or found.verdict == UNSURE or len(full) != 1:
+    if found is None or found.verdict == UNSURE:
         return []
     return [
         c.id
@@ -316,6 +316,10 @@ def _against(part: KeyPart, found: Check | None, grade: Grade) -> list[str]:
             else c.awarded >= full[c.id] > 0
         )
     ]
+
+
+def _finals(part: KeyPart) -> int:
+    return sum(c.kind == "final_answer" for c in part.criteria)
 
 
 def _levels(criterion: Criterion) -> list[Decimal]:
