@@ -10,9 +10,9 @@ import re
 import sqlite3
 import unicodedata
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -32,6 +32,7 @@ from redpen.prepare.key import (
     scaled,
     scoring,
 )
+from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode
 from redpen.schemas.grade import GradeRecord, ProblemGrades
 from redpen.schemas.key import Key, KeyPart
@@ -66,6 +67,9 @@ DETAIL = {
     FlagCode.ADDRESSED_TO_GRADER: "The response holds text addressed to the grader.",
     FlagCode.TRANSCRIPT_DISPUTE: "The grader believes the reading is wrong.",
     FlagCode.CODE_OVERRULED: "The grader overruled the computed answer check.",
+    FlagCode.KEY_SUSPECT: "The class's most common answer to this part is not the"
+    " key's: check the key.",
+    FlagCode.AUDIT_CHANGED: "The class audit changed an award on this part.",
 }
 
 # A spreadsheet runs a cell that begins with one of these as a formula.
@@ -77,11 +81,13 @@ NO_USE = Usage(0, 0, Decimal(0))
 @dataclass(frozen=True)
 class Stored:
     """One student's ingest record, and each part's reading and grade record that
-    are stored, by part id."""
+    are stored, by part id; and the class audit of each part, the same for every
+    student."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
     grades: dict[str, GradeRecord]
+    audits: Mapping[str, PartAudit] = field(default_factory=dict[str, PartAudit])
 
 
 @dataclass(frozen=True)
@@ -191,7 +197,18 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
             readings |= {r.reading.part_id: r for r in found.records}
         if graded := _read(workspace.grade_json(who, problem), ProblemGrades):
             grades |= {r.grade.part_id: r for r in graded.records}
-    return Stored(student, readings, grades)
+    return Stored(student, readings, grades, audits(workspace, key))
+
+
+def audits(workspace: Workspace, key: Key) -> dict[str, PartAudit]:
+    """The class audit of each key part, by part id: each stored audit file made
+    under the part's current version."""
+    found = {p.id: _read(workspace.audit_json(p.id), PartAudit) for p in key.parts}
+    return {
+        p.id: audit
+        for p in key.parts
+        if (audit := found[p.id]) and audit.part_hash == part_hash(p, key.policies)
+    }
 
 
 def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
@@ -224,7 +241,7 @@ def score(key: Key, stored: Stored) -> list[Score]:
     scores: list[Score] = []
     for part in key.parts:
         why = withheld(key, part, stored)
-        record = None if why else stored.grades[part.id]
+        record = None if why else audited(stored, part)
         awarded = None
         if record:
             earned, weight = part_points(record, key)
@@ -235,19 +252,54 @@ def score(key: Key, stored: Stored) -> list[Score]:
     return scores
 
 
+def audited(stored: Stored, part: KeyPart) -> GradeRecord:
+    """The stored grade record of `part` with each change of the class audit to the
+    student's awards that still holds: one decided on the record's own part hash
+    and award, which the change's reason then explains. Any other is ignored."""
+    record = stored.grades[part.id]
+    audit = stored.audits.get(part.id)
+    whose = stored.student.student_key
+    changes = (
+        {c.criterion: c for c in audit.changes if c.student_key == whose}
+        if audit
+        else {}
+    )
+    criteria = [
+        c.model_copy(
+            update={
+                "awarded": change.after,
+                "rationale": f"Changed by the class audit from {number(change.before)}:"
+                f" {change.reason}",
+            }
+        )
+        if (change := changes.get(c.id))
+        and change.part_hash == record.provenance.key_part_hash
+        and change.before == c.awarded
+        else c
+        for c in record.grade.criteria
+    ]
+    grade = record.grade.model_copy(update={"criteria": criteria})
+    return record.model_copy(update={"grade": grade})
+
+
 def flags(key: Key, students: Sequence[Stored]) -> list[Flag]:
     """Every flag the stored files give (this version's set): a `key_unverified`
-    for each unverified key part, on no student, then each student's, part by part
-    in key order. All are open: nothing closes a flag yet."""
-    raised = [
-        Flag(
-            code=FlagCode.KEY_UNVERIFIED,
-            part_id=p.id,
-            student_key=None,
-            detail=DETAIL[FlagCode.KEY_UNVERIFIED],
-        )
+    for each unverified key part and a `key_suspect` for each part the class audit
+    found suspect, on no student, then each student's, part by part in key order.
+    All are open: nothing closes a flag yet."""
+    # The class audit, the same for every student.
+    found: Mapping[str, PartAudit] = students[0].audits if students else {}
+    on_key = [
+        (FlagCode.KEY_UNVERIFIED, p) for p in key.parts if p.state == "unverified"
+    ]
+    on_key += [
+        (FlagCode.KEY_SUSPECT, p)
         for p in key.parts
-        if p.state == "unverified"
+        if (audit := found.get(p.id)) and audit.key_suspect
+    ]
+    raised = [
+        Flag(code=code, part_id=p.id, student_key=None, detail=DETAIL[code])
+        for code, p in on_key
     ]
     for stored in students:
         for part in key.parts:
@@ -303,6 +355,8 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
             raised.append((code, DETAIL[code]))
         if (grade.code_overruled or "").strip():
             raised.append((FlagCode.CODE_OVERRULED, DETAIL[FlagCode.CODE_OVERRULED]))
+        if audited(stored, part) != stored.grades[part.id]:
+            raised.append((FlagCode.AUDIT_CHANGED, DETAIL[FlagCode.AUDIT_CHANGED]))
     elif why != UNREADABLE:
         raised.append((FlagCode.INCOMPLETE, why))
     return raised
@@ -435,6 +489,32 @@ def _notes(s: Score) -> list[str]:
     ]
 
 
+def _audit_lines(found: Mapping[str, PartAudit]) -> list[str]:
+    """The class audit's counts, and each part whose key answer the class disputes
+    with how many share another answer and how many answered (never the answer)."""
+    if not found:
+        return ["No class audit is stored for the key as it is."]
+    groups = sum(a.groups for a in found.values())
+    undecided = sum(a.undecided for a in found.values())
+    changed = sum(a.changed for a in found.values())
+    lines = [
+        f"Groups of the same evidence with differing awards: {groups}. Decided"
+        f" again: {groups - undecided}. Changed: {changed}. Could not be decided:"
+        f" {undecided}.",
+        "",
+    ]
+    suspects = [(p, a.key_suspect) for p, a in found.items() if a.key_suspect]
+    if not suspects:
+        return [*lines, "No part's key answer is disputed by the class."]
+    lines += [
+        "Parts whose key answer the class disputes (`key_suspect`):",
+        "",
+        "| Part | Students sharing another answer | Students who answered |",
+        "|---|---|---|",
+    ]
+    return lines + [f"| {p} | {s.shared} | {s.answered} |" for p, s in suspects]
+
+
 def _run_report(
     workspace: Workspace,
     key: Key,
@@ -443,9 +523,9 @@ def _run_report(
     raised: Sequence[Flag],
     not_ingested: Sequence[str],
 ) -> str:
-    """The state of every key part, each page's maximum and the total, the students
-    with parts not scored and why, the files not ingested, the flags by code, the
-    pinned models, and the cost by role from the usage ledger."""
+    """The state of every key part, the class audit, each page's maximum and the
+    total, the students with parts not scored and why, the files not ingested, the
+    flags by code, the pinned models, and the cost by role from the usage ledger."""
     maxima = page_points(key)
     lines = ["# Run report", "", "## Key", ""]
     if key.points is not None:
@@ -459,6 +539,7 @@ def _run_report(
         f"| {p.id} | {p.home_page} | {number(points_of(key, [p]))} | {p.state} |"
         for p in key.parts
     ]
+    lines += ["", "## Class audit", "", *_audit_lines(audits(workspace, key))]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
     lines += [f"| Total | {number(points_of(key, key.parts))} |", "", "## Students", ""]

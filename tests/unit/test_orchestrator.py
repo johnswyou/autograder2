@@ -14,6 +14,7 @@ import shutil
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import fields
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +30,12 @@ from redpen.grade.ingest import IngestSummary
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, estimate, image_tokens, shape
-from redpen.prepare.key import save_key
+from redpen.prepare.key import part_hash, save_key
 from redpen.report.report import STRICT_OFF_RUN, UNGRADED
+from redpen.schemas.common import Provenance
+from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key
+from redpen.schemas.reading import FinalAnswer, ProblemReadings, Reading, ReadingRecord
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import (
     IngestPage,
@@ -55,7 +59,8 @@ ROLES = GRADE_MODELS
 class OpenRouter:
     """A mock OpenRouter that keeps every request: the ZDR listing answers as
     `zdr` says; with `reads`, a read request gets a valid reading of each part it
-    names; every other chat request is refused with HTTP 400."""
+    names; with `decides`, the class audit's request gets full points for every
+    case; every other chat request is refused with HTTP 400."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -63,6 +68,7 @@ class OpenRouter:
             200, json={"data": ZDR}
         )
         self.reads = False
+        self.decides = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -71,6 +77,10 @@ class OpenRouter:
         body = json.loads(request.content)
         if self.reads and kind(body) == "Readings":
             return httpx.Response(200, json=answer(body, readings(body)))
+        if self.decides and kind(body) == "Decisions":
+            cases = json.loads(body["messages"][1]["content"][2]["text"])["cases"]
+            found = [{"case": c["case"], "reason": "r", "awarded": 1} for c in cases]
+            return httpx.Response(200, json=answer(body, {"decisions": found}))
         return httpx.Response(400, json={"error": {"message": "refused by the test"}})
 
     @property
@@ -818,3 +828,96 @@ def test_an_image_costs_a_token_per_patch_once_fit_to_the_budget() -> None:
     assert image_tokens((1700, 2200), 1536) == 2365
     assert image_tokens((1004, 2008), 1536) == 1540
     assert image_tokens((200, 100), 1536) == 8 * 4
+
+
+@pytest.mark.parametrize("gate", ["passes", "fails"])
+def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    # Every student wrote the same 4(c), and the grader gave one of them 0 for c1.
+    async def nothing(*args: object) -> None:
+        pass
+
+    async def graded(
+        workspace: Workspace, student: str, key: Key, gateway: Gateway, model: Any
+    ) -> None:
+        part = next(p for p in key.parts if p.id == "Q4.c")
+        line = ["It slows down and stops."]
+        reading = Reading(
+            part_id=part.id,
+            status="answered",
+            medium="typed",
+            lines=line,
+            final_answer=FinalAnswer(
+                choices=[], value=None, unit=None, expression=None
+            ),
+            elements=[],
+            uncertain=[],
+            addressed_to_grader=[],
+            legibility="clear",
+        )
+        record = ReadingRecord(provenance=NOBODY, reading=reading, crops=[])
+        write_model(
+            workspace.reading_json(student, "Q4"), ProblemReadings(records=[record])
+        )
+        award = 0 if student == students()[0] else 1
+        criteria = [
+            CriterionGrade(
+                id=c.id,
+                rationale="r",
+                evidence_line=1,
+                evidence_element=None,
+                awarded=Decimal(award if c.id == "Q4.c.c1" else 1),
+                feedback="f",
+            )
+            for c in part.criteria
+        ]
+        grade_ = Grade(
+            part_id=part.id,
+            criteria=criteria,
+            transcript_dispute=None,
+            belongs_elsewhere=None,
+            code_overruled=None,
+        )
+        provenance = Provenance(
+            key_part_hash=part_hash(part, key.policies),
+            prompt_version="v",
+            model_slug=model.slug,
+        )
+        write_model(
+            workspace.grade_json(student, "Q4"),
+            ProblemGrades(
+                records=[GradeRecord(provenance=provenance, grade=grade_, check=None)]
+            ),
+        )
+
+    for stage in ("map", "read"):
+        monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", nothing)
+    monkeypatch.setattr("redpen.orchestrator.grade_student", graded)
+    router.decides = True
+    if gate == "fails":
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+
+    result = grade()
+
+    if gate == "fails":
+        assert result.exit_code == 1 and router.chats == []
+        assert not (WS.root / "audit").exists()
+        return
+    assert result.exit_code == 0, result.output
+    [request] = router.chats
+    body = json.loads(request.content)
+    assert kind(body) == "Decisions"
+    assert body["model"] == GRADER.slug
+    assert body["provider"] == {
+        "require_parameters": True,
+        "data_collection": "deny",
+        "zdr": True,
+        "only": sorted(GRADER.providers),
+    }
+    assert b"image_url" not in request.content
+    for text in [*NAMES, *students()]:
+        assert text.encode() not in request.content
+    with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
+        rows = [r for r in csv.DictReader(file) if r["criterion"] == "Q4.c.c1"]
+    assert [r["awarded"] for r in rows] == ["1"] * len(NAMES)

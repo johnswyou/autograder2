@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from redpen.grade.audit import Decisions
+from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import Flag
 from redpen.schemas.grade import Grade, GradeRecord
 from redpen.schemas.key import Key
@@ -24,6 +26,8 @@ MODELS: list[type[BaseModel]] = [
     Grade,
     GradeRecord,
     Flag,
+    PartAudit,
+    Decisions,
 ]
 
 

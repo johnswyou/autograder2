@@ -5,8 +5,8 @@ whole class before the next, the students concurrent inside a stage as tasks on
 one thread: pdfium, which the stages open PDFs with, is not safe across threads. A
 student's failure in a stage, or in one unit of a stage, is recorded with its
 traceback in the run log and the class goes on; the later stages run on whatever
-files that student has. Resuming is the call cache's work: nothing is skipped
-because a file exists.
+files that student has. Then the class audit runs over every student. Resuming is
+the call cache's work: nothing is skipped because a file exists.
 
 `privacy_problems` is the gate before the first student page is sent, and
 `estimate` is the dry run's cost estimate."""
@@ -25,6 +25,7 @@ from rich.console import Console
 from rich.progress import MofNCompleteColumn, Progress
 
 from redpen.config import Config, Lock
+from redpen.grade.audit import audit_class
 from redpen.grade.grade import grade_student
 from redpen.grade.map import map_student
 from redpen.grade.read import problem_of, read_student
@@ -72,7 +73,8 @@ async def grade_class(
     students: Sequence[str],
 ) -> list[tuple[str, str]]:
     """Map, read and grade `students` (keys of ingested students), showing each
-    stage's progress and running cost. Returns each (stage, student) that failed."""
+    stage's progress and running cost, then audit the class. Returns each (stage,
+    student) that failed."""
     budget = config.image_budget
     runs: dict[str, Callable[[Gateway, str], Awaitable[object]]] = {
         "map": lambda g, s: map_student(
@@ -117,6 +119,8 @@ async def grade_class(
 
             for stage in runs:
                 await asyncio.gather(*(one(stage, s) for s in students))
+            # On the same gateway: a reading is student work, sent only past the gate.
+            await audit_class(workspace, key, students, gw, models["grader"])
     return failed
 
 
