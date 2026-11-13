@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from redpen import prompts
+from redpen.grade import grade as stage
 from redpen.grade.grade import Grades, grade_student, part_points, problems
 from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
@@ -252,6 +253,55 @@ def test_a_choice_part_earns_full_points_only_for_the_key_s_set_of_options(
     assert records["Q1"].provenance == by_code(q1)
     stored = read_model(workspace.grade_json(STUDENT, "Q1"), ProblemGrades)
     assert stored.records == [records["Q1"]]
+
+
+@pytest.mark.parametrize(
+    ("response_type", "key_choices", "read", "earned", "why"),
+    [
+        ("multiple_choice", ["C"], ["C"], True, "Chooses C, the answer."),
+        ("multiple_choice", ["C"], ["B"], False, "Chooses B; the answer is C."),
+        (
+            "multiple_choice",
+            ["C"],
+            ["C", "D"],
+            False,
+            "Two or more options are marked;",
+        ),
+        ("multiple_choice", ["C"], ["B", "C", "D"], False, "Two or more options are"),
+        (
+            "multiple_select",
+            ["C"],
+            ["C", "D"],
+            False,
+            "Two or more options are marked;",
+        ),
+        ("multiple_choice", ["C"], ["C", " c"], True, "Chooses C,  c, the answer."),
+        ("multiple_select", ["A", "C"], ["C", "A"], True, "Chooses C, A, the answer."),
+        ("multiple_select", ["A", "C"], ["A"], False, "Chooses A; the answer is A, C."),
+    ],
+    ids=[
+        "one option right",
+        "one option wrong",
+        "two marked for a single answer",
+        "three marked for a single answer",
+        "a select part with one answer",
+        "the same option twice",
+        "the full set",
+        "a partial set",
+    ],
+)
+def test_two_options_marked_where_the_key_has_one_score_zero_by_code(
+    response_type: str, key_choices: list[str], read: list[str], earned: bool, why: str
+) -> None:
+    part = changed(
+        "Q1", response_type=response_type, answer=answer(choices=key_choices)
+    )
+    chosen = FinalAnswer(choices=read, value=None, unit=None, expression=None)
+
+    grade = stage.by_code(part, reading("Q1", final_answer=chosen))
+
+    assert [c.awarded for c in grade.criteria] == [Decimal(1) if earned else Decimal(0)]
+    assert all(c.rationale.startswith(why) for c in grade.criteria)
 
 
 def test_a_choice_part_with_no_option_read_is_withheld_and_a_blank_one_is_zero(
