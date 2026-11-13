@@ -27,7 +27,7 @@ The `answer` object has eight fields. Fill the ones that fit the part's `respons
 - `elements`: the elements the question requires a correct drawing to show, one entry each, with four fields: `label` (the label a correct drawing would carry, using the problem's own symbols where it has them), `kind` (what the element is, such as "force", "curve", "point", "line", "asymptote" or "axis label"), `direction` (which way it points, or the shape of a curve, such as "opens upward" or "increasing, linear"; null when that does not apply) and `position` (where it is, such as "(3, -4)" for a point, or where an arrow starts; null when that does not apply).
 - `must_include`: each fact, claim, step or feature a full-credit response must contain, one short sentence each.
 
-`elements` and `must_include` hold only what the question asks for. A value it does not ask for, a feature of a drawing or a graph it does not mention, or a consequence beyond what it asks is not required, however true, and stays out of both. It can go in `solution`.
+`elements` and `must_include` hold only what the question asks for. A value it does not ask for, a feature of a drawing or a graph it does not mention, or a consequence beyond what it asks is not required, however true, and stays out of both. Nor is a finer detail than the question asks for: when a question asks which way a quantity changes, how fast it changes stays out. All of these can go in `solution`.
 
 The fields each response type uses:
 
@@ -36,8 +36,8 @@ The fields each response type uses:
 - `numeric`: `value` and `unit`, and `rel_tol` as described.
 - `symbolic`: `expression` only. No unit.
 - `short_text`: `must_include`, the word, phrase or fact the response must state.
-- `explanation`: `must_include`, the conclusion first, then each reason a correct explanation must give.
+- `explanation`: `must_include`, the conclusion the question asks for, then each reason that conclusion needs. A number the part does not ask the student to work out, and a fact that is true but that a correct short explanation could leave out, go in `solution` only. When the question asks to explain in terms of some things, such as the costs a firm faces, the reasons are those of them that the conclusion rests on, not every one that is present.
 - `derivation`: `must_include` for the steps that must appear, and the result in `expression`, or in `value` and `unit`, where there is one.
-- `free_body_diagram`: `elements`, one per force, and `must_include` for any other requirement of the diagram.
-- `graph`: `elements` for each curve, line and labelled point a correct graph shows, with coordinates where they are determined, and `must_include` for any other required feature.
+- `free_body_diagram`: `elements`, one per force, and `must_include` for any other requirement the question itself states.
+- `graph`: `elements` for each curve, line and labelled point a correct graph shows, with coordinates where they are determined, and `must_include` for any other feature the question asks for.
 - `other`: whichever fields hold the answer. When the part asks for several results, give each in `must_include` with its value and any unit, such as "x = 4" and "y = -1".
