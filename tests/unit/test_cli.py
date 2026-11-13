@@ -43,7 +43,7 @@ def first_column(help_text: str) -> set[str]:
             {"run", "prepare", "key", "grade", "regrade", "report", "review"}
             | {"override", "eval", "models"},
         ),
-        (["key"], {"check", "render"}),
+        (["key"], {"check", "render", "verify"}),
         (["models"], {"check"}),
     ],
 )

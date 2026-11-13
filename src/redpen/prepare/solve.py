@@ -3,7 +3,9 @@ problem, with the images of the pages it is printed on and the text of its parts
 
 import json
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
+
+from PIL import Image
 
 from redpen import prompts
 from redpen.imaging.prep import reduced_png
@@ -27,12 +29,15 @@ class Alternative(Schema):
     value: float
 
 
-# The solver's work on one part. `uses` names the earlier parts whose results the
+# The solver's work on one part. `computation` gives the answer's value in numbers
+# only, for the arithmetic check of design 6.2, and is empty when there is no value;
+# it is not kept in the key. `uses` names the earlier parts whose results the
 # solution uses.
 class PartSolution(Schema):
     part_id: str
     solution: str
     answer: Answer
+    computation: str
     uses: list[str]
     alternatives: list[Alternative]
 
@@ -52,13 +57,27 @@ async def solve(
     Raises `StageError` if a problem's solution still fails its checks after one
     retry."""
     images = [page.image for page in render_blank(workspace)]
+    one = solver(workspace, gateway, model, images, image_budget)
+    solved = await finish_all(one(parts) for parts in by_problem(spec))
+    return {s.part_id: s for found in solved for s in found}
+
+
+def solver(
+    workspace: Workspace,
+    gateway: Gateway,
+    model: ModelInfo,
+    images: Sequence[Image.Image],
+    image_budget: int,
+    role: str = ROLE,
+) -> Callable[[Sequence[Part]], Awaitable[list[PartSolution]]]:
+    """What solves one problem's parts as `role`, from the blank's page `images`:
+    one call, checked, with one retry. It raises `StageError` if the solution still
+    fails its checks."""
     system, version = prompts.load("solve", "problem")
     session = f"{workspace.root.name}:solve"
 
-    async def one(parts: list[Part]) -> list[PartSolution]:
-        pages = sorted(
-            {p.home_page for p in parts} | {f.page for p in parts for f in p.figures}
-        )
+    async def one(parts: Sequence[Part]) -> list[PartSolution]:
+        pages, shown = page_images(images, parts, image_budget)
         data = {
             "pages": pages,
             "parts": [
@@ -68,12 +87,11 @@ async def solve(
                 for p in parts
             ],
         }
-        shown = [reduced_png(images[n - 1], image_budget) for n in pages]
 
         async def ask(extra: Sequence[Content]) -> Solution:
             items = [*shown, json.dumps(data), *extra]
             result = await gateway.call(
-                ROLE,
+                role,
                 model,
                 system,
                 [],
@@ -90,8 +108,18 @@ async def solve(
         )
         return found.parts
 
-    solved = await finish_all(one(parts) for parts in by_problem(spec))
-    return {s.part_id: s for found in solved for s in found}
+    return one
+
+
+def page_images(
+    images: Sequence[Image.Image], parts: Sequence[Part], budget: int
+) -> tuple[list[int], list[bytes]]:
+    """The pages `parts` are printed on or have a figure on, in order, and their
+    images reduced to the image budget."""
+    pages = sorted(
+        {p.home_page for p in parts} | {f.page for p in parts for f in p.figures}
+    )
+    return pages, [reduced_png(images[n - 1], budget) for n in pages]
 
 
 def by_problem(spec: Spec) -> list[list[Part]]:

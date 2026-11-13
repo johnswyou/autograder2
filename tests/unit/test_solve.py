@@ -19,6 +19,7 @@ from redpen.llm.models import ModelInfo
 from redpen.prepare import rubric, solve
 from redpen.prepare.rubric import PartRubric, Rubric, write_rubric
 from redpen.prepare.solve import PartSolution, Solution
+from redpen.prepare.verify import Ruling, Rulings
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
@@ -32,6 +33,7 @@ MODEL = ModelInfo(
     completion_price=Decimal(0),
     providers=frozenset({"zero"}),
 )
+OTHER = MODEL.model_copy(update={"slug": "maker/vision-2"})  # the checker
 SPEC = read_model(FIXTURES / "spec.json", Spec)
 
 
@@ -49,7 +51,8 @@ def fitting(part: dict[str, Any]) -> dict[str, Any]:
 class Server:
     """Answers every part it is asked about, except the parts in `skip`: those
     always if `stubborn`, else only when no problems are attached; in the calls of
-    the response model named `only`, when given, else in every call."""
+    the response model named `only`, when given, else in every call. Every
+    solution of a part is the same, and a referee finds the two the same."""
 
     def __init__(
         self,
@@ -68,6 +71,7 @@ class Server:
         retry = texts[1:]
         self.requests.append(
             {
+                "model": body["model"],
                 "schema": body["response_format"]["json_schema"]["name"],
                 "images": sum(c["type"] == "image_url" for c in content),
                 "parts": [p["id"] for p in parts],
@@ -88,10 +92,19 @@ class Server:
                         part_id=p["id"],
                         solution="Work.",
                         answer=filled(**fitting(p)),
+                        computation="1" if p["response_type"] == "numeric" else "",
                         uses=[],
                         alternatives=[],
                     )
                     for p in answered
+                ]
+            )
+        elif schema == "Rulings":
+            value = Rulings(
+                rulings=[
+                    Ruling(part_id=p["id"], reason="Both.", ruling="same")
+                    for p in answered
+                    if "A" in p
                 ]
             )
         else:
@@ -112,7 +125,7 @@ class Server:
         return httpx.Response(
             200,
             json={
-                "model": MODEL.slug,
+                "model": body["model"],
                 "choices": [{"message": {"content": value.model_dump_json()}}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
             },
@@ -212,6 +225,7 @@ def solution(
                 part_id=id,
                 solution="Work.",
                 answer=filled(**answer),
+                computation="",
                 uses=[],
                 alternatives=[]
                 if also is None
@@ -263,16 +277,39 @@ def test_a_solution_is_checked_against_the_parts_of_its_problem(
     assert solve.problems(parts, found) == problems
 
 
-SOLVER_LOCK = """profile = "balanced"
-
-[models.solver]
-slug = "vendor/vision-1"
+SOLVER_LOCK = "\n".join(
+    [
+        'profile = "balanced"',
+        *(
+            f"""
+[models.{role}]
+slug = "{slug}"
 supported_parameters = ["structured_outputs", "max_tokens"]
 accepts_images = true
 prompt_price = "0"
 completion_price = "0"
-providers = ["zero"]
-"""
+providers = ["zero"]"""
+            for role, slug in (
+                ("solver", MODEL.slug),
+                ("checker", OTHER.slug),
+                ("referee", MODEL.slug),
+            )
+        ),
+    ]
+)
+
+
+def answered_in(response: dict[str, Any]) -> tuple[str, str, str]:
+    """Who answered a cached response, what it answers, and its first part."""
+    content = json.loads(response["choices"][0]["message"]["content"])
+    who = "checker" if response["model"] == OTHER.slug else "solver"
+    if "rulings" in content:
+        return who, "Rulings", content["rulings"][0]["part_id"]
+    first = content["parts"][0]
+    return who, "Rubric" if "criteria" in first else "Solution", first["part_id"]
+
+
+FIRSTS = ["Q1", "Q2", "Q3", "Q4.a", "Q5.a"]  # the first part of each problem
 
 
 @pytest.mark.parametrize(
@@ -281,15 +318,25 @@ providers = ["zero"]
         (
             "Solution",
             "the solution of Q5 fails its checks: Q5.b has no answer",
-            {("Solution", p) for p in ("Q1", "Q2", "Q3", "Q4.a")},
-            [("Rubric", "Q4.a"), ("Rubric", "Q5.a"), ("Solution", "Q5.a")],
+            {("solver", "Solution", p) for p in FIRSTS[:4]},
+            [
+                *(("checker", "Solution", p) for p in FIRSTS),
+                ("solver", "Rubric", "Q4.a"),
+                ("solver", "Rubric", "Q5.a"),
+                # The parts of Q4 and Q5 that code cannot compare.
+                ("solver", "Rulings", "Q4.a"),
+                ("solver", "Rulings", "Q5.a"),
+                ("solver", "Solution", "Q5.a"),
+            ],
         ),
         (
             "Rubric",
             "the rubric of Q5 fails its checks: Q5.b has no criteria",
-            {("Solution", p) for p in ("Q1", "Q2", "Q3", "Q4.a", "Q5.a")}
-            | {("Rubric", "Q4.a")},
-            [("Rubric", "Q5.a")],
+            {(who, "Solution", p) for p in FIRSTS for who in ("solver", "checker")}
+            # The first part ruled on: Q5.c, the graph, is the only one of Q5.
+            | {("solver", "Rulings", "Q4.a"), ("solver", "Rulings", "Q5.c")}
+            | {("solver", "Rubric", "Q4.a")},
+            [("solver", "Rubric", "Q5.a")],
         ),
     ],
     ids=["solve", "rubric"],
@@ -299,8 +346,8 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     monkeypatch: pytest.MonkeyPatch,
     stage: str,
     error: str,
-    kept: set[tuple[str, str]],
-    again: list[tuple[str, str]],
+    kept: set[tuple[str, str, str]],
+    again: list[tuple[str, str, str]],
 ) -> None:
     server = Server(skip=frozenset({"Q5.b"}), stubborn=True, only=stage)
 
@@ -332,13 +379,7 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     with closing(sqlite3.connect(workspace.cache_sqlite)) as db:
         cached = [json.loads(r) for (r,) in db.execute("SELECT response FROM calls")]
         spent = db.execute("SELECT count(*) FROM ledger").fetchone()[0]
-    first = [
-        json.loads(c["choices"][0]["message"]["content"])["parts"][0] for c in cached
-    ]
-    answered = {
-        ("Rubric" if "criteria" in p else "Solution", p["part_id"]) for p in first
-    }
-    assert answered == kept  # the two failed answers are gone
+    assert {answered_in(c) for c in cached} == kept  # the two failed answers are gone
     assert spent == len(kept) + 2  # but they were paid for
     assert not workspace.key_yaml.exists()
 
@@ -346,5 +387,13 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     rerun = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert rerun.exit_code == 0, rerun.output
-    assert sorted((r["schema"], r["parts"][0]) for r in server.requests) == again
+    asked = [
+        (
+            "checker" if r["model"] == OTHER.slug else "solver",
+            r["schema"],
+            r["parts"][0],
+        )
+        for r in server.requests
+    ]
+    assert sorted(asked) == again
     assert workspace.key_yaml.exists()

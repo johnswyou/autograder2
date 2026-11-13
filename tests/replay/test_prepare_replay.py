@@ -1,11 +1,11 @@
-"""Preparing the fixture blank's key with recorded calls to the real solver model.
+"""Preparing the fixture blank's key with recorded calls to the real solver, checker
+and referee models.
 
 The run starts from the fixtures' spec.json, not from a recorded parse, so that
-recording the parse again never orphans these recordings. Re-record (paid, about
-$0.30) with `REDPEN_RECORD=1 uv run pytest tests/replay/test_prepare_replay.py`.
+recording the parse again never orphans these recordings. The recording is a dump
+of the cache of a live `redpen prepare` in a scratch workspace (about $0.45).
 """
 
-import json
 import os
 import re
 import shutil
@@ -25,6 +25,7 @@ from sympy.parsing.sympy_parser import (
 from typer.testing import CliRunner
 
 from redpen.cli import app
+from redpen.config import Lock, write_lock
 from redpen.llm.client import Gateway
 from redpen.prepare.key import load_key
 from redpen.schemas.common import DiagramElement
@@ -33,7 +34,7 @@ from redpen.schemas.spec import CHOICE_TYPES
 from redpen.workspace import Workspace
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
-from tests.pinned import SOLVER
+from tests.pinned import KEY_MODELS
 
 TRUTH = Key.model_validate_json((FIXTURES / "key.json").read_text())
 UNITS = pint.UnitRegistry()
@@ -158,10 +159,7 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
     workspace = Workspace(Path("ws"))
     workspace.spec_json.parent.mkdir(parents=True)
     shutil.copy(FIXTURES / "spec.json", workspace.spec_json)
-    lock = [f"{k} = {json.dumps(v)}" for k, v in SOLVER.model_dump(mode="json").items()]
-    workspace.config_lock_toml.write_text(
-        "\n".join(['profile = "balanced"', "[models.solver]", *lock]) + "\n"
-    )
+    write_lock(workspace.config_lock_toml, Lock(profile="balanced", models=KEY_MODELS))
 
     prepared = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
     checked = runner.invoke(app, ["key", "check", "--workspace", "ws"])
@@ -175,3 +173,9 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
             assert len(part.criteria) == 1
     assert checked.exit_code == 0, checked.output
     assert workspace.solutions_md.exists() and workspace.rubric_md.exists()
+    # The two solvers agree on every part: in code on six, by the referee on the
+    # drawing, the explanation and the graph.
+    assert {p.state for p in key.parts} == {"verified"}
+    assert "States: 9 verified, 0 refereed, 0 unverified" in prepared.output
+    report = workspace.verification_md.read_text()
+    assert report.count("Referee: the two agree in substance") == 3

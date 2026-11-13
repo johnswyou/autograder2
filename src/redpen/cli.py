@@ -79,9 +79,17 @@ from redpen.prepare.key import (
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
-from redpen.prepare.solve import solve
+from redpen.prepare.solve import PartSolution, solve
+from redpen.prepare.verify import (
+    CHECKER,
+    REFEREE,
+    Verdict,
+    state_counts,
+    verification_md,
+    verify,
+)
 from redpen.report.report import write_report
-from redpen.schemas.key import Key, PointConstraint
+from redpen.schemas.key import Key, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
@@ -308,7 +316,11 @@ def prepare(
         KeyFileError,
     ) as error:
         _fail(str(error))
-    typer.echo(f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.rubric_md.name}")
+    typer.echo(f"States: {state_counts(p.state for p in key.parts)}")
+    typer.echo(
+        f"Wrote {ws.key_yaml}, {ws.solutions_md.name}, {ws.rubric_md.name} and"
+        f" {ws.verification_md.name}"
+    )
     _points(key)
 
 
@@ -342,12 +354,32 @@ async def _parse(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Spe
 async def _key(
     ws: Workspace, config: Config, lock: Lock, api_key: str, spec: Spec
 ) -> Key:
+    """Solve, verify, write the rubric from the solution that stands for each part,
+    and assemble the key. Writes verification.md."""
     strict = config.strict_privacy
-    model = lock.models["solver"]
+    model, budget = lock.models["solver"], config.image_budget
     async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gateway:
-        solutions = await solve(ws, gateway, model, config.image_budget, spec)
-        rubrics = await write_rubric(ws, gateway, model, spec, solutions)
-    return assemble(spec, solutions, rubrics)
+        solutions = await solve(ws, gateway, model, budget, spec)
+        found = await verify(
+            ws, gateway, lock.models, budget, spec, solutions, Policies(), False
+        )
+        standing = {id: v.stands for id, v in found.items()}
+        rubrics = await write_rubric(ws, gateway, model, spec, standing)
+    _unverifiable(found)
+    ws.verification_md.write_text(verification_md(spec, found, False), "utf-8")
+    return assemble(spec, standing, rubrics, {id: v.state for id, v in found.items()})
+
+
+def _unverifiable(found: Mapping[str, Verdict]) -> int:
+    """How many parts a failed call left unverified, said on stderr if any."""
+    failed = sum(v.ruling == "failed" for v in found.values())
+    if failed:
+        typer.echo(
+            f"{failed} parts are unverified because a call failed;"
+            " `redpen key verify` tries them again.",
+            err=True,
+        )
+    return failed
 
 
 def _constraint(
@@ -427,6 +459,72 @@ def key_render(workspace: KeyWorkspace) -> None:
             " `redpen key check` lists its problems."
         )
     typer.echo(f"Wrote {ws.solutions_md} and {ws.rubric_md.name}")
+
+
+@key_app.command("verify")
+def key_verify(workspace: KeyWorkspace) -> None:
+    """Solve each problem again with another vendor's model and set each part's
+    state. Nothing in key.yaml changes but `state`, and nobody is re-graded."""
+    ws = Workspace(workspace)
+    try:
+        config = load_config()
+        api_key = openrouter_api_key()
+    except ConfigError as error:
+        _fail(str(error))
+    try:
+        spec = read_model(ws.spec_json, Spec)
+        lock = read_lock(ws.config_lock_toml)
+    except (OSError, ValueError) as error:  # missing, or a TOML or schema error
+        _fail(f"{ws.root} holds no prepared key ({type(error).__name__}).")
+    key, problems = examine(ws.key_yaml, spec)
+    if key is None:
+        _does_not_load(ws.key_yaml)
+    problems += _point_problems(ws, key)
+    for problem in problems:
+        typer.echo(problem, err=True)
+    if problems:
+        _fail(f"{ws.key_yaml} has problems, so it was not verified.")
+    lock = _with_prompts(ws, lock)
+    # The key's own answer and solution stand in for the first solver's.
+    first = {
+        p.id: PartSolution(
+            part_id=p.id,
+            solution=p.solution,
+            answer=p.answer,
+            computation="",
+            uses=[],
+            alternatives=[],
+        )
+        for p in key.parts
+    }
+
+    async def run() -> dict[str, Verdict]:
+        strict = config.strict_privacy
+        async with Gateway(ws.cache_sqlite, api_key, strict_privacy=strict) as gw:
+            budget = config.image_budget
+            return await verify(
+                ws, gw, lock.models, budget, spec, first, key.policies, True
+            )
+
+    found = asyncio.run(run())
+    states = {id: v.state for id, v in found.items()}
+    verified = key.model_copy(
+        update={
+            "parts": [p.model_copy(update={"state": states[p.id]}) for p in key.parts]
+        }
+    )
+    try:
+        save_key(ws.key_yaml, verified)
+        write_markdown(ws, verified)
+        ws.verification_md.write_text(verification_md(spec, found, True), "utf-8")
+    except (OSError, KeyFileError) as error:
+        _fail(str(error))
+    typer.echo(f"States: {state_counts(states.values())}")
+    typer.echo(
+        f"Wrote {ws.key_yaml}, {ws.solutions_md.name} and {ws.verification_md.name}"
+    )
+    if _unverifiable(found):
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -547,7 +645,7 @@ def _dry_ingest(submissions: Path, roster: Path | None) -> IngestSummary:
 
 
 # The roles the estimate prices.
-ESTIMATED = ("parser", "solver", *STAGES.values())
+ESTIMATED = ("parser", "solver", CHECKER, REFEREE, *STAGES.values())
 
 
 def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:

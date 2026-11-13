@@ -27,6 +27,7 @@ from redpen.prepare.key import (
 )
 from redpen.prepare.rubric import PartRubric, ProposedCriterion
 from redpen.prepare.solve import Alternative, PartSolution
+from redpen.prepare.verify import State
 from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace
@@ -60,6 +61,7 @@ def solved(
         part_id=id,
         solution=f"Work of {id}.",
         answer=filled(**answer),
+        computation="",
         uses=uses or [],
         alternatives=[
             Alternative(assumption="another constant", value=v) for v in also
@@ -112,7 +114,14 @@ def test_the_key_is_assembled_from_the_stage_outputs(tmp_path: Path) -> None:
         ),
     }
 
-    key = assemble(spec, solutions, rubrics)
+    states: dict[str, State] = {
+        "Q1": "verified",
+        "Q2": "refereed",
+        "Q3.a": "unverified",
+        "Q3.b": "verified",
+        "Q4": "refereed",
+    }
+    key = assemble(spec, solutions, rubrics, states)
     q1, q2, q3a, q3b, q4 = key.parts
 
     assert q1.criteria == [
@@ -147,7 +156,7 @@ def test_the_key_is_assembled_from_the_stage_outputs(tmp_path: Path) -> None:
     assert [c.carry_forward for c in q3b.criteria] == [True, True]
     assert [c.carry_forward for c in q4.criteria] == [True]
     assert q3a.common_errors == ["Halves it."]
-    assert {p.state for p in key.parts} == {"unverified"}
+    assert [p.state for p in key.parts] == list(states.values())
     # Every criterion's points are one Decimal object, never written as an anchor.
     save_key(tmp_path / "key.yaml", key)
     points = re.findall(r"points: (\S+)", (tmp_path / "key.yaml").read_text())

@@ -8,11 +8,12 @@ The message holds:
 
 Solve the parts in order. A later part may use the result of an earlier one. Use the values, constants and conventions the problem gives. Where it gives none, use the standard ones.
 
-Return a JSON object with one field, `parts`: one entry for each part in the message, in the same order, and no other entries. Each entry has five fields:
+Return a JSON object with one field, `parts`: one entry for each part in the message, in the same order, and no other entries. Each entry has six fields:
 
 - `part_id`: the part's `id`, exactly as given.
 - `solution`: the worked solution as a teacher would write it for the key. Name the principle, rule or method used, then give each step, the substitution of the given values, and the result with its unit. One step per line. Write mathematics as plain text: `*` for multiplication, `/` for division, `^` for powers, `sqrt()`, `pi`, and function names such as `sin()` or `ln()`. Where the solution uses the result of an earlier part, say which part. When an alternative assumption changes the result (see `alternatives`), say so at the end, with the result it gives.
 - `answer`: the final answer, described below.
+- `computation`: when `answer` has a `value`, the final computation that gives it, in numbers only, so that code can check the arithmetic: every given quantity and constant replaced by its number, and angles in radians, such as `30*pi/180` for 30 degrees. Use only numbers, `+ - * / ^`, parentheses, `pi`, and the functions `sqrt() sin() cos() tan() asin() acos() atan() exp() ln() log()`, where `log()` is base 10. It must evaluate to `value` in the unit of `unit`, as in `sqrt(2*3.5*12)` for a value found as the square root of twice 3.5 times 12. Empty when `answer` has no `value`.
 - `uses`: the ids of the earlier parts in this message whose results your solution of this part uses, whether or not the question says so. Empty when there are none. Never the part itself or a later part.
 - `alternatives`: only for a numeric result, and only when the question leaves open an assumption that has more than one defensible value, such as a constant that is commonly used with two different values, or a quantity that can fairly be read two ways from a figure. Solve with the value the problem's own context makes standard, and list each other defensible choice here, with `assumption` (what is assumed instead, as a short phrase) and `value` (the final number that follows from it, in the same unit as the answer's `value`). Empty when the question settles every assumption, for example by stating the value to use.
 

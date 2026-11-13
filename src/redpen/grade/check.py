@@ -384,6 +384,22 @@ def _value(
             raise _Unreadable
 
 
+def evaluate(text: str) -> float | None:
+    """The value of `text`, a computation in numbers only, read by the whitelist
+    parser with `log` as base 10. None when the parser does not read it, when it
+    holds a name, or when its value is not a finite real number."""
+    try:
+        tree = _parse(text)
+        if _names(tree, "v"):
+            return None
+        value = _value(tree, {}, cmath.log10)
+    except (_Unreadable, _Unclear, ArithmeticError, ValueError):
+        return None
+    if not cmath.isfinite(value) or abs(value.imag) > 1e-9 * max(1, abs(value.real)):
+        return None
+    return value.real
+
+
 def _compare(key: Node, said: Node, log: Callable[[complex], complex]) -> Check:
     """Both trees evaluated at `POINTS` fixed points of their names, between 0.5 and
     3. A point where either fails, or is not real, is left out."""

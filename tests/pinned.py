@@ -46,6 +46,33 @@ SOLVER = ModelInfo(
     completion_price=Decimal("0.00002"),
     providers=_VERTEX,
 )
+# ~anthropic/claude-opus-latest as well
+REFEREE = SOLVER
+# ~openai/gpt-sol-latest, as resolved on 13 November 2026
+CHECKER = ModelInfo(
+    slug="openai/gpt-6.1-sol",
+    supported_parameters=frozenset(
+        {
+            "include_reasoning",
+            "max_completion_tokens",
+            "max_tokens",
+            "reasoning",
+            "reasoning_effort",
+            "response_format",
+            "seed",
+            "structured_outputs",
+            "tool_choice",
+            "tools",
+            "verbosity",
+        }
+    ),
+    accepts_images=True,
+    prompt_price=Decimal("0.000002"),
+    completion_price=Decimal("0.00001"),
+    providers=frozenset({"azure", "azure/eu", "azure/us"}),
+)
+# The roles `redpen prepare` and `redpen key verify` call once the spec exists.
+KEY_MODELS = {"solver": SOLVER, "checker": CHECKER, "referee": REFEREE}
 # ~anthropic/claude-haiku-latest
 MAPPER = ModelInfo(
     slug="anthropic/claude-haiku-5.5",

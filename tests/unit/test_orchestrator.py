@@ -683,7 +683,8 @@ def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
         return Catalog({MAPPER.slug: entry}, ZDR)
 
     monkeypatch.setattr("redpen.cli.fetch_catalog", fetch_catalog)
-    toml = "".join(f'{role} = "{MAPPER.slug}"\n' for role in ("parser", "solver"))
+    prepare = ("parser", "solver", "checker", "referee")
+    toml = "".join(f'{role} = "{MAPPER.slug}"\n' for role in prepare)
     Path("redpen.toml").write_text(
         "[models]\n" + toml + "".join(f'{role} = "{MAPPER.slug}"\n' for role in ROLES)
     )
@@ -784,13 +785,32 @@ def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
     student = IngestRecord(
         student_name="A", student_key="A", source_kind="classkick", pages=slides
     )
-    models = {**ROLES, "parser": READER, "solver": READER}
+    models = {
+        **ROLES,
+        **dict.fromkeys(("parser", "solver", "checker", "referee"), READER),
+    }
     blank = [(1700, 2200)] * pages
     with_spec = estimate(models, blank, SPEC, False, [student], 1536)
     without = estimate(models, blank, None, False, [student], 1536)
     for stage in ("map", "read", "grade"):
         assert with_spec[stage] == without[stage]
     assert with_spec["prepare"].usd < without["prepare"].usd  # parse is still to do
+
+
+def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> None:
+    models = {
+        **ROLES,
+        **dict.fromkeys(("parser", "solver", "checker", "referee"), READER),
+    }
+    blank = [(1700, 2200)] * 4
+
+    costs = estimate(models, blank, SPEC, False, [], 1536)
+
+    # Five problems solved twice, two rubrics, and a referee for Q4 and Q5, which
+    # have a part code cannot compare (a drawing, an explanation, a graph).
+    assert costs["prepare"].calls == 5 + 5 + 2 + 2
+    assert (shape(SPEC).referees, shape(SPEC).referee_pages) == (2, 4)
+    assert estimate(models, blank, SPEC, True, [], 1536)["prepare"].calls == 0
 
 
 def test_an_image_costs_a_token_per_patch_once_fit_to_the_budget() -> None:

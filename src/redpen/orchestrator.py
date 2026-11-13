@@ -34,6 +34,7 @@ from redpen.imaging import render
 from redpen.llm.client import Gateway
 from redpen.llm.ledger import Ledger, Usage
 from redpen.llm.models import ModelInfo, recheck_providers
+from redpen.prepare.verify import CHECKER, COMPARED, REFEREE
 from redpen.schemas.key import Key
 from redpen.schemas.spec import CHOICE_TYPES, Part, Spec
 from redpen.schemas.submission import IngestRecord
@@ -132,11 +133,15 @@ def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
 
 # Per call, the tokens sent besides images (instructions, outline and JSON parts)
 # and the tokens returned, reasoning included: the means over the calls recorded for
-# the fixtures (task 2.7 report).
+# the fixtures (task 2.7 report; solve, check and referee in task 4.5b). The
+# checker's vendor counts image tokens its own way, and its text figure takes up
+# the difference at the fixture's page size.
 TOKENS: dict[str, tuple[int, int]] = {
     "parse page": (3116, 349),
     "stitch": (3806, 1591),
-    "solve": (3644, 579),
+    "solve": (4052, 579),
+    "check": (2070, 415),
+    "referee": (2803, 155),
     "rubric": (3686, 1318),
     "map page": (3353, 637),
     "resolve": (3916, 748),
@@ -166,10 +171,12 @@ class Shape:
     regions: float  # mapped regions read
     grades: float  # grade calls
     crops: float  # crops sent to the grader
+    referees: float  # referee calls: problems with a part code cannot compare
+    referee_pages: float  # page images over all referee calls
 
 
 # The fixture assignment's shape (4 pages) per blank page, for a blank not parsed.
-PER_PAGE = Shape(1.25, 1.75, 0.5, 0.75, 1.25, 2.25, 0.5, 1.5)
+PER_PAGE = Shape(1.25, 1.75, 0.5, 0.75, 1.25, 2.25, 0.5, 1.5, 0.5, 1)
 
 
 @dataclass
@@ -191,21 +198,28 @@ def shape(spec: Spec) -> Shape:
         if (others := [p for p in parts if p.response_type not in CHOICE_TYPES])
     ]
     choice_pages = {p.home_page for p in spec.parts if p.response_type in CHOICE_TYPES}
+    refereed = [
+        parts
+        for parts in problems.values()
+        if any(p.response_type not in COMPARED for p in parts)
+    ]
+
+    def pages(parts: list[Part]) -> int:
+        return len(
+            {p.home_page for p in parts} | {f.page for p in parts for f in p.figures}
+        )
+
     return Shape(
         problems=len(problems),
-        solve_pages=sum(
-            len(
-                {p.home_page for p in parts}
-                | {f.page for p in parts for f in p.figures}
-            )
-            for parts in problems.values()
-        ),
+        solve_pages=sum(map(pages, problems.values())),
         rubrics=len(free),
         reads=len(choice_pages) + len(free),
         read_pages=len(choice_pages) + sum(len({p.home_page for p in f}) for f in free),
         regions=len(spec.parts),
         grades=len(free),
         crops=sum(map(len, free)),
+        referees=len(refereed),
+        referee_pages=sum(map(pages, refereed)),
     )
 
 
@@ -262,6 +276,9 @@ def estimate(
             add("prepare", "parser", "parse page", len(pages), sum(pages))
             add("prepare", "parser", "stitch", 1)
         add("prepare", "solver", "solve", found.problems, found.solve_pages * page)
+        add("prepare", CHECKER, "check", found.problems, found.solve_pages * page)
+        referee_pages = found.referee_pages * page
+        add("prepare", REFEREE, "referee", found.referees, referee_pages)
         add("prepare", "solver", "rubric", found.rubrics)
     for student in students:
         mine = [image_tokens((p.width_px, p.height_px), budget) for p in student.pages]

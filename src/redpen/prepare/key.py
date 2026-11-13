@@ -515,7 +515,7 @@ def solutions_md(key: Key) -> str:
             "",
             "Answer:",
             "",
-            *_answer(part.answer),
+            *answer_lines(part.answer),
             "",
             "```text",
             part.solution,
@@ -525,7 +525,8 @@ def solutions_md(key: Key) -> str:
     return "\n".join(lines)
 
 
-def _answer(answer: Answer) -> list[str]:
+def answer_lines(answer: Answer) -> list[str]:
+    """`answer` as Markdown list items, one per field it fills."""
     lines: list[str] = []
     if answer.choices:
         lines.append(f"- Choice: {', '.join(answer.choices)}")

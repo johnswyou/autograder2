@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from redpen.prepare.rubric import PartRubric, ProposedCriterion
 from redpen.prepare.solve import PartSolution, answer_of, depends_on
+from redpen.prepare.verify import State
 from redpen.schemas.key import Criterion, Key, KeyPart, PartialCredit, Policies
 from redpen.schemas.spec import CHOICE_TYPES, Spec
 
@@ -16,11 +17,11 @@ def assemble(
     spec: Spec,
     solutions: Mapping[str, PartSolution],
     rubrics: Mapping[str, PartRubric],
+    states: Mapping[str, State],
 ) -> Key:
     """The key of `spec` under the default policies: each part's solution and
-    answer, and its criteria, each worth one point with ids given in order. A choice
-    part's one criterion is written here. Every part is `unverified`, since one
-    solver verifies nothing."""
+    answer, its state as verification left it, and its criteria, each worth one
+    point with ids given in order. A choice part's one criterion is written here."""
     policies = Policies()
     parts: list[KeyPart] = []
     for part in spec.parts:
@@ -65,7 +66,7 @@ def assemble(
                 home_page=part.home_page,
                 response_type=part.response_type,
                 depends_on=depends,
-                state="unverified",
+                state=states[part.id],
                 prompt=part.prompt,
                 answer=answer,
                 solution=found.solution,

@@ -71,6 +71,10 @@ class Workspace:
         return self.root / "key" / "rubric.md"
 
     @property
+    def verification_md(self) -> Path:
+        return self.root / "key" / "verification.md"
+
+    @property
     def key_report_json(self) -> Path:
         return self.root / "key" / "key_report.json"
 
