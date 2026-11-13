@@ -5,9 +5,14 @@ with the provenance, including the key part hash, it was produced under.
 `ProblemGrades` is one stored file, a top-level problem's records.
 """
 
+from typing import Literal
+
 from pydantic import PositiveInt
 
 from redpen.schemas.common import CriterionId, PartId, Points, Provenance, Schema
+
+# The answer check's verdict on a stated final answer (redpen.grade.check).
+type Verdict = Literal["matches", "does not match", "cannot tell"]
 
 
 # The evidence is a line number or a diagram element number in the reading,

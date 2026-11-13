@@ -54,7 +54,14 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
     ("far outside", ACCEL, 5.0, "m/s^2", ON, NO_MATCH),
     ("cm for m", {"value": 2.5, "unit": "m"}, 250, "cm", ON, MATCH),
     ("m for cm", {"value": 250, "unit": "cm"}, 2.5, "m", ON, MATCH),
-    ("cm for m, wrong value", {"value": 2.5, "unit": "m"}, 2.5, "cm", ON, NO_MATCH),
+    (
+        "cm for m, the number as written",
+        {"value": 2.5, "unit": "m"},
+        2.5,
+        "cm",
+        ON,
+        UNSURE,
+    ),
     ("km/h for m/s", {"value": 25, "unit": "m/s"}, 90, "km/h", ON, MATCH),
     ("m/s for km/h", {"value": 90, "unit": "km/h"}, 25, "m/s", ON, MATCH),
     ("g for kg", {"value": 0.5, "unit": "kg"}, 500, "g", ON, MATCH),
@@ -62,9 +69,36 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
     ("spaces in the unit", {"value": 10, "unit": "N"}, 10, "kg m / s^2", ON, MATCH),
     ("J/kg/K for J/(kg*K)", {"value": 4, "unit": "J/(kg*K)"}, 4, "J/kg/K", ON, MATCH),
     ("degC for K", {"value": 293.15, "unit": "K"}, 20, "degC", ON, MATCH),
-    ("wrong dimension", ACCEL, 2.5, "m/s", ON, NO_MATCH),
-    ("mass for force", {"value": 10, "unit": "N"}, 10, "kg", ON, NO_MATCH),
-    ("a unit for a pure number", {"value": -4.0}, -4.0, "m", ON, NO_MATCH),
+    # A number that agrees as written is never a mismatch because of its unit.
+    ("wrong dimension", ACCEL, 2.5, "m/s", ON, UNSURE),
+    ("mass for force", {"value": 10, "unit": "N"}, 10, "kg", ON, UNSURE),
+    ("a unit for a pure number", {"value": -4.0}, -4.0, "m", ON, UNSURE),
+    ("wrong dimension, wrong number", ACCEL, 3.0, "m/s", ON, NO_MATCH),
+    (
+        "converted and as written, wrong",
+        {"value": 2.5, "unit": "m/s"},
+        5,
+        "km/h",
+        ON,
+        NO_MATCH,
+    ),
+    ("M/S for m/s", {"value": 2.5, "unit": "m/s"}, 2.5, "M/S", ON, UNSURE),
+    ("S for s", {"value": 3, "unit": "s"}, 3, "S", ON, UNSURE),
+    ("G for g", {"value": 500, "unit": "g"}, 500, "G", ON, UNSURE),
+    ("k for kg", {"value": 4, "unit": "kg"}, 4, "k", ON, UNSURE),
+    ("c for cm", {"value": 25, "unit": "cm"}, 25, "c", ON, UNSURE),
+    ("t for short tons", {"value": 2, "unit": "ton"}, 2, "t", ON, UNSURE),
+    ("Mm for mm", {"value": 5, "unit": "mm"}, 5, "Mm", ON, UNSURE),
+    ("Ms for ms", {"value": 20, "unit": "ms"}, 20, "Ms", ON, UNSURE),
+    ("MA for mA", {"value": 3, "unit": "mA"}, 3, "MA", ON, UNSURE),
+    ("Mg for mg", {"value": 50, "unit": "mg"}, 50, "Mg", ON, UNSURE),
+    ("amps for A", {"value": 2, "unit": "A"}, 2, "amps", ON, UNSURE),
+    ("C for degC", {"value": 20, "unit": "degC"}, 20, "C", ON, UNSURE),
+    ("deg C for degC", {"value": 20, "unit": "degC"}, 20, "deg C", ON, UNSURE),
+    ("ms^-2 for m/s^2", {"value": 9.8, "unit": "m/s^2"}, 9.8, "ms^-2", ON, UNSURE),
+    ("degrees for a pure number", {"value": 30}, 30, "degrees", ON, UNSURE),
+    ("percent for a pure number", {"value": 25}, 25, "percent", ON, UNSURE),
+    ("Mm for mm, wrong number", {"value": 5, "unit": "mm"}, 7, "Mm", ON, NO_MATCH),
     ("no unit, units required", ACCEL, 2.5, None, ON, NO_MATCH),
     ("no unit, units not required", ACCEL, 2.5, None, OFF, MATCH),
     ("no unit, not required, wrong", ACCEL, 2.0, None, OFF, NO_MATCH),
@@ -82,6 +116,10 @@ NUMBERS: list[tuple[str, dict[str, Any], float | None, str | None, Policies, str
     ("rounded to two figures", {"value": 14.7, "unit": "m"}, 15, "m", ON, MATCH),
     ("rounded, outside tolerance", {"value": 1.46, "unit": "m"}, 1.5, "m", ON, MATCH),
     ("rounded to one figure", {"value": 1.46, "unit": "m"}, 1, "m", ON, NO_MATCH),
+    # The reading cannot tell 1 from 1.0, so a one-figure rounding is no match.
+    ("1 for 1.04", {"value": 1.04, "unit": "m"}, 1, "m", ON, UNSURE),
+    ("2 for 1.96", {"value": 1.96, "unit": "m"}, 2, "m", ON, UNSURE),
+    ("100 for 104", {"value": 104, "unit": "m"}, 100, "m", ON, UNSURE),
     ("rounded in another unit", {"value": 1.46, "unit": "m"}, 150, "cm", ON, MATCH),
     (
         "rounded, figures penalised",
@@ -143,7 +181,20 @@ EXPRESSIONS: list[tuple[str, str, str, str]] = [
     ("a sign error", "(x - 3)^2 - 4", "(x - 3)^2 + 4", NO_MATCH),
     ("a missing factor", "1/2*m*v^2", "m*v^2", NO_MATCH),
     ("a wrong power", "m*v^2/2", "m*v^3/2", NO_MATCH),
-    ("a different name", "m*g*h", "m*g*y", NO_MATCH),
+    # Compared only over the same names.
+    ("a different name", "m*g*h", "m*g*y", UNSURE),
+    ("a missing name", "1/2*g*t^2", "4.9*t^2", UNSURE),
+    ("a unit after the expression", "sqrt(2*g*h)", "sqrt(2*g*h) m/s", UNSURE),
+    ("a key with names run together", "mg*h", "m*g*h", UNSURE),
+    ("exp for e", "e^(-t/tau)", "exp(-t/tau)", UNSURE),
+    ("a number with an exponent", "2500*x", "2.5e3*x", MATCH),
+    ("a capital E", "300000000*t", "3E8*t", MATCH),
+    ("a negative exponent", "x/1000", "1e-3*x", MATCH),
+    # Agrees at two of the six points (near x = 1), not at the others.
+    ("agrees at some points only", "x", "x + (x-1)^8/1000", UNSURE),
+    ("agrees below pi/2 only", "x", "asin(sin(x))", UNSURE),
+    # Evaluation is at positive points only, where these are equal: kept as a match.
+    ("a root of a square", "x", "sqrt(x^2)", MATCH),
     ("case alone", "m*g*h", "M*g*h", UNSURE),
     ("an underscore alone", "v0*t", "v_0*t", UNSURE),
     ("names side by side", "m*v", "mv", UNSURE),
@@ -224,6 +275,24 @@ HOSTILE = [
     "x if x else 1",
     "x < 1 < 2",
 ]
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "unit"),
+    [
+        ({"value": 2.5, "unit": "m"}, 2.5, "nan"),
+        ({"value": 2.5, "unit": "nan"}, 2.5, "m"),
+        ({"value": 1e300, "unit": "m"}, 1, "nm"),
+        ({"value": 2.5, "unit": "m", "rel_tol": float("nan")}, 2.6, "m"),
+    ],
+    ids=["a unit nan", "a key unit nan", "out of Decimal's range", "a tolerance nan"],
+)
+def test_a_check_that_raises_cannot_tell(
+    key: dict[str, Any], value: float, unit: str
+) -> None:
+    found = check_answer(numeric(**key), stated(value=value, unit=unit), ON)
+
+    assert found == check.Check(UNSURE, "The check could not be completed.")
 
 
 @pytest.mark.parametrize("said", HOSTILE, ids=range(len(HOSTILE)))

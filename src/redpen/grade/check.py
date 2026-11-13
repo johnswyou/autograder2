@@ -17,10 +17,11 @@ import operator
 import re
 from collections.abc import Callable
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Literal, NamedTuple, cast
+from typing import Any, NamedTuple, cast
 
 import pint
 
+from redpen.schemas.grade import Verdict
 from redpen.schemas.key import KeyPart, Policies
 from redpen.schemas.reading import FinalAnswer, Reading
 
@@ -53,8 +54,12 @@ _OPERATORS: dict[str, Callable[[complex, complex], complex]] = {
     "*": complex.__mul__,
     "/": complex.__truediv__,
 }
+# A number may carry an exponent (`2.5e3`, `1E-3`): one number, not a number and a
+# name.
 _TOKEN = re.compile(
-    r"\s*(?:([0-9]+\.?[0-9]*|\.[0-9]+)|([A-Za-z][A-Za-z0-9_]*)|(\S))", re.ASCII
+    r"\s*(?:((?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+    r"|([A-Za-z][A-Za-z0-9_]*)|(\S))",
+    re.ASCII,
 )
 _FACTOR = r"[A-Za-z]{1,20}(?:\^-?[1-4])?"
 _PRODUCT = rf"{_FACTOR}(?:\*{_FACTOR})*"
@@ -73,7 +78,7 @@ type Node = (
 
 
 class Check(NamedTuple):
-    verdict: Literal["matches", "does not match", "cannot tell"]
+    verdict: Verdict
     reason: str
 
 
@@ -88,11 +93,16 @@ class _Unclear(Exception):
 def check_answer(part: KeyPart, reading: Reading, policies: Policies) -> Check | None:
     """The check of `reading`'s stated final answer against `part`'s key: a number
     when the key's answer has a value, else an expression when it has one, else
-    None (nothing code can check)."""
-    if part.answer.value is not None:
-        return _number(part, reading.final_answer, policies)
-    if part.answer.expression is not None:
-        return _expression(part.answer.expression, reading.final_answer.expression)
+    None (nothing code can check). It never raises: whatever a check raises is
+    "cannot tell"."""
+    try:
+        if part.answer.value is not None:
+            return _number(part, reading.final_answer, policies)
+        if part.answer.expression is not None:
+            expression = reading.final_answer.expression
+            return _expression(part.answer.expression, expression)
+    except Exception:  # a unit Pint chokes on, a value out of Decimal's range
+        return Check(UNSURE, "The check could not be completed.")
     return None
 
 
@@ -103,44 +113,81 @@ def _number(part: KeyPart, stated: FinalAnswer, policies: Policies) -> Check:
     answer = part.answer
     if stated.value is None:
         return Check(UNSURE, "No value is stated.")
-    targets = [answer.value, *answer.accept_also]
-    if not all(math.isfinite(x) for x in [stated.value, *targets] if x is not None):
-        return Check(UNSURE, "A value is not a finite number.")
+    said = (stated.unit or "").strip()
+    if not said and (answer.unit or "").strip() and policies.require_units:
+        return Check(NO_MATCH, "No unit is stated, and the policies require one.")
     try:
         key_unit = _unit(answer.unit or "")
-        said = (stated.unit or "").strip()
-        if not said and (answer.unit or "").strip() and policies.require_units:
-            return Check(NO_MATCH, "No unit is stated, and the policies require one.")
         unit = _unit(said) if said else key_unit
-        if key_unit is None or unit is None:
-            return Check(UNSURE, "A unit is not one the check can read.")
+    except pint.PintError:
+        key_unit = unit = None
+    if key_unit is None or unit is None:
+        return Check(UNSURE, "A unit is not one the check can read.")
+    rel_tol = policies.rel_tol if answer.rel_tol is None else answer.rel_tol
+    tol, figures = Decimal(str(rel_tol)), not policies.penalise_sig_figs
+    written = Decimal(str(stated.value))
+    keys = [x for x in [answer.value, *answer.accept_also] if x is not None]
+    targets = [Decimal(str(x)) for x in keys]
+    try:
+        # The value in the key's unit for the tolerance, and each key value in the
+        # student's unit for the rounding rule.
         value = _convert(stated.value, unit, key_unit)
-        rel_tol = policies.rel_tol if answer.rel_tol is None else answer.rel_tol
-        tol = Decimal(str(rel_tol))
-        written = Decimal(str(stated.value))
-        for n, target in enumerate(targets):
-            if target is None:
-                continue
-            want = Decimal(str(target))
-            whose = "a value the key also accepts" if n else "the key's value"
-            # A key value of zero takes the tolerance as an absolute one.
-            if abs(value - want) <= tol * (abs(want) or 1):
-                return Check(MATCH, f"The value is within tolerance of {whose}.")
-            # Significant figures cost nothing: the value is the key's rounded to two
-            # figures or more, in the student's own unit. The reading keeps no
-            # trailing zeros, so any such rounding counts.
-            mine = _convert(target, key_unit, unit)
-            if not policies.penalise_sig_figs and any(
-                written == _figures(mine, k) for k in range(2, 18)
-            ):
-                return Check(MATCH, f"The value is {whose}, rounded.")
+        mine = [_convert(x, key_unit, unit) for x in keys]
+        found = [
+            _how(value, t, written, m, tol, figures)
+            for t, m in zip(targets, mine, strict=True)
+        ]
     except pint.DimensionalityError:
-        return Check(NO_MATCH, "The unit cannot be converted to the key's unit.")
+        found = []
     except pint.PintError:
         return Check(UNSURE, "A unit is not one the check can read.")
+    for n, how in enumerate(found):
+        whose = "a value the key also accepts" if n else "the key's value"
+        if how == "within":
+            return Check(MATCH, f"The value is within tolerance of {whose}.")
+        if how == "rounded":
+            return Check(MATCH, f"The value is {whose}, rounded.")
+    if "one figure" in found:
+        return Check(
+            UNSURE,
+            "The value is a key value rounded to one figure, and the reading cannot"
+            " show whether more figures were written.",
+        )
+    # A number that agrees as written is never a mismatch because of its unit: Pint
+    # may have read the unit as something the student did not mean.
+    if any(_how(written, t, written, t, tol, figures) for t in targets):
+        return Check(
+            UNSURE,
+            "The number agrees with a key value as written, but its unit was not read"
+            " as the key's.",
+        )
+    if not found:
+        return Check(NO_MATCH, "The unit cannot be converted to the key's unit.")
     return Check(
         NO_MATCH, "The value is outside the tolerance of every value the key accepts."
     )
+
+
+def _how(
+    value: Decimal,
+    want: Decimal,
+    written: Decimal,
+    mine: Decimal,
+    tol: Decimal,
+    figures: bool,
+) -> str:
+    """How a stated value agrees with a key value: "within" tolerance (`value` and
+    `want` in the key's unit; a key of zero takes the tolerance as absolute),
+    "rounded" (the value as `written` is the key value `mine`, in the student's unit,
+    rounded to two figures or more), "one figure" (the same, but `written` has fewer
+    than two significant digits), or "" (neither). The reading keeps no trailing
+    zeros, so any rounding of two figures or more counts."""
+    if abs(value - want) <= tol * (abs(want) or 1):
+        return "within"
+    if figures and any(written == _figures(mine, k) for k in range(2, 18)):
+        digits = len(written.normalize().as_tuple().digits)
+        return "rounded" if digits >= 2 else "one figure"
+    return ""
 
 
 @functools.cache
@@ -199,16 +246,18 @@ def _expression(key_text: str, said_text: str | None) -> Check:
         return Check(UNSURE, "The order of operations in the expression is unclear.")
     except (_Unreadable, ArithmeticError, ValueError):
         return Check(UNSURE, "The expression is not one the check can read.")
-    known = _names(key, "v")
-    extra = _names(said, "v") - known
-    if any(not _alike(name, known) for name in extra):
-        return Check(NO_MATCH, "The expression uses a name the key's does not.")
-    if extra:
-        return Check(
-            UNSURE,
-            "A name the key's lacks may be one of its own written another way, such"
-            " as in another letter case.",
-        )
+    # Compared only over the same names: another name may be another symbol for the
+    # same quantity, a unit written after it, or a constant put in as a number.
+    known, used = _names(key, "v"), _names(said, "v")
+    if used != known:
+        extra = used - known
+        if extra and all(_alike(name, known) for name in extra):
+            return Check(
+                UNSURE,
+                "A name the key's lacks may be one of its own written another way,"
+                " such as in another letter case.",
+            )
+        return Check(UNSURE, "The expression and the key's do not use the same names.")
     logs = [cmath.log10]
     if "log" in _names(key, "f") | _names(said, "f"):
         logs.append(cmath.log)
@@ -271,6 +320,9 @@ class _Parser:
         return found
 
     def expr(self) -> Node:
+        # Each term of a chain such as x+x+... adds a level to the tree without
+        # going deeper here: only MAX_LENGTH bounds that depth, which _value
+        # recurses through.
         tree = self.deeper(self.term)
         while (kind := self.kind()) in ("+", "-"):
             self.take()
