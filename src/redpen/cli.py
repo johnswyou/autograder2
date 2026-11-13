@@ -387,13 +387,20 @@ def _grade(
     if dry_run:
         _estimate(ws, ws.blank_pdf, summary)
         return
-    lock = _with_prompts(ws, lock)
-    gate = privacy_problems(lock, api_key, config.strict_privacy)
+    strict = config.strict_privacy
+    lock = _with_prompts(ws, lock.model_copy(update={"strict_privacy": strict}))
+    gate = privacy_problems(lock, api_key, strict)
     if found := asyncio.run(gate):
         for problem in found:
             typer.echo(problem, err=True)
         _fail(
             "Nothing was sent: the pinned endpoints are not verified to keep nothing."
+        )
+    if not strict:
+        typer.echo(
+            "strict_privacy is off: the endpoints are not checked, and student pages"
+            " may go to providers that keep them.",
+            err=True,
         )
     students = [s.student_key for s in summary.students]
     run = grade_class(ws, spec, key, lock.models, config, api_key, students)

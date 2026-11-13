@@ -42,6 +42,11 @@ OTHER_KEY = "It was graded under another version of the key and is to be graded 
 UNGRADED = "No reading or no grade was recorded for it."
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
+# Under the pinned models, when the latest grade run had strict privacy off.
+STRICT_OFF_RUN = (
+    "Strict privacy was off for the latest grade run: the endpoints were not"
+    " checked, and student pages may have gone to providers that keep them."
+)
 
 # The other flags' details, in fixed words: never text a student or a model wrote.
 DETAIL = {
@@ -451,8 +456,10 @@ def _run_report(
     lines += ["", "## Models", ""]
     if workspace.config_lock_toml.exists():
         lines += ["| Role | Model |", "|---|---|"]
-        models = read_lock(workspace.config_lock_toml).models
-        lines += [f"| {role} | {m.slug} |" for role, m in models.items()]
+        lock = read_lock(workspace.config_lock_toml)
+        lines += [f"| {role} | {m.slug} |" for role, m in lock.models.items()]
+        if lock.strict_privacy is False:
+            lines += ["", STRICT_OFF_RUN]
     else:
         lines.append("No model is pinned in this workspace.")
     usage: dict[str, Usage] = {}

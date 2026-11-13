@@ -27,7 +27,7 @@ from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, estimate, image_tokens, shape
 from redpen.prepare.key import save_key
-from redpen.report.report import UNGRADED
+from redpen.report.report import STRICT_OFF_RUN, UNGRADED
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import (
@@ -453,6 +453,31 @@ def test_the_lock_holds_the_version_of_every_prompt_file(
         for f in files
     }
     assert len(files) == 8 and lock.models == ROLES
+
+
+STRICT_OFF = (
+    "strict_privacy is off: the endpoints are not checked, and student pages may go"
+    " to providers that keep them."
+)
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_strict_privacy_switched_off_is_said_and_recorded(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, strict: bool
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    if not strict:
+        Path("redpen.toml").write_text("strict_privacy = false\n")
+
+    result = grade()
+
+    assert result.exit_code == 0, result.output
+    assert (STRICT_OFF in result.stderr.splitlines()) is not strict
+    assert read_lock(WS.config_lock_toml).strict_privacy is strict
+    report = WS.run_report_md.read_text()
+    assert (STRICT_OFF_RUN in report.splitlines()) is not strict
+    if strict:  # the run report as it was before the setting was recorded
+        assert "strict" not in report.lower()
 
 
 def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:

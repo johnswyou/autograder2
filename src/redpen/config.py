@@ -86,6 +86,9 @@ class Lock(BaseModel):
     """The concrete model behind each role."""
     prompts: dict[str, str] = Field(default_factory=dict[str, str])
     """The version of every prompt file at the latest run, by `<stage>/<name>`."""
+    strict_privacy: bool | None = None
+    """Whether strict privacy was in force for the latest grade run; None before
+    any."""
 
 
 async def pin(
@@ -121,6 +124,8 @@ def write_lock(path: Path, lock: Lock) -> None:
     # JSON's strings, booleans and arrays of strings are also TOML, and so is a
     # JSON string as a key.
     lines = [f"profile = {json.dumps(lock.profile)}"]
+    if lock.strict_privacy is not None:
+        lines.append(f"strict_privacy = {json.dumps(lock.strict_privacy)}")
     for role, model in lock.models.items():
         lines += ["", f"[models.{role}]"]
         # The lists are sets: sorted, so that the same lock is the same file.
