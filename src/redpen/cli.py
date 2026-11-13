@@ -73,6 +73,7 @@ from redpen.prepare.key import (
     page_points,
     point_problems,
     save_key,
+    spec_point_problems,
     write_markdown,
 )
 from redpen.prepare.parse import SpecError, missing_numbers, parse
@@ -288,6 +289,9 @@ def prepare(
         )
         _points(loaded)
         return
+    # Before the solver is paid for; the key is checked again once it has criteria.
+    if points is not None and (found := spec_point_problems(points, spec, pages)):
+        _fail("\n".join(found))
     try:
         key = asyncio.run(_key(ws, config, lock, api_key, spec))
         key = key.model_copy(update={"points": points})

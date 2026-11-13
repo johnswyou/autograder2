@@ -640,3 +640,41 @@ def test_points_that_cannot_be_met_leave_an_existing_key_as_it_is(
     ]
     assert workspace.key_yaml.read_bytes() == before
     assert not workspace.rubric_md.exists()
+
+
+@pytest.mark.parametrize(
+    ("points", "line"),
+    [
+        (
+            ["--page-points", "1,1"],
+            "the key gives 2 page maximums and the blank has 4 pages",
+        ),
+        (
+            ["--page-points", "0,1,0,0"],
+            "page 1's maximum is 0: 0 steps of 0.25 for 1 part, and each part needs"
+            " one",
+        ),
+        (
+            ["--total", "0.25"],
+            "the total is 0.25: 1 step of 0.25 for 2 parts, and each part needs one",
+        ),
+    ],
+    ids=["wrong number of pages", "no step for a part", "total too small"],
+)
+def test_a_fresh_prepare_refuses_points_that_cannot_be_met_before_any_solver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, points: list[str], line: str
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+    workspace.key_yaml.unlink()
+    for stage in ("_key", "solve", "write_rubric"):  # each fails the test if called
+        monkeypatch.setattr(f"redpen.cli.{stage}", refuse)
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws", *points])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)  # not the fakes' AssertionError
+    # The spec of Q1 and Q3 gives its warning first, as every prepare does.
+    gap = "Warning: no problem numbered 2 was found."
+    assert result.stderr.splitlines() == [gap, line]
+    assert not workspace.key_yaml.exists()
