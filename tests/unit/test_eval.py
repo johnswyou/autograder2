@@ -409,6 +409,31 @@ def test_a_gold_score_is_read_as_written_never_through_float(
     accounted(e, 4)
 
 
+def test_a_total_exactly_5_percent_of_the_maximum_away_counts_as_within(
+    built: Built, tmp_path: Path
+) -> None:
+    # 5% of 16 is 0.8. Casey's page 2: tool 3, person 2.2. Harper's: 5 and 4.15.
+    changes = {("Casey Mockup", "page 2"): "2.2", ("Harper Testcase", "page 2"): "4.15"}
+    path = gold(built, tmp_path / "g.csv", "page", changes)
+    e = evaluate(built.workspace, KEY, built.students, path)
+
+    differences = {t.student: t.difference for t in e.totals if t.difference}
+    assert differences == {"Casey Mockup": D("0.8"), "Harper Testcase": D("0.85")}
+    assert (e.totals_within.count, e.totals_within.of) == (9, 10)
+
+
+def test_a_percent_is_rounded_half_up_where_half_even_would_differ(
+    built: Built, tmp_path: Path
+) -> None:
+    # Page 2: |d| 0.125 over 10 cells of 5 points is 0.25%: 0.3%, not half-even's 0.2%.
+    changes = {("Avery Example", "page 2"): "4.875"}
+    path = gold(built, tmp_path / "g.csv", "page", changes)
+    e = evaluate(built.workspace, KEY, built.students, path)
+
+    assert [c.share for c in e.columns if c.column == "page 2"] == [D("0.0025")]
+    assert ["page", "2", "5", "10", "0.01", "0.3%"] in [r.split() for r in table(e)]
+
+
 # --- cells left out ------------------------------------------------------------------
 
 
@@ -501,12 +526,13 @@ def test_students_are_matched_with_case_and_spacing_ignored_and_nothing_guessed(
         ["  avery   EXAMPLE ", *cells["Avery Example"]],  # in place of Avery's row
         ["casey mockup", "0", "0", "0", "0"],  # a second row for one student
         ["Nobody Known", "1", "1", "1", "1"],
+        ["Someone Else", "0", "0", "0", "0"],
     ]
     e = evaluate(
         built.workspace, KEY, built.students, write_rows(tmp_path / "g.csv", rows)
     )
 
-    assert e.unknown == ["Nobody Known"]
+    assert e.unknown == ["Nobody Known", "Someone Else"]
     assert e.no_gold == ["Blake Sample"]
     assert e.doubled == ["Casey Mockup"]
     compared = {t.student for t in e.totals}
@@ -518,12 +544,31 @@ def test_students_are_matched_with_case_and_spacing_ignored_and_nothing_guessed(
     assert (len(e.totals), e.neither) == (9, 4)
     accounted(e, 4)
     text = markdown(e)
-    for title, name in [
-        ("Gold rows naming no student", "Nobody Known"),
-        ("Students with no gold row", "Blake Sample"),
-        ("Students with more than one gold row, left out", "Casey Mockup"),
+    for title, listed in [
+        ("Gold rows naming no student", "- `Nobody Known`\n- `Someone Else`"),
+        ("Students with no gold row", "- `Blake Sample`"),
+        ("Students with more than one gold row, left out", "- `Casey Mockup`"),
     ]:
-        assert f"## {title}\n\n- `{name}`\n" in text
+        assert f"## {title}\n\n{listed}\n" in text
+
+
+def test_a_gold_name_in_decomposed_form_matches_the_composed_student_name(
+    built: Built, tmp_path: Path
+) -> None:
+    # Ingest writes every name composed (NFC); a gold typed on macOS may not be.
+    students = [
+        s.model_copy(update={"student_name": "Zo\u00eb Example"})
+        if s.student_name == "Avery Example"
+        else s
+        for s in built.students
+    ]
+    rows = read_rows(built.workspace.scores_by_page_csv)
+    [avery] = [r for r in rows if r[0] == "Avery Example"]
+    avery[0] = "Zoe\u0308 Example"
+    e = evaluate(built.workspace, KEY, students, write_rows(tmp_path / "g.csv", rows))
+
+    assert (e.unknown, e.no_gold) == ([], [])
+    assert [t.cells for t in e.totals if t.student == "Zo\u00eb Example"] == [4]
 
 
 @pytest.mark.parametrize(
