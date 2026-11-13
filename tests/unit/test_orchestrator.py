@@ -597,16 +597,18 @@ def test_the_lock_holds_the_version_of_every_prompt_file(
 ) -> None:
     monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
     folder = Path(redpen.prompts.__file__).parent
-    files = sorted(folder.glob("*/*.md"))
+    files = sorted(folder.rglob("*.md"))  # every prompt file on disk
 
     assert grade().exit_code == 0
 
     lock = read_lock(WS.config_lock_toml)
-    assert lock.prompts == {
-        f"{f.parent.name}/{f.stem}": hashlib.sha256(f.read_bytes()).hexdigest()[:12]
+    assert files and lock.prompts == {
+        f.relative_to(folder).with_suffix("").as_posix(): hashlib.sha256(
+            f.read_bytes()
+        ).hexdigest()[:12]
         for f in files
     }
-    assert len(files) == 8 and lock.models == ROLES
+    assert lock.models == ROLES
 
 
 STRICT_OFF = (
