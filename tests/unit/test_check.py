@@ -211,6 +211,7 @@ HOSTILE = [
     "9^9^9^9",
     "10^(10^10)",
     "2^(3^(4^5))",
+    "1^(10^10)",  # past the exponent limit, though it would evaluate to 1
     "(" * 10000 + "x" + ")" * 10000,
     "-" * 150 + "x",
     "x+" * 5000 + "x",

@@ -515,6 +515,117 @@ def test_a_violation_put_right_on_the_second_answer_is_stored(tmp_path: Path) ->
     assert awards(records["Q4.b"]) == [Decimal(2), Decimal(1)]
 
 
+# --- held to the answer check ------------------------------------------------------
+
+
+def stated(part_id: str, **final: Any) -> Reading:
+    return reading(part_id, final_answer=NOTHING.model_copy(update=final))
+
+
+def q4b_final(award: int, overruled: str | None = None) -> Grades:
+    """Full marks on Q4, with Q4.b.c2 (its final answer, worth 1) at `award` and
+    `overruled` as Q4.b's reason."""
+    grades = q4_with().grades
+    c2 = grades[1].criteria[1].model_copy(update={"awarded": Decimal(award)})
+    grades[1] = grades[1].model_copy(
+        update={"criteria": [grades[1].criteria[0], c2], "code_overruled": overruled}
+    )
+    return Grades(grades=grades)
+
+
+AGAINST = "the award goes against the answer check, so code_overruled gives the reason"
+RIGHT, WRONG, NONE = 2.5, 5.0, None  # Q4.b's key is 2.5 m/s^2
+
+
+@pytest.mark.parametrize(
+    ("value", "found", "wrong"),
+    [
+        (RIGHT, q4b_final(0), [f"Q4.b.c2: {AGAINST}"]),
+        (WRONG, q4b_final(1), [f"Q4.b.c2: {AGAINST}"]),
+        (RIGHT, q4b_final(0, " "), [f"Q4.b.c2: {AGAINST}"]),
+        (RIGHT, q4b_final(0, "a reason"), []),
+        (WRONG, q4b_final(1, "a reason"), []),
+        (RIGHT, q4b_final(1), []),
+        (WRONG, q4b_final(0), []),
+        (NONE, q4b_final(0), []),
+        (NONE, q4b_final(1), []),
+        (RIGHT, q4_with(awarded=Decimal(1)), []),
+    ],
+    ids=[
+        "less than full on a match",
+        "full on a mismatch",
+        "white space for a reason",
+        "less than full on a match, with a reason",
+        "full on a mismatch, with a reason",
+        "full on a match",
+        "zero on a mismatch",
+        "zero when it cannot tell",
+        "full when it cannot tell",
+        "a method criterion below full on a match",
+    ],
+)
+def test_a_final_answer_award_against_the_answer_check_needs_a_reason(
+    value: float | None, found: Grades, wrong: list[str]
+) -> None:
+    asked = ASKED | {"Q4.b": stated("Q4.b", value=value, unit="m/s^2")}
+
+    assert problems(SMALL, asked, found) == wrong
+
+
+@pytest.mark.parametrize(("award", "wrong"), [(1, []), (2, [f"Q5.a.c1: {AGAINST}"])])
+def test_a_partial_level_agrees_with_a_mismatch_and_full_points_do_not(
+    award: int, wrong: list[str]
+) -> None:
+    # Q5.a's key is (x - 3)^2 - 4; its final answer, worth 2, lists a partial level 1.
+    key = key_of(PARTS["Q5.a"])
+    found = full(key, "Q5.a")
+    found.criteria[0].awarded = Decimal(award)
+    asked = {"Q5.a": stated("Q5.a", expression="(x - 3)^2 + 4")}
+
+    assert problems(key, asked, Grades(grades=[found])) == wrong
+
+
+def test_an_overrule_is_asked_for_kept_and_one_that_overrules_nothing_cleared(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    wrong = stated("Q4.b", value=WRONG, unit="m/s^2")
+    store(workspace, [ASKED["Q4.a"], wrong, ASKED["Q4.c"]])
+
+    def answer(ids: list[str], n: int) -> Grades:
+        grades = q4b_final(1, "carried" if n else None).grades
+        # Q4.a has no check, so nothing to overrule.
+        grades[0] = grades[0].model_copy(update={"code_overruled": "o"})
+        return Grades(grades=grades)
+
+    grader = Grader(Q4, answer)
+
+    records = run(workspace, Q4, grader)
+
+    assert len(grader.requests) == 2
+    last = grader.requests[1]["json"]["messages"][1]["content"][-1]
+    assert last == {
+        "type": "text",
+        "text": json.dumps({"problems": [f"Q4.b.c2: {AGAINST}"]}),
+    }
+    assert records["Q4.b"].grade.code_overruled == "carried"
+    assert records["Q4.a"].grade.code_overruled is None
+
+
+def test_a_reason_given_where_no_award_goes_against_the_check_is_cleared(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    right = stated("Q4.b", value=RIGHT, unit="m/s^2")
+    store(workspace, [ASKED["Q4.a"], right, ASKED["Q4.c"]])
+    grader = Grader(Q4, lambda ids, n: q4b_final(1, "o"))
+
+    records = run(workspace, Q4, grader)
+
+    assert len(grader.requests) == 1
+    assert records["Q4.b"].grade.code_overruled is None
+
+
 def test_a_negative_award_fails_the_schema_and_is_repaired_once_then_raises(
     tmp_path: Path,
 ) -> None:
@@ -636,8 +747,9 @@ def test_dependencies_are_sent_as_context_and_are_not_graded(tmp_path: Path) -> 
     key = key_of(PARTS["Q4.b"], PARTS["Q5.a"], PARTS["Q5.b"], q5c)
     workspace = Workspace(tmp_path / "ws")
     q4b = reading("Q4.b", lines=["the earlier work"])
+    q5b = reading("Q5.b", final_answer=NOTHING.model_copy(update={"value": -4.0}))
     store(workspace, [q4b], crops=1)
-    store(workspace, [blank("Q5.a"), reading("Q5.b"), reading("Q5.c")], crops=1)
+    store(workspace, [blank("Q5.a"), q5b, reading("Q5.c")], crops=1)
     grader = Grader(key)
 
     records = run(workspace, key, grader)
@@ -655,14 +767,19 @@ def test_dependencies_are_sent_as_context_and_are_not_graded(tmp_path: Path) -> 
     # Q5.a is read blank, so code scored it.
     assert records["Q5.a"].provenance == by_code(PARTS["Q5.a"])
     # Each part's crops follow its reading, each after a line saying what it is.
+    # The answer check goes beside the reading of a part that has one.
     url = f"data:image/png;base64,{base64.b64encode(PNG).decode()}"
     kinds = [
         json.loads(c["text"]) if c["type"] == "text" else c["image_url"]["url"]
         for c in content
     ]
-    start = kinds.index({"grade": reading("Q5.b").model_dump(mode="json")})
+    check = {
+        "verdict": "matches",
+        "reason": "The value is within tolerance of the key's value.",
+    }
+    start = kinds.index({"grade": q5b.model_dump(mode="json"), "check": check})
     assert kinds[start : start + 6] == [
-        {"grade": reading("Q5.b").model_dump(mode="json")},
+        {"grade": q5b.model_dump(mode="json"), "check": check},
         {"crop": 1, "part": "Q5.b"},
         url,
         {"grade": reading("Q5.c").model_dump(mode="json")},
@@ -728,7 +845,7 @@ def test_grades_are_stored_per_problem_with_their_provenance(tmp_path: Path) -> 
             model_slug=MODEL.slug,
         )
     assert records["Q1"].provenance == by_code(PARTS["Q1"])
-    # Stored as returned, except that no computed check was given to overrule.
+    # Stored as returned, except that Q4.a has no answer check to overrule.
     assert records["Q4.a"].grade.transcript_dispute == "d"
     assert records["Q4.a"].grade.code_overruled is None
     for problem, ids in (("Q1", ["Q1"]), ("Q4", ["Q4.a", "Q4.b", "Q4.c"])):

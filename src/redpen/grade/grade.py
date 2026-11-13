@@ -1,7 +1,8 @@
-"""Grade one read student (design 7.5, first version: no computed answer check, no
-second grader or referee, no second read or re-map). Code scores a part read blank
-and a choice part; every other part of a top-level problem goes to the grader in one
-call, and each award it returns is checked against the key. Code adds up points."""
+"""Grade one read student (design 7.5, without a second grader or referee, a second
+read or a re-map). Code scores a part read blank and a choice part; every other part
+of a top-level problem goes to the grader in one call, with the answer check's
+verdict beside each part that has one, and each award it returns is checked against
+the key and held to that verdict. Code adds up points."""
 
 import json
 from collections import Counter, defaultdict
@@ -9,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
 from redpen import prompts
+from redpen.grade.check import MATCH, UNSURE, check_answer
 from redpen.grade.read import problem_of
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
@@ -16,7 +18,7 @@ from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
 from redpen.schemas.common import Provenance, Schema
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
-from redpen.schemas.key import Criterion, Key, KeyPart
+from redpen.schemas.key import Criterion, Key, KeyPart, Policies
 from redpen.schemas.reading import ProblemReadings, Reading, ReadingRecord
 from redpen.schemas.spec import CHOICE_TYPES
 from redpen.workspace import Workspace, read_model, write_model
@@ -105,7 +107,10 @@ async def grade_student(
                     items.append(json.dumps({"context": _json(record.reading)}))
             for part in asked:
                 record = mine[part.id]
-                items.append(json.dumps({"grade": _json(record.reading)}))
+                item = {"grade": _json(record.reading)}
+                if verdict := check_answer(part, record.reading, key.policies):
+                    item["check"] = verdict._asdict()
+                items.append(json.dumps(item))
                 # shortcut: a region the map gave to two parts is sent once for each;
                 # send it once when real maps share boxes often.
                 for n in range(1, len(record.crops) + 1):
@@ -143,9 +148,15 @@ async def grade_student(
                     )
                     for c in g.criteria
                 ]
-                # No computed answer check is given yet (task 4.4): nothing to overrule.
+                # A reason that overrules no verdict is not an overrule.
+                overruled = _against(
+                    by_id[g.part_id], wanted[g.part_id], g, key.policies
+                )
                 kept = g.model_copy(
-                    update={"criteria": criteria, "code_overruled": None}
+                    update={
+                        "criteria": criteria,
+                        "code_overruled": g.code_overruled if overruled else None,
+                    }
                 )
                 records[g.part_id] = GradeRecord(
                     provenance=provenance(by_id[g.part_id], True), grade=kept
@@ -250,6 +261,12 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
                     f"{c.id}: an award below its full points gives feedback to the"
                     " student"
                 )
+        if not (g.code_overruled or "").strip():
+            wrong += [
+                f"{id}: the award goes against the answer check, so code_overruled"
+                " gives the reason"
+                for id in _against(parts[g.part_id], reading, g, key.policies)
+            ]
     return list(dict.fromkeys(wrong))
 
 
@@ -264,6 +281,28 @@ def part_points(record: GradeRecord, key: Key) -> tuple[Decimal, Decimal]:
         )
     awarded = sum((c.awarded for c in record.grade.criteria), Decimal(0))
     return awarded, sum((c.points for c in part.criteria), Decimal(0))
+
+
+def _against(
+    part: KeyPart, reading: Reading, grade: Grade, policies: Policies
+) -> list[str]:
+    """The final-answer criteria whose awards in `grade` go against the answer
+    check's verdict: below full points on a match, full points on a mismatch. A
+    partial level the key lists is a wrong answer's, so it agrees with a mismatch."""
+    found = check_answer(part, reading, policies)
+    if found is None or found.verdict == UNSURE:
+        return []
+    full = {c.id: c.points for c in part.criteria if c.kind == "final_answer"}
+    return [
+        c.id
+        for c in grade.criteria
+        if c.id in full
+        and (
+            c.awarded < full[c.id]
+            if found.verdict == MATCH
+            else c.awarded >= full[c.id] > 0
+        )
+    ]
 
 
 def _levels(criterion: Criterion) -> list[Decimal]:

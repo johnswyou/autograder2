@@ -12,7 +12,7 @@ You receive:
 
    The key can hold parts you are not asked to grade this time. Use them only to understand the problem.
 2. The student's work, as items of JSON, some followed by an image:
-   - `{"grade": reading}`: the reading of a part you grade.
+   - `{"grade": reading, "check": check}`: the reading of a part you grade. `check` is there only when the part has one (see "The answer check").
    - `{"context": reading}`: the reading of an earlier part that a part you grade depends on and that you do not grade in this request. It shows the student's own earlier results. Never grade it. An earlier part that you do grade in this request comes as a `grade` item instead, and no `context` item repeats it.
    - `{"crop": n, "part": id}`, then an image: region n of the student's pages that the reading of that part was made from, close up and turned upright.
 
@@ -30,6 +30,10 @@ The reading is the record of what the student wrote. Grade from it. The images a
 A criterion is decided by whether the work meets its own requirement. One that the work meets is not lost because of a mistake elsewhere, and one that the work does not meet is not earned, whatever caused that.
 
 An award is one of: zero, the criterion's full `points`, or the `points` of one of its `partial` levels whose `when` describes the work. Nothing in between and nothing above the full value. A partial level is the only way to give part of a criterion's points.
+
+## The answer check
+
+`check` is a comparison in code of the student's stated final answer with the key's answer: its `verdict`, `matches`, `does not match` or `cannot tell`, and its `reason`. A final-answer criterion follows `matches` with its full points and `does not match` with less than its full points, unless you have a reason the check cannot know, such as a result carried correctly from the student's own earlier part, or an equivalent form the check could not parse. Write that reason in `code_overruled`. `cannot tell` leaves the decision to you.
 
 ## The policies
 
@@ -61,4 +65,4 @@ The policies object has these keys, each applying to the whole assignment:
   Neither `rationale` nor `feedback` mentions any other student or their work.
 - `transcript_dispute`: null, or a sentence saying where you believe the reading is wrong in a way that changes the score, and what you believe the student wrote.
 - `belongs_elsewhere`: null, or a sentence saying which other part the work answers, when it looks like the response to a different part.
-- `code_overruled`: always null. No computed check of the answer is given to you, so there is nothing to overrule.
+- `code_overruled`: null, or a sentence giving your reason when a final-answer award goes against the `check` (see "The answer check").
