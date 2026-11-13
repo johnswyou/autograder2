@@ -158,6 +158,12 @@ def gold(
     return write_rows(path, rows, bom)
 
 
+def accounted(e: Evaluation, columns: int) -> None:
+    """Each cell of the matched students' grid of `columns` is in one count."""
+    counts = (e.cells, e.withheld, e.tool_only, e.neither, e.no_points)
+    assert sum(counts) == len(e.totals) * columns
+
+
 def run(gold: Path, workspace: Workspace) -> Result:
     return runner.invoke(
         app, ["eval", "--gold", str(gold), "--workspace", str(workspace.root)]
@@ -188,7 +194,10 @@ def test_the_tool_s_own_file_as_gold_agrees_in_every_measure(
     assert (e.unflagged.count, e.unflagged_named.count) == (0, 0)
     assert all(t.difference == 0 for t in e.totals)
     assert e.largest == []
-    assert (e.withheld, e.unknown, e.no_gold, e.doubled) == (0, [], [], [])
+    assert (e.unknown, e.no_gold, e.doubled) == ([], [], [])
+    accounted(e, len(columns))
+    # Low-resolution's cells are empty in the tool's file, so in both files.
+    assert (e.withheld, e.tool_only, e.neither, e.no_points) == (0, 0, len(columns), 0)
     # The low-resolution student has no compared cell, so no complete total.
     assert e.incomplete_totals == 1
     assert "None: every compared cell agrees." in markdown(e)
@@ -335,6 +344,7 @@ def test_each_measure_equals_the_value_worked_out_by_hand(
     e = evaluate(built.workspace, KEY, built.students, path)
 
     assert {c.column: (c.mean, c.share) for c in e.columns} == hand.columns
+    accounted(e, len(hand.columns))
     assert (e.cells, e.mean, e.share) == (hand.cells, hand.mean, hand.share)
     assert (e.bias, e.bias_share) == (hand.bias, hand.bias_share)
     assert (e.total_bias, e.total_bias_share) == (
@@ -389,9 +399,11 @@ def test_a_gold_score_is_read_as_written_never_through_float(
 ) -> None:
     # 4.9 has no exact binary form: through float it would be 4.9000000000000003...
     path = gold(built, tmp_path / "g.csv", "page", {("Avery Example", "page 2"): "4.9"})
-    [d] = evaluate(built.workspace, KEY, built.students, path).largest
+    e = evaluate(built.workspace, KEY, built.students, path)
 
+    [d] = e.largest
     assert (d.person, d.difference) == (D("4.9"), D("0.1"))
+    accounted(e, 4)
 
 
 # --- cells left out ------------------------------------------------------------------
@@ -413,8 +425,11 @@ def test_a_cell_the_tool_withheld_is_counted_and_left_out_of_the_measures(
         gold(built, tmp_path / "b.csv", by, changes),
     )
 
-    assert e.withheld == len(MAXIMA[by])
-    assert e.model_copy(update={"withheld": 0}) == base
+    n = len(MAXIMA[by])
+    assert (base.withheld, base.neither, e.withheld, e.neither) == (0, n, n, 0)
+    accounted(base, n)
+    accounted(e, n)
+    assert e.model_copy(update={"withheld": 0, "neither": n}) == base
 
 
 @pytest.mark.parametrize("by", ["page", "problem"])
@@ -433,6 +448,8 @@ def test_an_empty_gold_cell_is_left_out_of_the_measures(
     assert e.cells == 10 * len(MAXIMA[by]) - 2
     assert [c.cells for c in e.columns if c.column == column] == [8]
     assert (e.withheld, e.mean) == (0, 0)
+    assert (e.tool_only, e.neither) == (2, len(MAXIMA[by]))
+    accounted(e, len(MAXIMA[by]))
     # Kit and Avery now have one cell fewer, and low-resolution none: no complete
     # total, so out of the totals measures. The other eight count.
     assert (e.incomplete_totals, e.totals_within.of) == (3, 8)
@@ -448,6 +465,9 @@ def test_a_total_on_fewer_than_every_scorable_cell_is_left_out_of_the_totals(
     e = evaluate(built.workspace, KEY, built.students, path)
 
     assert e.cells == 10
+    # Pages 2 to 4 of the ten scored students, and low-resolution's four.
+    assert (e.tool_only, e.neither) == (30, 4)
+    accounted(e, 4)
     assert (e.totals_within.count, e.totals_within.of) == (0, 0)
     assert (e.total_bias, e.total_bias_share, e.totals_within.share) == (None,) * 3
     assert e.incomplete_totals == len(built.students)
@@ -491,6 +511,9 @@ def test_students_are_matched_with_case_and_spacing_ignored_and_nothing_guessed(
     assert compared.isdisjoint({"Blake Sample", "Casey Mockup"})
     # Eight students scored, on four pages, and nothing differs.
     assert (e.cells, e.mean) == (8 * 4, 0)
+    # Nine students matched: the eight, and low-resolution, empty on both sides.
+    assert (len(e.totals), e.neither) == (9, 4)
+    accounted(e, 4)
     text = markdown(e)
     for title, name in [
         ("Gold rows naming no student", "Nobody Known"),
@@ -650,6 +673,15 @@ def test_the_terminal_shows_the_table_and_no_name_and_the_json_holds_its_numbers
     stored = read_model(workspace.eval_json, Evaluation)
     assert table(stored) == lines[:-1]
     assert stored == evaluate(workspace, KEY, built.students, path)
+    accounted(stored, 4)
+    assert lines[2:8] == [
+        "Their 44 cells:",
+        "  compared, scored on both sides: 40",
+        "  withheld by the tool, scored by the person: 0",
+        "  scored by the tool, empty in the gold: 0",
+        "  empty on both sides: 4",
+        "  in columns worth no points: 0",
+    ]
     split = [line.split() for line in lines]
     assert ["overall", "40", "0.16", "4.1%"] in split
     # Halves round up when printed: 0.175 and 0.225 points, 3.75%.
@@ -723,6 +755,9 @@ def test_a_column_with_no_points_is_not_compared_nor_a_mixed_one_a_choice_cell(
     columns = ["page 1", "page 2", "page 3", "page 4", "page 6"]
     assert [c.column for c in e.columns] == columns
     assert e.cells == 10 * 5
+    # Page 5 of every student; low-resolution's five other pages.
+    assert (e.no_points, e.neither) == (11, 5)
+    accounted(e, 6)
     # Only page 1, of Q1 and Q2, holds choice parts alone.
     assert (e.choice.count, e.choice.of) == (10, 10)
 
@@ -757,6 +792,7 @@ def test_the_measures_hold_together_for_any_scores_within_the_maximums(
 
     every = [d for mine in differences.values() for d in mine]
     assert e.cells == len(every)
+    accounted(e, len(MAXIMA[by]))
     if every:
         assert e.mean is not None and e.bias is not None
         assert (e.mean == 0) == all(d == 0 for d in every)
@@ -801,6 +837,7 @@ def test_with_points_set_the_maxima_are_the_allocation_s_and_a_gold_above_is_ref
         e = evaluate(workspace, key, summary.students, path)
         assert [(c.column, c.maximum) for c in e.columns] == maxima
         assert (e.maximum, e.mean, e.largest) == (15, 0, [])
+        accounted(e, len(maxima))
 
     rows = read_rows(workspace.scores_by_page_csv)
     rows[1][rows[0].index("page 4")] = "2.25"  # on row 2, under the header

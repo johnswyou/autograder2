@@ -9,6 +9,7 @@ Nothing a student or a model wrote is copied: the listing gives paths."""
 
 import csv
 import unicodedata
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -96,12 +97,16 @@ class Evaluation(Schema):
     by: Form
     point_step: Decimal
     maximum: Decimal  # the assignment's
-    withheld: int  # cells the tool withheld that the person scored
     unknown: list[str]  # gold names matching no student
     no_gold: list[str]  # students with no gold row
     doubled: list[str]  # students with more than one gold row
-    columns: list[Column]
-    cells: int  # compared: both sides scored, maximum above 0
+    columns: list[Column]  # those worth points
+    # Each cell of the matched students is in exactly one of these five counts.
+    cells: int  # compared: both sides scored, in a column worth points
+    withheld: int  # withheld by the tool, scored by the person
+    tool_only: int  # scored by the tool, empty in the gold
+    neither: int  # empty on both sides
+    no_points: int  # in a column worth no points
     mean: Decimal | None
     share: Decimal | None  # sum of |difference| over the sum of the maximums
     within_step: Share
@@ -177,7 +182,7 @@ def evaluate(
     stored = [load(workspace, key, s) for s, _ in matched]
     raised = flags(key, stored)
     pairs: list[_Pair] = []
-    withheld = 0
+    left = Counter[str]()  # the cells not compared, by why
     for st, (_, cells) in zip(stored, matched, strict=True):
         scores = score(key, st)
         who = (None, st.student.student_key)
@@ -185,13 +190,15 @@ def evaluate(
             ids = {p.id for p in parts}
             tool = sum_of(x for x in scores if x.part.id in ids)
             person, maximum = cells[column], maxima[by][column]
-            if person is None or not maximum:  # no score, or nothing to score there
-                continue
-            if tool is None:
-                withheld += 1
-                continue
-            on = [f for f in raised if f.part_id in ids and f.student_key in who]
-            pairs.append(_Pair(st, column, parts, tool, person, maximum, on))
+            if not maximum:
+                left["no_points"] += 1
+            elif person is None:
+                left["neither" if tool is None else "tool_only"] += 1
+            elif tool is None:
+                left["withheld"] += 1
+            else:
+                on = [f for f in raised if f.part_id in ids and f.student_key in who]
+                pairs.append(_Pair(st, column, parts, tool, person, maximum, on))
 
     totals = [_total(st, [p for p in pairs if p.stored is st]) for st in stored]
     # A total is measured against the assignment's maximum, so it counts only when
@@ -209,7 +216,6 @@ def evaluate(
         by=by,
         point_step=key.policies.point_step,
         maximum=maximum,
-        withheld=withheld,
         unknown=[name for name, _ in rows if _fold(name) not in names],
         no_gold=[
             s.student_name for s in students if _fold(s.student_name) not in found
@@ -227,6 +233,10 @@ def evaluate(
             if maxima[by][column]
         ],
         cells=len(pairs),
+        withheld=left["withheld"],
+        tool_only=left["tool_only"],
+        neither=left["neither"],
+        no_points=left["no_points"],
         mean=_ratio(_sum(abs(p.difference) for p in pairs), len(pairs)),
         share=_ratio(
             _sum(abs(p.difference) for p in pairs), _sum(p.maximum for p in pairs)
@@ -405,13 +415,17 @@ def _count(share: Share, noun: str) -> str:
 
 def table(e: Evaluation) -> list[str]:
     """The measures and the counts, for the terminal: no name and no student key."""
-    students = sum(1 for t in e.totals if t.cells)
+    grid = e.cells + e.withheld + e.tool_only + e.neither + e.no_points
     return [
-        f"Compared by {e.by}: {e.cells} cells of {students} students"
-        f" ({len(e.totals)} matched a gold row).",
-        f"Cells the tool withheld that the person scored: {e.withheld}.",
+        f"Compared by {e.by}: {len(e.totals)} students matched to one gold row each.",
         f"Gold rows naming no student: {len(e.unknown)}. Students with no gold row:"
         f" {len(e.no_gold)}. Students with more than one gold row: {len(e.doubled)}.",
+        f"Their {grid} cells:",
+        f"  compared, scored on both sides: {e.cells}",
+        f"  withheld by the tool, scored by the person: {e.withheld}",
+        f"  scored by the tool, empty in the gold: {e.tool_only}",
+        f"  empty on both sides: {e.neither}",
+        f"  in columns worth no points: {e.no_points}",
         "",
         f"  {e.by:<10}{'maximum':>9}{'cells':>7}{'mean |difference|':>19}{'share':>9}",
         *(
