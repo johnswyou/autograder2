@@ -21,9 +21,11 @@ from redpen.grade.read import problem_of
 from redpen.prepare.key import (
     allocation,
     load_key,
+    number,
     page_points,
     part_hash,
     point_problems,
+    rubric_md,
     save_key,
     scaled,
     weight,
@@ -208,6 +210,23 @@ def test_allocated_points_and_scores_are_in_their_shortest_form() -> None:
     assert [str(scaled(D(2), D(e), D(2), D("0.25"))) for e in (0, 1, 2)] == [
         *("0", "1", "2")
     ]
+
+
+def test_under_a_constraint_the_rubric_calls_a_criterion_s_number_its_weight() -> None:
+    rubric = rubric_md(with_points(KEY, pages=[6, 4, 3, 2]))
+    plain = rubric_md(KEY)
+
+    assert "## Q4.a: 4(a), page 2, 1.5 points\n" in rubric
+    for c in (c for p in KEY.parts for c in p.criteria):
+        assert f"- {c.id} (weight {number(c.points)}, " in rubric
+        assert f"- {c.id} ({number(c.points)} point" in plain
+    assert "  - weight 0.5 when: Only one of the two horizontal forces" in rubric
+    assert "  - 0.5 points when: Only one of the two horizontal forces" in plain
+    assert (
+        "The weight beside each criterion and partial level counts only inside its"
+        " part.\n" in rubric
+    )
+    assert "(weight " not in plain and "- weight " not in plain
 
 
 # --- the constraint in the key --------------------------------------------------------

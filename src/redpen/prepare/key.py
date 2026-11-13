@@ -548,11 +548,17 @@ def _answer(answer: Answer) -> list[str]:
 
 def rubric_md(key: Key) -> str:
     pages, worth = page_points(key), allocation(key)
+
+    def criterion(
+        value: Decimal,
+    ) -> str:  # its points, or under a constraint its weight
+        return _points(value) if key.points is None else f"weight {number(value)}"
+
     lines = ["# Rubric", "", f"Total: {_points(sum(pages.values(), Decimal(0)))}", ""]
     if key.points is not None:
         lines += [
-            f"{scoring(key.points, key.policies.point_step)} The points beside each"
-            " criterion are its weight inside its part.",
+            f"{scoring(key.points, key.policies.point_step)} The weight beside each"
+            " criterion and partial level counts only inside its part.",
             "",
         ]
     lines += [
@@ -570,10 +576,10 @@ def rubric_md(key: Key) -> str:
             "",
         ]
         for c in part.criteria:
-            notes = [_points(c.points), c.kind.replace("_", " ")]
+            notes = [criterion(c.points), c.kind.replace("_", " ")]
             notes += ["carry-forward"] if c.carry_forward else []
             lines.append(f"- {c.id} ({', '.join(notes)}): {c.requirement}")
-            lines += [f"  - {_points(p.points)} when: {p.when}" for p in c.partial]
+            lines += [f"  - {criterion(p.points)} when: {p.when}" for p in c.partial]
         if part.common_errors:
             lines += ["", "Common errors:", ""]
             lines += [f"- {error}" for error in part.common_errors]
