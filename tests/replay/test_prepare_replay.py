@@ -3,7 +3,7 @@ referee and grader models.
 
 The run starts from the fixtures' spec.json, not from a recorded parse, so that
 recording the parse again never orphans these recordings. The recording is a dump
-of the calls a live `redpen prepare` made in a scratch workspace (about $0.62).
+of the calls a live `redpen prepare` made in a scratch workspace (about $0.53).
 """
 
 import os
