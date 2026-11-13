@@ -211,6 +211,11 @@ def prepare(
             _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
         ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
         ws.blank_pdf.write_bytes(data)
+        if ws.config_lock_toml.exists():
+            try:
+                read_lock(ws.config_lock_toml)
+            except ValueError as error:  # not TOML or not a lock: its text stays out
+                _fail(f"{ws.config_lock_toml} cannot be read ({type(error).__name__}).")
         lock = _with_prompts(ws, asyncio.run(pin(ws, config, api_key)))
         if profile is not None and profile != lock.profile:
             typer.echo(
@@ -244,7 +249,9 @@ def prepare(
         typer.echo(f"  {response_type}: {count}")
     # The instructor may have edited it: it is checked, never overwritten.
     if ws.key_yaml.exists():
-        _, problems = examine(ws.key_yaml, spec)
+        loaded, problems = examine(ws.key_yaml, spec)
+        if loaded is None:
+            _does_not_load(ws.key_yaml)
         for problem in problems:
             typer.echo(problem)
         if problems:
@@ -281,7 +288,9 @@ def _checked(path: Path, pages: int) -> Spec:
     try:
         spec = read_model(path, Spec)
     except ValidationError as error:
-        raise SpecError(f"{path} is not a valid spec: {error}") from None
+        # Pydantic's text quotes the file, which a model wrote.
+        count = error.error_count()
+        raise SpecError(f"{path} is not a valid spec: {count} errors.") from None
     if failures := check_spec(spec, pages):
         raise SpecError(f"{path} fails its checks: {'; '.join(failures)}")
     return spec
@@ -309,6 +318,12 @@ def _points(key: Key) -> None:
     typer.echo(f"Total points: {number(sum(pages.values(), Decimal(0)))}")
     for page, points in pages.items():
         typer.echo(f"  page {page}: {number(points)}")
+
+
+def _does_not_load(path: Path) -> NoReturn:
+    """A key file that does not load, in one line: its problems quote the file,
+    and `redpen key check` lists them for whoever edits it."""
+    _fail(f"{path} does not load. `redpen key check` lists its problems.")
 
 
 def _fail(message: str) -> NoReturn:
@@ -379,9 +394,11 @@ def _grade(
     except (OSError, ValueError) as error:  # missing, or a TOML or schema error
         _fail(f"{ws.root} holds no prepared key ({type(error).__name__}).")
     key, problems = examine(ws.key_yaml, spec)
+    if key is None:
+        _does_not_load(ws.key_yaml)
     for problem in problems:
         typer.echo(problem, err=True)
-    if key is None or problems:
+    if problems:
         _fail(f"{ws.key_yaml} has problems, so nothing was graded.")
     summary = _ingest(ws, submissions, roster)
     if dry_run:
@@ -404,7 +421,11 @@ def _grade(
         )
     students = [s.student_key for s in summary.students]
     run = grade_class(ws, spec, key, lock.models, config, api_key, students)
-    failed = asyncio.run(run)
+    try:
+        failed = asyncio.run(run)
+    except Exception as error:  # outside any one student: the cache or the ledger
+        log_failure(ws, "grade", error)
+        _fail(f"The class could not be graded. The traceback is in {ws.run_log}.")
     try:
         write_report(ws, key, summary.students, [f.file for f in summary.failed])
     except Exception as error:  # written to the log: it may quote stored work
@@ -470,8 +491,10 @@ def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
             }
             pinned = False
         spec = read_model(ws.spec_json, Spec) if ws.spec_json.exists() else None
-    except (ConfigError, ModelError, OSError, ValueError) as error:
+    except (ConfigError, ModelError) as error:
         _fail(f"No estimate: {error}")
+    except (OSError, ValueError) as error:  # its text may quote the stored file
+        _fail(f"No estimate: a stored file cannot be read ({type(error).__name__}).")
     try:
         sizes = blank_sizes(blank)
     except Exception as error:  # pdfium reports a file it cannot open as PdfiumError
@@ -565,7 +588,11 @@ def report(workspace: KeyWorkspace) -> None:
             f"{ws.root} holds no key or no ingest to report on"
             f" ({type(error).__name__})."
         )
-    write_report(ws, key, summary.students, [f.file for f in summary.failed])
+    try:
+        write_report(ws, key, summary.students, [f.file for f in summary.failed])
+    except Exception as error:  # written to the log: it may quote stored work
+        log_failure(ws, "report", error)
+        _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
     typer.echo(f"Wrote {ws.root / 'out'}")
 
 

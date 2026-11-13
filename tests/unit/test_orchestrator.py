@@ -263,6 +263,76 @@ def test_one_student_s_failure_is_recorded_and_the_class_goes_on(
     assert f"| incomplete | high | {len(KEY.parts)} |" in WS.run_report_md.read_text()
 
 
+MARKER = "MARKER-7f3a written by a student"
+
+
+def quiet(result: Any) -> None:
+    """`result` ended by the CLI with exit code 1, no traceback, and nothing of
+    MARKER on the terminal."""
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "MARKER" not in result.output + result.stderr
+
+
+@pytest.mark.parametrize("stored", ["readings", "grades"])
+def test_report_puts_no_stored_text_on_the_terminal(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, stored: str
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    assert grade().exit_code == 0
+    path = WS.student_dir(students()[0]) / stored / "Q4.json"
+    path.write_text(f'{{"records": [{{"reading": "{MARKER}"}}]}}')
+
+    result = runner.invoke(app, ["report", "--workspace", "ws"])
+
+    quiet(result)
+    assert result.stderr.splitlines() == [
+        f"The report could not be written. The traceback is in {WS.run_log}."
+    ]
+    assert "ValidationError" in WS.run_log.read_text()
+
+
+@pytest.mark.parametrize(
+    ("stored", "text"),
+    [
+        ("key/key.yaml", f"policies: {{}}\nparts:\n  - id: {MARKER}\n"),
+        ("key/key.yaml", f"parts: [{MARKER}\n"),
+        ("key/spec.json", f'{{"parts": [{{"id": "{MARKER}"}}]}}'),
+        ("config.lock.toml", f'profile = "{MARKER}"\n'),
+        ("config.lock.toml", f"profile = {MARKER}\n"),
+        ("cache.sqlite", MARKER * 100),
+    ],
+    ids=["key schema", "key YAML", "spec", "lock schema", "lock TOML", "cache"],
+)
+def test_grade_puts_no_stored_text_on_the_terminal(
+    router: OpenRouter, stored: str, text: str
+) -> None:
+    (WS.root / stored).write_text(text)
+
+    quiet(grade())
+
+
+@pytest.mark.parametrize(
+    ("stored", "text"),
+    [
+        ("key/spec.json", f'{{"parts": [{{"id": "{MARKER}"}}]}}'),
+        ("config.lock.toml", f'profile = "{MARKER}"\n'),
+    ],
+    ids=["spec", "lock"],
+)
+def test_a_dry_run_of_run_puts_no_stored_text_on_the_terminal(
+    router: OpenRouter, stored: str, text: str
+) -> None:
+    (WS.root / stored).write_text(text)
+    shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+
+    quiet(
+        runner.invoke(
+            app, ["run", "blank.pdf", "subs", "--workspace", "ws", "--dry-run"]
+        )
+    )
+
+
 def test_report_rebuilds_out_byte_for_byte_with_no_api_key(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:

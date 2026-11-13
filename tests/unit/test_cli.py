@@ -338,6 +338,33 @@ def test_a_profile_the_lock_does_not_pin_is_named_and_the_lock_wins(
     assert read_lock(workspace.config_lock_toml).profile == "balanced"
 
 
+MARKER = "MARKER-7f3a written by a model"
+
+
+@pytest.mark.parametrize(
+    ("stored", "text"),
+    [
+        ("key/key.yaml", f"policies: {{}}\nparts:\n  - id: {MARKER}\n"),
+        ("key/spec.json", f'{{"parts": [{{"id": "{MARKER}"}}]}}'),
+        ("config.lock.toml", f'profile = "{MARKER}"\n'),
+        ("config.lock.toml", f"profile = {MARKER}\n"),
+    ],
+    ids=["key", "spec", "lock schema", "lock TOML"],
+)
+def test_prepare_puts_no_stored_text_on_the_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored: str, text: str
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+    (workspace.root / stored).write_text(text)
+
+    result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "MARKER" not in result.output + result.stderr
+
+
 def test_key_check_asks_for_no_api_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
