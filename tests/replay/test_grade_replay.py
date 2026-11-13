@@ -5,7 +5,8 @@ the key, the truth file's readings as the stored readings, and their crops built
 from the truth's map with the read stage's image function, on the session's fresh
 ingest. Each layout class has its own recording,
 `tests/recordings/grade_<class>.jsonl`; the case of a later part worked afresh has
-`grade_fresh-route.jsonl`. Re-record (paid) with
+`grade_fresh-route.jsonl`, and the hand-built routes to 5(b) `grade_methods.jsonl`.
+Re-record (paid) with
 `REDPEN_RECORD=1 uv run pytest tests/replay/test_grade_replay.py`.
 """
 
@@ -67,12 +68,38 @@ def student_of(
     return workspace, record.student_key
 
 
-def store_afresh(workspace: Workspace, student: str, truth: SubmissionTruth) -> None:
-    """The truth's readings with 5(b) replaced by `AFRESH`, stored with no crops, so
-    that no image contradicts it."""
+# 5(b) answered -4, the key's value, by a student who left the rest of problem 5
+# blank: by another valid route than any the method criterion names, by the answer
+# alone, and by a wrong relation that happens to give -4.
+ROUTES = {
+    "another-route": [
+        "Let m be a value of f: x^2 - 6x + 5 = m",
+        "x^2 - 6x + (5 - m) = 0 has a real root only if its discriminant is >= 0",
+        "36 - 4(5 - m) >= 0",
+        "16 + 4m >= 0, so m >= -4",
+        "At m = -4 the discriminant is 0, so f takes the value -4",
+        "min = -4",
+    ],
+    "answer-alone": ["min = -4"],
+    "invalid-working": [
+        "x^2 - 6x + 5 = (x - 1)(x - 5)",
+        "The roots are 1 and 5, so the minimum is 1 - 5 = -4",
+        "min = -4",
+    ],
+}
+
+
+def store_afresh(
+    workspace: Workspace,
+    student: str,
+    truth: SubmissionTruth,
+    reading: Reading = AFRESH,
+) -> None:
+    """The truth's readings with 5(b) replaced by `reading`, stored with no crops,
+    so that no image contradicts it."""
     store_truth_readings(workspace, student, truth)
     path = workspace.reading_json(student, "Q5")
-    fresh = ReadingRecord(provenance=NOBODY, reading=AFRESH, crops=[])
+    fresh = ReadingRecord(provenance=NOBODY, reading=reading, crops=[])
     records = [
         fresh if r.reading.part_id == "Q5.b" else r
         for r in read_model(path, ProblemReadings).records
@@ -134,3 +161,53 @@ def test_a_marked_criterion_is_met_by_the_key_s_value_reached_afresh(
     assert all(c.carry_forward for c in q5b.criteria)
     got = {c.id: c.awarded for c in records["Q5.b"].grade.criteria}
     assert got == {c.id: c.points for c in q5b.criteria}
+
+
+# Each route with the policy `alternative_methods`, and the awards it must get.
+METHOD_CASES = [
+    ("another-route", True, {"Q5.b.c1": 1, "Q5.b.c2": 1}),
+    ("answer-alone", True, {"Q5.b.c1": 0, "Q5.b.c2": 1}),
+    ("invalid-working", True, {"Q5.b.c1": 0}),
+    ("another-route", False, {"Q5.b.c1": 0}),
+]
+
+
+def method_case(
+    workspace: Workspace,
+    student: str,
+    truth: SubmissionTruth,
+    route: str,
+    alternative: bool,
+) -> Key:
+    """Store `route` as the student's 5(b) and return the key of problem 5 with the
+    policy `alternative_methods` set to `alternative`."""
+    store_afresh(
+        workspace, student, truth, AFRESH.model_copy(update={"lines": ROUTES[route]})
+    )
+    policies = KEY.policies.model_copy(update={"alternative_methods": alternative})
+    return Key(
+        policies=policies, parts=[p for p in KEY.parts if problem_of(p.id) == "Q5"]
+    )
+
+
+def test_a_method_criterion_is_met_by_another_valid_route_only_under_the_policy(
+    fixture_workspace: tuple[Workspace, IngestSummary],
+    replay: Callable[[str], Gateway],
+    tmp_path: Path,
+) -> None:
+    # One test for the four cases, so that the recording holds all four calls.
+    [truth] = [t for t in map(truth_of, SUBMISSIONS) if t.layout_class == "blank"]
+    workspace, student = student_of(fixture_workspace, truth, tmp_path / "ws")
+    [q5b] = [p for p in KEY.parts if p.id == "Q5.b"]
+    assert [c.kind for c in q5b.criteria] == ["method", "final_answer"]
+
+    async def main(key: Key) -> dict[str, GradeRecord]:
+        async with replay("grade_methods") as gateway:
+            return await grade_student(workspace, student, key, gateway, GRADER)
+
+    for route, alternative, awards in METHOD_CASES:
+        q5 = method_case(workspace, student, truth, route, alternative)
+        records = asyncio.run(main(q5))
+
+        got = {c.id: c.awarded for c in records["Q5.b"].grade.criteria}
+        assert {id: got[id] for id in awards} == awards, (route, alternative)
