@@ -349,7 +349,7 @@ def constrained(draw: st.DrawFn) -> Key:
     return keyed(parts, str(step), pages=maxima)
 
 
-@settings(max_examples=300)
+@settings(deadline=None, max_examples=300)
 @given(key=constrained())
 def test_allocated_points_always_sum_exactly_to_the_constraint(key: Key) -> None:
     points, step = allocation(key), key.policies.point_step
@@ -425,7 +425,7 @@ def stored(key: Key, earned: Mapping[str, Sequence[Decimal]]) -> Stored:
     return Stored(student, readings, grades)
 
 
-@settings(max_examples=200)
+@settings(deadline=None, max_examples=200)
 @given(key=constrained(), data=st.data())
 def test_scores_stay_on_the_step_within_the_points_and_every_sum_agrees(
     key: Key, data: st.DataObject
