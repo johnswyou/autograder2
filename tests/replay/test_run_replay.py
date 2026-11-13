@@ -102,6 +102,7 @@ def test_three_students_are_graded_end_to_end_and_again_for_nothing(
     out = workspace.root / "out"
     assert sorted(p.relative_to(out).as_posix() for p in out.rglob("*.*")) == sorted(
         [
+            "review.md",
             "run_report.md",
             "scores_by_page.csv",
             "scores_by_problem.csv",
