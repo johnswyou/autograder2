@@ -53,7 +53,8 @@ CENT, TENTH = Decimal("0.01"), Decimal("0.1")
 
 
 class GoldError(Exception):
-    """The gold file is refused. The message is one line and quotes nothing of it."""
+    """The gold file is refused, in one line. It quotes no cell of the file, and any
+    header name of it only as a code span."""
 
 
 class Share(Schema):
@@ -180,6 +181,16 @@ def evaluate(
         for s in students
         if len(found.get(_fold(s.student_name), [])) == 1
     ]
+    doubled = [
+        s.student_name
+        for s in students
+        if len(found.get(_fold(s.student_name), [])) > 1
+    ]
+    if not matched and doubled:
+        raise GoldError(
+            f"No row of {gold} matches exactly one student: each student it names"
+            " has more than one row."
+        )
     if not matched:
         raise GoldError(f"No row of {gold} names a student of the ingest summary.")
 
@@ -224,11 +235,7 @@ def evaluate(
         no_gold=[
             s.student_name for s in students if _fold(s.student_name) not in found
         ],
-        doubled=[
-            s.student_name
-            for s in students
-            if len(found.get(_fold(s.student_name), [])) > 1
-        ],
+        doubled=doubled,
         columns=[
             _column(
                 column, maxima[by][column], [p for p in pairs if p.column == column]
@@ -286,13 +293,7 @@ def _read_gold(
                 None,
             )
             if by is None:
-                expected = "; or ".join(
-                    ", ".join(["student", *m]) for m in maxima.values()
-                )
-                raise GoldError(
-                    f"{path} has the columns of neither score file. Expected: "
-                    f"{expected} (and any of {', '.join(IGNORED)}, which are ignored)."
-                )
+                raise GoldError(_misfit(path, header, maxima))
             wanted = maxima[by]
             rows: Gold = []
             for n, row in enumerate(reader, 2):
@@ -314,6 +315,28 @@ def _read_gold(
             f"{path} cannot be read as a UTF-8 CSV file ({type(error).__name__})."
         ) from None
     return by, rows
+
+
+def _misfit(
+    path: Path, header: list[str], maxima: Mapping[Form, Mapping[str, Decimal]]
+) -> str:
+    """Why `header` fits neither form: the nearest form's columns, and the header's
+    that are missing, not expected or repeated."""
+    nearest = max(maxima, key=lambda f: len(set(header) & {"student", *maxima[f]}))
+    wanted = ["student", *maxima[nearest]]
+    missing = [c for c in wanted if c not in header]
+    extra = [c for c in dict.fromkeys(header) if c not in wanted and c not in IGNORED]
+    repeated = [c for c in wanted if header.count(c) > 1]
+
+    def listed(found: list[str]) -> str:
+        return ", ".join(map(code_span, found)) or "none"
+
+    text = (
+        f"{path} has the columns of neither score file. Nearest is by {nearest}:"
+        f" {', '.join(wanted)}, and any of {', '.join(IGNORED)}, which are ignored."
+        f" Missing: {listed(missing)}. Not expected: {listed(extra)}."
+    )
+    return text + (f" Repeated: {listed(repeated)}." if repeated else "")
 
 
 def _gold_points(text: str, maximum: Decimal, where: str) -> Decimal | None:

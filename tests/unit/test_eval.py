@@ -523,19 +523,28 @@ def test_students_are_matched_with_case_and_spacing_ignored_and_nothing_guessed(
         assert f"## {title}\n\n- `{name}`\n" in text
 
 
-def test_a_gold_file_that_names_no_student_is_refused(
-    built: Built, tmp_path: Path
+@pytest.mark.parametrize(
+    ("names", "why"),
+    [
+        (["Nobody"], "names a student of the ingest summary."),
+        (
+            ["Avery Example", "avery example", "Nobody"],
+            "matches exactly one student: each student it names has more than one row.",
+        ),
+    ],
+    ids=["no name known", "every match doubled"],
+)
+def test_a_gold_file_with_no_row_for_exactly_one_student_is_refused(
+    built: Built, tmp_path: Path, names: list[str], why: str
 ) -> None:
-    rows = [["student", *MAXIMA["problem"]], ["Nobody", "1", "1", "1", "1", "1"]]
-    path = write_rows(tmp_path / "g.csv", rows)
+    header = ["student", *MAXIMA["problem"]]
+    path = write_rows(tmp_path / "g.csv", [header, *([n, *"11111"] for n in names)])
 
     with pytest.raises(GoldError):
         evaluate(built.workspace, KEY, built.students, path)
     result = run(path, copy_of(built, tmp_path))
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == [
-        f"No row of {path} names a student of the ingest summary."
-    ]
+    assert result.stderr.splitlines() == [f"No row of {path} {why}"]
 
 
 def test_a_name_never_reaches_the_markdown_unescaped_or_becomes_a_path(
@@ -654,20 +663,48 @@ def test_a_gold_score_that_is_not_plain_digits_is_not_a_number_of_points(
     )
 
 
+PAGE_COLUMNS = "student, page 1, page 2, page 3, page 4"
+PROBLEM_COLUMNS = "student, Q1, Q2, Q3, Q4, Q5"
+IGNORED_TOO = "and any of total, maximum, status, open_flags, which are ignored."
+
+
+@pytest.mark.parametrize(
+    ("header", "nearest", "wrong"),
+    [
+        (
+            ["student", "page 1", "page 2", "page 3", "page 5"],
+            f"by page: {PAGE_COLUMNS}",
+            "Missing: `page 4`. Not expected: `page 5`.",
+        ),
+        (
+            ["Student", "q1", "Q2", "Q3", "Q4", "Q5", "total"],
+            f"by problem: {PROBLEM_COLUMNS}",
+            "Missing: `student`, `Q1`. Not expected: `Student`, `q1`.",
+        ),
+        (
+            ["student", "page 1", "page 1", "page 2", "page 3", "page 4"],
+            f"by page: {PAGE_COLUMNS}",
+            "Missing: none. Not expected: none. Repeated: `page 1`.",
+        ),
+        (
+            ["student", "page 1", "page 2", "page 3", "page\x1b[2J4"],
+            f"by page: {PAGE_COLUMNS}",
+            "Missing: `page 4`. Not expected: `page?[2J4`.",
+        ),
+    ],
+    ids=["a page column", "case", "a repeated column", "a control character"],
+)
 def test_a_header_that_fits_neither_score_file_is_refused_naming_the_columns(
-    built: Built, tmp_path: Path
+    built: Built, tmp_path: Path, header: list[str], nearest: str, wrong: str
 ) -> None:
-    rows = read_rows(built.workspace.scores_by_page_csv)
-    rows[0][-1] = "page 5"
-    path = write_rows(tmp_path / "g.csv", rows)
+    path = write_rows(tmp_path / "g.csv", [header])
 
     result = run(path, copy_of(built, tmp_path))
 
     assert result.exit_code == 1
     assert result.stderr.splitlines() == [
-        f"{path} has the columns of neither score file. Expected: student, page 1,"
-        " page 2, page 3, page 4; or student, Q1, Q2, Q3, Q4, Q5 (and any of total,"
-        " maximum, status, open_flags, which are ignored)."
+        f"{path} has the columns of neither score file. Nearest is {nearest},"
+        f" {IGNORED_TOO} {wrong}"
     ]
 
 
