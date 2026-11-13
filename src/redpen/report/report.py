@@ -385,8 +385,8 @@ def _run_report(
     lines += [f"| Total | {number(_worth(key.parts))} |", "", "## Students", ""]
     short = [(s, sc) for s, sc in scored if any(x.withheld for x in sc)]
     lines.append(
-        f"{len(scored)} students: {len(scored) - len(short)} with every part scored,"
-        f" {len(short)} with parts not scored."
+        f"Students: {len(scored)}. With every part scored: {len(scored) - len(short)}."
+        f" With parts not scored: {len(short)}."
     )
     if short:
         lines.append("")
