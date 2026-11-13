@@ -15,8 +15,8 @@ from typer.testing import CliRunner
 from redpen.cli import _point_value, app
 from redpen.config import Models, read_lock
 from redpen.llm.models import Catalog, recheck_providers
-from redpen.prepare.key import save_key
-from redpen.schemas.key import Criterion, Key, KeyPart, Policies
+from redpen.prepare.key import load_key, part_hash, save_key
+from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.spec import Part, Spec
 from redpen.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, answer
@@ -71,16 +71,8 @@ def test_stub_accepts_its_arguments_and_reports_not_implemented(
     assert result.stderr.strip() == "not implemented yet"
 
 
-@pytest.mark.parametrize(
-    ("args", "flag"),
-    [
-        (["prepare", "--total", "50"], "--total"),
-        (["prepare", "--page-points", "10"], "--page-points"),
-        (["prepare", "--dry-run"], "--dry-run"),
-        (["run", "subs", "--total", "0.1"], "--total"),
-        (["run", "subs", "--page-points", "1e999999", "--dry-run"], "--page-points"),
-    ],
-)
+# --total and --page-points are supported since task 4.5a (tests/unit/test_points.py).
+@pytest.mark.parametrize(("args", "flag"), [(["prepare", "--dry-run"], "--dry-run")])
 def test_prepare_and_run_refuse_what_they_do_not_support_yet(
     tmp_path: Path, args: list[str], flag: str
 ) -> None:
@@ -509,3 +501,142 @@ def test_models_check_reverifies_the_lock_in_a_workspace(
     assert [line for line in result.output.splitlines() if "pinned" in line] == (
         [f"{lock}: {problem}"] if problem else []
     )
+
+
+# --- --total and --page-points (task 4.5a) -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["prepare", "blank.pdf"], ["run", "blank.pdf", "subs"]],
+    ids=["prepare", "run"],
+)
+def test_a_total_and_page_maximums_together_are_refused(
+    tmp_path: Path, command: list[str]
+) -> None:
+    both = ["--total", "4", "--page-points", "2,2"]
+    result = runner.invoke(app, [*command, "--workspace", str(tmp_path / "ws"), *both])
+
+    assert result.exit_code == 2
+    text = " ".join(Text.from_ansi(result.stderr).plain.replace("│", " ").split())
+    assert (
+        "Invalid value for '--page-points': cannot be given together with --total"
+        in text
+    )
+    assert not (tmp_path / "ws").exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["prepare", "blank.pdf", "--page-points", "3,x"],
+        ["run", "blank.pdf", "subs", "--page-points", "1,,2"],
+        ["prepare", "blank.pdf", "--page-points", "3,-1"],
+    ],
+)
+def test_page_maximums_that_are_not_numbers_are_refused_as_points_are(
+    args: list[str],
+) -> None:
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 2
+    text = " ".join(Text.from_ansi(result.stderr).plain.replace("│", " ").split())
+    assert "is not a number of points, such as 50 or 2.5" in text
+
+
+def test_a_fresh_prepare_writes_the_points_given_into_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+    workspace.key_yaml.unlink()
+    spec = reused_spec(2)
+
+    async def stages(*args: object) -> Key:  # solve and rubric, replaced
+        return key_of(spec)
+
+    monkeypatch.setattr("redpen.cli._key", stages)
+
+    result = runner.invoke(
+        app, ["prepare", "blank.pdf", "--workspace", "ws", "--total", "4"]
+    )
+
+    assert result.exit_code == 0, result.output
+    key = load_key(workspace.key_yaml)
+    assert key.points == PointConstraint(total=Decimal(4))
+    assert key.model_copy(update={"points": None}) == key_of(spec)
+    # 16 steps of 0.25 for two parts of one point each: 2 and 2.
+    assert result.output.splitlines()[-3:] == [
+        "Total points: 4",
+        "  page 1: 2",
+        "  page 2: 2",
+    ]
+    assert "## Q1: 1, page 1, 2 points\n" in workspace.rubric_md.read_text()
+
+
+def hashes_of(workspace: Workspace) -> dict[str, str]:
+    key = load_key(workspace.key_yaml)
+    return {p.id: part_hash(p, key.policies) for p in key.parts}
+
+
+def test_on_an_existing_key_only_the_points_change_and_its_comments_stay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+    edited = b"# Edited by hand.\n" + workspace.key_yaml.read_bytes()
+    workspace.key_yaml.write_bytes(edited)
+    before, hashes = load_key(workspace.key_yaml), hashes_of(workspace)
+
+    def prepare(*points: str) -> list[str]:
+        result = runner.invoke(
+            app, ["prepare", "blank.pdf", "--workspace", "ws", *points]
+        )
+        assert result.exit_code == 0, result.output
+        assert hashes_of(workspace) == hashes
+        return result.output.splitlines()
+
+    lines = prepare("--page-points", "3,1,0,0")
+
+    assert lines[-4:] == [
+        "Set the points of ws/key/key.yaml to page maximums of 3, 1, 0, 0, and wrote"
+        " solutions.md and rubric.md again.",
+        "Total points: 4",
+        "  page 1: 3",
+        "  page 2: 1",
+    ]
+    pages = b"points:\n  pages:\n    - 3\n    - 1\n    - 0\n    - 0\n"
+    assert workspace.key_yaml.read_bytes() == edited + pages
+    assert load_key(workspace.key_yaml) == before.model_copy(
+        update={"points": PointConstraint(pages=[Decimal(n) for n in (3, 1, 0, 0)])}
+    )
+    rubric = workspace.rubric_md.read_text()
+    assert "Points follow page maximums of 3, 1, 0, 0. A part's score is" in rubric
+    assert "## Q3: 3, page 2, 1 point\n" in rubric
+
+    # Given neither, the key's points stay as they are.
+    assert prepare()[-1] == "ws/key/key.yaml has no problem and is left as it is."
+    assert workspace.key_yaml.read_bytes() == edited + pages
+
+    prepare("--total", "2")
+    assert workspace.key_yaml.read_bytes() == edited + b"points:\n  total: 2\n"
+
+
+def test_points_that_cannot_be_met_leave_an_existing_key_as_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    workspace = prepared_key(tmp_path, monkeypatch)
+    before = workspace.key_yaml.read_bytes()
+
+    result = runner.invoke(
+        app, ["prepare", "blank.pdf", "--workspace", "ws", "--page-points", "1,1"]
+    )
+
+    assert result.exit_code == 1
+    assert result.output.splitlines()[-2:] == [
+        "the key gives 2 page maximums and the blank has 4 pages",
+        "ws/key/key.yaml has problems and is left as it is.",
+    ]
+    assert workspace.key_yaml.read_bytes() == before
+    assert not workspace.rubric_md.exists()

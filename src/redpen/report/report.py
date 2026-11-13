@@ -24,7 +24,14 @@ from redpen.grade.grade import part_points
 from redpen.grade.read import problem_of
 from redpen.imaging import render
 from redpen.llm.ledger import Ledger, Usage
-from redpen.prepare.key import number, page_points, part_hash
+from redpen.prepare.key import (
+    allocation,
+    number,
+    page_points,
+    part_hash,
+    scaled,
+    scoring,
+)
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode
 from redpen.schemas.grade import GradeRecord, ProblemGrades
 from redpen.schemas.key import Key, KeyPart
@@ -80,7 +87,7 @@ class Stored:
 @dataclass(frozen=True)
 class Score:
     """One part of one student: the grade record that counts and the points it
-    awards, or, when the part is withheld, why."""
+    awards on the key's scale, or, when the part is withheld, why."""
 
     part: KeyPart
     record: GradeRecord | None
@@ -102,7 +109,7 @@ def write_report(
     stored = [load(workspace, key, s) for s in students]
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
-    maximum = points_of(key.parts)
+    maximum = points_of(key, key.parts)
     title = workspace.root.name.removesuffix(".redpen")
     by_problem: list[list[Cell]] = []
     by_page: list[list[Cell]] = []
@@ -135,7 +142,7 @@ def write_report(
                 if x.record:
                     row[3], row[5] = got[c.id].awarded, got[c.id].rationale
                 detail.append(row)
-        text = _feedback(title, problems, scores, total, maximum)
+        text = _feedback(key, title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
     run_report = _run_report(workspace, key, pages, scored, raised, not_ingested)
     # Everything is rendered before any old file is removed.
@@ -211,12 +218,19 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
 
 
 def score(key: Key, stored: Stored) -> list[Score]:
-    """Each key part's score for the stored student, in key order."""
+    """Each key part's score for the stored student, in key order: what its
+    criteria award, scaled to the part's points when a constraint is set."""
+    points, step = allocation(key), key.policies.point_step
     scores: list[Score] = []
     for part in key.parts:
         why = withheld(key, part, stored)
         record = None if why else stored.grades[part.id]
-        awarded = part_points(record, key)[0] if record else None
+        awarded = None
+        if record:
+            earned, weight = part_points(record, key)
+            awarded = earned
+            if key.points is not None:
+                awarded = scaled(points[part.id], earned, weight, step)
         scores.append(Score(part, record, awarded, why))
     return scores
 
@@ -301,8 +315,10 @@ def _read[M: BaseModel](path: Path, model: type[M]) -> M | None:
         return None
 
 
-def points_of(parts: Iterable[KeyPart]) -> Decimal:
-    return sum((c.points for p in parts for c in p.criteria), Decimal(0))
+def points_of(key: Key, parts: Iterable[KeyPart]) -> Decimal:
+    """The parts' maximum: the sum of their points in the allocation."""
+    points = allocation(key)
+    return sum((points[p.id] for p in parts), Decimal(0))
 
 
 def sum_of(scores: Iterable[Score]) -> Decimal | None:
@@ -357,6 +373,7 @@ def _out_of(awarded: Decimal | None, worth: Decimal, missing: str) -> str:
 
 
 def _feedback(
+    key: Key,
     title: str,
     problems: Sequence[str],
     scores: Sequence[Score],
@@ -372,13 +389,13 @@ def _feedback(
     for problem in problems:
         mine = [s for s in scores if problem_of(s.part.id) == problem]
         worth = _out_of(
-            sum_of(mine), points_of(s.part for s in mine), "not fully scored"
+            sum_of(mine), points_of(key, (s.part for s in mine)), "not fully scored"
         )
         # Every problem id is "Q" and its number (the PartId pattern).
         lines += ["", f"## Problem {problem[1:]}: {worth}"]
         for s in mine:
             if len(mine) > 1 or s.part.id != problem:
-                points = _out_of(s.awarded, points_of([s.part]), "not scored")
+                points = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
                 lines += ["", f"**{s.part.label}: {points}**"]
             lines += ["- " + _one_line(note) for note in _notes(s)]
     return "\n".join(lines) + "\n"
@@ -428,15 +445,21 @@ def _run_report(
     with parts not scored and why, the files not ingested, the flags by code, the
     pinned models, and the cost by role from the usage ledger."""
     maxima = page_points(key)
-    lines = ["# Run report", "", "## Key", "", "| Part | Page | Points | State |"]
-    lines.append("|---|---|---|---|")
+    lines = ["# Run report", "", "## Key", ""]
+    if key.points is not None:
+        lines += [
+            f"{scoring(key.points, key.policies.point_step)} scores_detail.csv stays"
+            " in the criteria's own points, the grader's units.",
+            "",
+        ]
+    lines += ["| Part | Page | Points | State |", "|---|---|---|---|"]
     lines += [
-        f"| {p.id} | {p.home_page} | {number(points_of([p]))} | {p.state} |"
+        f"| {p.id} | {p.home_page} | {number(points_of(key, [p]))} | {p.state} |"
         for p in key.parts
     ]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
-    lines += [f"| Total | {number(points_of(key.parts))} |", "", "## Students", ""]
+    lines += [f"| Total | {number(points_of(key, key.parts))} |", "", "## Students", ""]
     short = [(s, sc) for s, sc in scored if any(x.withheld for x in sc)]
     lines.append(
         f"Students: {len(scored)}. With every part scored: {len(scored) - len(short)}."

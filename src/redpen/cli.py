@@ -66,10 +66,12 @@ from redpen.orchestrator import (
 from redpen.prepare.assemble import assemble
 from redpen.prepare.key import (
     KeyFileError,
+    constraint_text,
     examine,
     load_key,
     number,
     page_points,
+    point_problems,
     save_key,
     write_markdown,
 )
@@ -78,7 +80,7 @@ from redpen.prepare.parse import check as check_spec
 from redpen.prepare.rubric import write_rubric
 from redpen.prepare.solve import solve
 from redpen.report.report import write_report
-from redpen.schemas.key import Key
+from redpen.schemas.key import Key, PointConstraint
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
@@ -108,12 +110,28 @@ def _point_value(text: str) -> Decimal:
     return value
 
 
-# Options on `run` and `prepare`.
+def _total(text: str) -> PointConstraint:
+    return PointConstraint(total=_point_value(text))
+
+
+def _page_points(text: str) -> PointConstraint:
+    return PointConstraint(pages=[_point_value(value) for value in text.split(",")])
+
+
+# Options on `run` and `prepare`. Given neither, the key's points stay as they are.
 Total = Annotated[
-    Decimal | None, typer.Option(parser=_point_value, help="Point total.")
+    PointConstraint | None,
+    typer.Option(
+        parser=_total, metavar="POINTS", help="Point total, shared among the parts."
+    ),
 ]
 PagePoints = Annotated[
-    Decimal | None, typer.Option(parser=_point_value, help="Points per page.")
+    PointConstraint | None,
+    typer.Option(
+        parser=_page_points,
+        metavar="P1,P2,...",
+        help="Points of each page of the blank, in page order.",
+    ),
 ]
 ProfileOption = Annotated[
     Profile | None, typer.Option(help="Verification profile. Overrides redpen.toml.")
@@ -164,14 +182,12 @@ def run(
 ) -> None:
     """Everything, start to finish: prepare, grade and report. Safe to run again:
     what was answered before is not paid for twice."""
-    for flag, given in [("--total", total), ("--page-points", page_points)]:
-        if given is not None:
-            _fail(f"{flag} is not supported yet")
+    _constraint(total, page_points)  # a dry run leaves the key as it is
     ws = Workspace.for_blank(blank, workspace)
     if dry_run:
         _estimate(ws, blank, _dry_ingest(submissions, roster))
         return
-    prepare(blank, None, None, profile, roster, False, workspace)
+    prepare(blank, total, page_points, profile, roster, False, workspace)
     _grade(ws, submissions, roster, dry_run=False)
 
 
@@ -185,15 +201,12 @@ def prepare(
     dry_run: DryRun = False,
     workspace: WorkspaceDir = None,
 ) -> None:
-    """Build the key only."""
+    """Build the key only. On a workspace that has one, --total or --page-points
+    sets its points and changes nothing else, with no model call."""
+    points = _constraint(total, page_points)
     # Refused rather than ignored: ignoring --dry-run would spend money.
-    for flag, given in [
-        ("--total", total),
-        ("--page-points", page_points),
-        ("--dry-run", dry_run or None),
-    ]:
-        if given is not None:
-            _fail(f"{flag} is not supported yet")
+    if dry_run:
+        _fail("--dry-run is not supported yet")
     ws = Workspace.for_blank(blank, workspace)
     # Opened before anything is copied, so a bad file leaves the workspace free.
     try:
@@ -254,14 +267,32 @@ def prepare(
         loaded, problems = examine(ws.key_yaml, spec)
         if loaded is None:
             _does_not_load(ws.key_yaml)
+        if points is not None:
+            loaded = loaded.model_copy(update={"points": points})
+        problems += _point_problems(ws, loaded)
         for problem in problems:
             typer.echo(problem)
         if problems:
             _fail(f"{ws.key_yaml} has problems and is left as it is.")
-        typer.echo(f"{ws.key_yaml} has no problem and is left as it is.")
+        if points is None:
+            typer.echo(f"{ws.key_yaml} has no problem and is left as it is.")
+            return
+        try:
+            save_key(ws.key_yaml, loaded)
+            write_markdown(ws, loaded)
+        except (OSError, KeyFileError) as error:
+            _fail(str(error))
+        typer.echo(
+            f"Set the points of {ws.key_yaml} to {constraint_text(points)}, and"
+            f" wrote {ws.solutions_md.name} and {ws.rubric_md.name} again."
+        )
+        _points(loaded)
         return
     try:
         key = asyncio.run(_key(ws, config, lock, api_key, spec))
+        key = key.model_copy(update={"points": points})
+        if found := _point_problems(ws, key):
+            _fail("\n".join(found))
         save_key(ws.key_yaml, key)
         write_markdown(ws, key)
     except (
@@ -315,6 +346,28 @@ async def _key(
     return assemble(spec, solutions, rubrics)
 
 
+def _constraint(
+    total: PointConstraint | None, pages: PointConstraint | None
+) -> PointConstraint | None:
+    if total is not None and pages is not None:
+        raise typer.BadParameter(
+            "cannot be given together with --total", param_hint="'--page-points'"
+        )
+    return total if total is not None else pages
+
+
+def _point_problems(ws: Workspace, key: Key) -> list[str]:
+    """What stops the key's points being met on the blank of `ws`, one line each."""
+    if key.points is None:
+        return []
+    try:
+        with render.open_pdf(ws.blank_pdf) as pdf:
+            pages = len(pdf)
+    except Exception:  # pdfium reports a file it cannot open as PdfiumError
+        return [f"{ws.blank_pdf} cannot be opened to count its pages"]
+    return point_problems(key, pages)
+
+
 def _points(key: Key) -> None:
     pages = page_points(key)
     typer.echo(f"Total points: {number(sum(pages.values(), Decimal(0)))}")
@@ -342,6 +395,8 @@ def key_check(workspace: KeyWorkspace) -> None:
     except (OSError, ValidationError) as error:
         _fail(f"{ws.spec_json} cannot be read: {error}")
     key, problems = examine(ws.key_yaml, spec)
+    if key is not None:
+        problems += _point_problems(ws, key)
     for problem in problems:
         typer.echo(problem)
     if problems or key is None:
@@ -358,6 +413,8 @@ def key_render(workspace: KeyWorkspace) -> None:
         key = load_key(ws.key_yaml)
     except (OSError, YAMLError, ValidationError):
         _fail(f"{ws.key_yaml} does not load. `redpen key check` lists its problems.")
+    if found := _point_problems(ws, key):
+        _fail("\n".join(found))
     try:
         write_markdown(ws, key)
     except ArithmeticError:  # a point value past what Decimal can sum
@@ -398,6 +455,7 @@ def _grade(
     key, problems = examine(ws.key_yaml, spec)
     if key is None:
         _does_not_load(ws.key_yaml)
+    problems += _point_problems(ws, key)
     for problem in problems:
         typer.echo(problem, err=True)
     if problems:
@@ -601,6 +659,8 @@ def report(workspace: KeyWorkspace) -> None:
             f"{ws.root} holds no key or no ingest to report on"
             f" ({type(error).__name__})."
         )
+    if found := _point_problems(ws, key):
+        _fail("\n".join(found))
     try:
         write_report(ws, key, summary.students, [f.file for f in summary.failed])
     except Exception as error:  # written to the log: it may quote stored work
@@ -646,6 +706,8 @@ def eval_(
             f"{ws.root} holds no key or no ingest to compare with"
             f" ({type(error).__name__})."
         )
+    if found := _point_problems(ws, key):
+        _fail("\n".join(found))
     try:
         result = evaluate(ws, key, summary.students, gold, top)
         write_model(ws.eval_json, result)

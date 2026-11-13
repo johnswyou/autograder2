@@ -157,7 +157,7 @@ def evaluate(
         },
     }
     maxima: dict[Form, dict[str, Decimal]] = {
-        f: {c: points_of(parts) for c, parts in form.items()}
+        f: {c: points_of(key, parts) for c, parts in form.items()}
         for f, form in forms.items()
     }
     by, rows = _read_gold(gold, maxima)
@@ -194,7 +194,7 @@ def evaluate(
 
     totals = [_total(st, [p for p in pairs if p.stored is st]) for st in stored]
     counted = [t for t in totals if t.cells]
-    maximum = points_of(key.parts)
+    maximum = points_of(key, key.parts)
     signed = _sum(t.difference for t in counted)
     large = [p for p in pairs if abs(p.difference) > LARGE * p.maximum]
     choice = [p for p in pairs if all(x.response_type in CHOICE_TYPES for x in p.parts)]

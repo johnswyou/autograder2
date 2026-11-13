@@ -115,6 +115,33 @@ class Policies(Schema):
     point_step: Points = Decimal("0.25")
 
 
+# The instructor's points: a total for the assignment, or one maximum per page of the
+# blank in page order, never both. It lies outside every part and the policies, so
+# that setting it changes no part hash and re-grades nobody. Plain Decimals, so that
+# a value below zero is refused by the point check, which names its page.
+class PointConstraint(Schema):
+    model_config = ConfigDict(
+        json_schema_mode_override="serialization",
+        json_schema_serialization_defaults_required=True,
+    )
+
+    total: Decimal | None = None
+    pages: list[Decimal] | None = None
+
+    @model_validator(mode="after")
+    def _a_total_or_pages(self) -> Self:
+        if (self.total is None) == (self.pages is None):
+            raise ValueError("give either a total or page maximums")
+        return self
+
+
 class Key(Schema):
+    model_config = ConfigDict(
+        json_schema_mode_override="serialization",
+        json_schema_serialization_defaults_required=True,
+    )
+
     policies: Policies
     parts: list[KeyPart]
+    # None, as in a key written before it existed: each part is worth its criteria.
+    points: PointConstraint | None = None

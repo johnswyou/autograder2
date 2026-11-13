@@ -11,7 +11,8 @@ import hashlib
 import io
 import json
 from collections import Counter, defaultdict
-from decimal import Decimal
+from collections.abc import Sequence
+from decimal import ROUND_HALF_UP, Decimal, Inexact, localcontext
 from pathlib import Path
 from typing import Any, cast, get_origin
 
@@ -23,7 +24,7 @@ from ruamel.yaml.nodes import ScalarNode
 from ruamel.yaml.representer import RoundTripRepresenter
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
-from redpen.schemas.key import Answer, Key, KeyPart, Policies
+from redpen.schemas.key import Answer, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.workspace import Workspace
 
@@ -106,7 +107,9 @@ def save_key(path: Path, key: Key) -> None:
     written is read back first: if it is not `key`, `KeyFileError` is raised and
     `path` is left as it is."""
     yaml = _writer()
-    data = _yaml_data(key.model_dump())
+    data = _yaml_data(key.model_dump(exclude={"points"}))
+    if key.points is not None:  # left out when unset, as in a key from before it
+        data["points"] = key.points.model_dump(exclude_none=True)
     for part in data["parts"]:
         part["answer"] = {
             k: v for k, v in part["answer"].items() if v not in (None, [])
@@ -311,14 +314,149 @@ def check(key: Key, spec: Spec) -> list[str]:
     return problems
 
 
+# --- points (design 6.4, as the instructor ruled) -----------------------------------
+
+
+def weight(part: KeyPart) -> Decimal:
+    """The sum of `part`'s criteria's points."""
+    return sum((c.points for c in part.criteria), Decimal(0))
+
+
+def allocation(key: Key) -> dict[str, Decimal]:
+    """Each part's points, by part id in key order: every maximum and every score
+    goes through this. With no constraint, a part is worth its weight. Under page
+    maximums the parts printed on a page share its points, and under a total all
+    parts share it: in proportion to their weights, in whole steps by the largest
+    remainder (a tie to the earlier part). Then a part left with nothing takes one
+    step from the part that holds the most (the later one on a tie). Raises
+    ValueError for a constraint that cannot be met."""
+    weights = {p.id: weight(p) for p in key.parts}
+    if key.points is None:
+        return weights
+    if problems := point_problems(key):
+        raise ValueError(problems[0])
+    step = key.policies.point_step
+    points: dict[str, Decimal] = {}
+    for _, _, value, parts in _shares(key.points, key.parts):
+        if parts:
+            steps = _steps(int(value / step), [weights[p.id] for p in parts])
+            points |= {p.id: n * step for p, n in zip(parts, steps, strict=True)}
+    return {p.id: points[p.id] for p in key.parts}
+
+
+def _steps(steps: int, weights: Sequence[Decimal]) -> list[int]:
+    """`steps` shared in proportion to `weights`, in whole steps, none left at 0."""
+    whole = sum(weights, Decimal(0))
+    with localcontext() as exact:
+        exact.traps[Inexact] = True  # a share past 28 digits raises, never rounds
+        cuts = [divmod(steps * w, whole) for w in weights]
+    given = [int(floor) for floor, _ in cuts]
+    # A stable sort: of equal remainders, the earlier part comes first.
+    for i in sorted(range(len(cuts)), key=lambda i: -cuts[i][1])[: steps - sum(given)]:
+        given[i] += 1
+    for i in range(len(given)):
+        if not given[i]:  # max keeps the first it meets: the later part on a tie
+            most = max(reversed(range(len(given))), key=given.__getitem__)
+            given[most] -= 1
+            given[i] += 1
+    return given
+
+
+def _shares(
+    c: PointConstraint, parts: Sequence[KeyPart]
+) -> list[tuple[str, str, Decimal, list[KeyPart]]]:
+    """What shares points: where, the value's name, the value and its parts. That is
+    the whole assignment under a total, or else each page that has a maximum or a
+    part (a page past the maximums given has 0)."""
+    if c.total is not None:
+        return [("the assignment", "the total", c.total, list(parts))]
+    given = c.pages or []
+    return [
+        (
+            f"page {n}",
+            f"page {n}'s maximum",
+            given[n - 1] if n <= len(given) else Decimal(0),
+            [p for p in parts if p.home_page == n],
+        )
+        for n in range(1, max([len(given), *(p.home_page for p in parts)]) + 1)
+    ]
+
+
+def point_problems(key: Key, pages: int | None = None) -> list[str]:
+    """Why the key's point constraint cannot be met, one line each naming its page:
+    a value below zero or off the point step, a page with points but no part, or
+    fewer steps than the parts that share them; and, given the blank's number of
+    `pages`, page maximums of another number. Nothing for no constraint."""
+    c, step = key.points, key.policies.point_step
+    if c is None:
+        return []
+    problems: list[str] = []
+    if pages is not None and c.pages is not None and len(c.pages) != pages:
+        problems.append(
+            f"the key gives {len(c.pages)} page maximums and the blank has"
+            f" {pages} pages"
+        )
+    for where, name, value, parts in _shares(c, key.parts):
+        try:
+            whole = step > 0 and value % step == 0
+        except ArithmeticError:  # too many digits for the quotient
+            whole = None
+        if whole is None:
+            problems.append(
+                f"{name} is {number(value)}, too large to share in steps of"
+                f" {number(step)}"
+            )
+        elif value < 0:
+            problems.append(f"{name} is {number(value)}, below zero")
+        elif not whole:
+            problems.append(
+                f"{name} is {number(value)}, not a multiple of the point step"
+                f" {number(step)}"
+            )
+        elif value and not parts:
+            problems.append(f"{name} is {number(value)}, but {where} has no part")
+        elif value / step < len(parts):
+            n = len(parts)
+            problems.append(
+                f"{name} is {number(value)}, {number(value / step)} steps of"
+                f" {number(step)} for the {n} part{'s' * (n != 1)} of {where}"
+            )
+    return problems
+
+
+def scaled(points: Decimal, earned: Decimal, weight: Decimal, step: Decimal) -> Decimal:
+    """The score of a part worth `points` whose criteria gave `earned` of their
+    `weight`: `points` x `earned` / `weight`, rounded to the nearest `step`, a tie
+    rounding up. Nothing earned is 0, and everything earned is `points` exactly."""
+    steps = points * earned / (weight * step)
+    return steps.to_integral_value(ROUND_HALF_UP) * step
+
+
+def constraint_text(c: PointConstraint) -> str:
+    """`c` in words: "a total of 34", or "page maximums of 3, 3, 4"."""
+    if c.total is not None:
+        return f"a total of {number(c.total)}"
+    return "page maximums of " + ", ".join(number(v) for v in c.pages or [])
+
+
+def scoring(c: PointConstraint, step: Decimal) -> str:
+    """How a part is scored under `c`, in two sentences."""
+    return (
+        f"Points follow {constraint_text(c)}. A part's score is its points times the"
+        " share of its criteria's points the student earned, rounded to the nearest"
+        f" {number(step)}, a tie rounding up."
+    )
+
+
 # --- solutions.md and rubric.md -------------------------------------------------------
 
 
 def page_points(key: Key) -> dict[int, Decimal]:
-    """The points of each page that holds a part, by page."""
+    """The points of each page that holds a part, by page, from the allocation."""
+    points = allocation(key)
     pages: defaultdict[int, Decimal] = defaultdict(Decimal)
     for part in key.parts:
-        pages[part.home_page] += sum((c.points for c in part.criteria), Decimal(0))
+        pages[part.home_page] += points[part.id]
     return dict(sorted(pages.items()))
 
 
@@ -373,19 +511,22 @@ def _answer(answer: Answer) -> list[str]:
 
 
 def rubric_md(key: Key) -> str:
-    pages = page_points(key)
-    lines = [
-        "# Rubric",
-        "",
-        f"Total: {_points(sum(pages.values(), Decimal(0)))}",
-        "",
+    pages, worth = page_points(key), allocation(key)
+    lines = ["# Rubric", "", f"Total: {_points(sum(pages.values(), Decimal(0)))}", ""]
+    if key.points is not None:
+        lines += [
+            f"{scoring(key.points, key.policies.point_step)} The points beside each"
+            " criterion are its weight inside its part.",
+            "",
+        ]
+    lines += [
         "| Page | Points |",
         "|---|---|",
         *(f"| {page} | {number(points)} |" for page, points in pages.items()),
         "",
     ]
     for part in key.parts:
-        total = sum((c.points for c in part.criteria), Decimal(0))
+        total = worth[part.id]
         lines += [
             f"## {part.id}: {part.label}, page {part.home_page}, {_points(total)}",
             "",
