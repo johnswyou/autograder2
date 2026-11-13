@@ -97,15 +97,11 @@ def write_report(
     feedback file per student (any other is removed) and the run report, which
     also lists the files of `not_ingested` (names inside the submissions, never
     opened here). Returns every flag derived."""
-    with render.open_pdf(workspace.blank_pdf) as pdf:
-        last = len(pdf)
-    # A part moved by hand past the blank's last page keeps its points on a column.
-    pages = list(range(1, max([last, *(p.home_page for p in key.parts)]) + 1))
-    problems = list(dict.fromkeys(problem_of(p.id) for p in key.parts))
+    problems, pages = columns(workspace, key)
     stored = [load(workspace, key, s) for s in students]
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
-    maximum = _worth(key.parts)
+    maximum = points_of(key.parts)
     title = workspace.root.name.removesuffix(".redpen")
     by_problem: list[list[Cell]] = []
     by_page: list[list[Cell]] = []
@@ -119,7 +115,7 @@ def write_report(
             [
                 name,
                 *(
-                    _sum(x for x in scores if problem_of(x.part.id) == q)
+                    sum_of(x for x in scores if problem_of(x.part.id) == q)
                     for q in problems
                 ),
                 total,
@@ -129,7 +125,7 @@ def write_report(
             ]
         )
         by_page.append(
-            [name, *(_sum(x for x in scores if x.part.home_page == n) for n in pages)]
+            [name, *(sum_of(x for x in scores if x.part.home_page == n) for n in pages)]
         )
         for x in scores:
             got = {c.id: c for c in x.record.grade.criteria} if x.record else {}
@@ -164,6 +160,16 @@ def write_report(
     )
     workspace.run_report_md.write_text(run_report, encoding="utf-8")
     return raised
+
+
+def columns(workspace: Workspace, key: Key) -> tuple[list[str], list[int]]:
+    """The score files' columns: the key's top-level problems in key order, and the
+    pages from 1 to the blank's last. Opens the blank (pypdfium2)."""
+    with render.open_pdf(workspace.blank_pdf) as pdf:
+        last = len(pdf)
+    # A part moved by hand past the blank's last page keeps its points on a column.
+    pages = list(range(1, max([last, *(p.home_page for p in key.parts)]) + 1))
+    return list(dict.fromkeys(problem_of(p.id) for p in key.parts)), pages
 
 
 def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
@@ -294,11 +300,11 @@ def _read[M: BaseModel](path: Path, model: type[M]) -> M | None:
         return None
 
 
-def _worth(parts: Iterable[KeyPart]) -> Decimal:
+def points_of(parts: Iterable[KeyPart]) -> Decimal:
     return sum((c.points for p in parts for c in p.criteria), Decimal(0))
 
 
-def _sum(scores: Iterable[Score]) -> Decimal | None:
+def sum_of(scores: Iterable[Score]) -> Decimal | None:
     """The points `scores` award, or None (an empty cell) when one is withheld."""
     total = Decimal(0)
     for s in scores:
@@ -364,12 +370,14 @@ def _feedback(
         lines += ["", "Some parts are not scored yet, so this total is not complete."]
     for problem in problems:
         mine = [s for s in scores if problem_of(s.part.id) == problem]
-        worth = _out_of(_sum(mine), _worth(s.part for s in mine), "not fully scored")
+        worth = _out_of(
+            sum_of(mine), points_of(s.part for s in mine), "not fully scored"
+        )
         # Every problem id is "Q" and its number (the PartId pattern).
         lines += ["", f"## Problem {problem[1:]}: {worth}"]
         for s in mine:
             if len(mine) > 1 or s.part.id != problem:
-                points = _out_of(s.awarded, _worth([s.part]), "not scored")
+                points = _out_of(s.awarded, points_of([s.part]), "not scored")
                 lines += ["", f"**{s.part.label}: {points}**"]
             lines += ["- " + _one_line(note) for note in _notes(s)]
     return "\n".join(lines) + "\n"
@@ -384,7 +392,7 @@ def _one_line(note: str) -> str:
     return text.replace("\\", "\\\\").replace("<", "\\<").replace("#", "\\#")
 
 
-def _code(text: str) -> str:
+def code_span(text: str) -> str:
     """Untrusted `text`, such as a file name, as a Markdown code span on one line:
     each control or line-separating character (a newline, a bidi override) as `?`,
     and fenced by more backticks than any run of them inside."""
@@ -422,12 +430,12 @@ def _run_report(
     lines = ["# Run report", "", "## Key", "", "| Part | Page | Points | State |"]
     lines.append("|---|---|---|---|")
     lines += [
-        f"| {p.id} | {p.home_page} | {number(_worth([p]))} | {p.state} |"
+        f"| {p.id} | {p.home_page} | {number(points_of([p]))} | {p.state} |"
         for p in key.parts
     ]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
-    lines += [f"| Total | {number(_worth(key.parts))} |", "", "## Students", ""]
+    lines += [f"| Total | {number(points_of(key.parts))} |", "", "## Students", ""]
     short = [(s, sc) for s, sc in scored if any(x.withheld for x in sc)]
     lines.append(
         f"Students: {len(scored)}. With every part scored: {len(scored) - len(short)}."
@@ -443,7 +451,7 @@ def _run_report(
         lines += ["", "## Files not ingested", ""]
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
         lines.append("")
-        lines += [f"- {_code(file)}: {NOT_INGESTED}" for file in not_ingested]
+        lines += [f"- {code_span(file)}: {NOT_INGESTED}" for file in not_ingested]
     counts = Counter(f.code for f in raised)
     lines += ["", "## Flags", ""]
     if counts:

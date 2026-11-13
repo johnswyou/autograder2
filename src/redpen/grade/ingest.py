@@ -82,7 +82,7 @@ def ingest(
     if roster is not None:
         with roster.open(newline="", encoding="utf-8-sig") as rows:
             names = [_nfc(row[0]).strip() for row in csv.reader(rows) if row]
-        spelling = {_fold(name): name for name in names if name}
+        spelling = {fold(name): name for name in names if name}
 
     groups: dict[str, list[_Submission]] = {}
     for file, data, modified in files:
@@ -96,10 +96,10 @@ def ingest(
             failed.append(Failure(file=file, reason="The PDF has no pages."))
             continue
         given = _name(file, sidebars)
-        name = spelling.get(_fold(given), given)
+        name = spelling.get(fold(given), given)
         kind: SourceKind = "classkick" if sidebars else "other"
         submission = _Submission(file, data, modified, pdf, kind, given, name)
-        groups.setdefault(_fold(name), []).append(submission)
+        groups.setdefault(fold(name), []).append(submission)
 
     chosen: list[_Submission] = []
     duplicates: list[Duplicate] = []
@@ -132,7 +132,7 @@ def ingest(
         students=students,
         duplicates=duplicates,
         not_on_roster=sorted(
-            s.name for s in chosen if roster and _fold(s.name) not in spelling
+            s.name for s in chosen if roster and fold(s.name) not in spelling
         ),
         missing_from_roster=sorted(n for f, n in spelling.items() if f not in groups),
         ignored_files=ignored,
@@ -226,7 +226,7 @@ def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-def _fold(name: str) -> str:
+def fold(name: str) -> str:
     """`name` with case and spacing ignored."""
     return "".join(name.split()).casefold()
 
