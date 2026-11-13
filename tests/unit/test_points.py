@@ -310,6 +310,11 @@ def test_a_constraint_that_cannot_be_met_is_refused_in_one_line_naming_the_page(
     assert isinstance(reported.exception, SystemExit)  # no traceback
     assert reported.stderr.splitlines() == [line]
     assert not (workspace.root / "out").exists()
+    # Refused before anything else is read: no gold file, no Markdown written.
+    for other in (["key", "render"], ["eval", "--gold", "none.csv"]):
+        result = runner.invoke(app, [*other, "--workspace", root])
+        assert (result.exit_code, result.stderr.splitlines()) == (1, [line])
+    assert not workspace.rubric_md.exists()
     assert point_problems(key, 4) == [line]
     if "blank has" not in line:  # the page count is the blank's, not the key's
         with pytest.raises(ValueError, match=re.escape(line)):
