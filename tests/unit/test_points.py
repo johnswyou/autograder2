@@ -26,6 +26,7 @@ from redpen.prepare.key import (
     point_problems,
     save_key,
     scaled,
+    weight,
 )
 from redpen.report.report import Stored, points_of, score, sum_of
 from redpen.schemas.common import Provenance
@@ -100,16 +101,46 @@ def test_the_worked_example_of_the_brief() -> None:
     assert allocation(key) == {"Q1": 2, "Q2": D("0.5"), "Q3": D("0.5"), "Q4": 1}
 
 
-def test_a_part_left_with_nothing_takes_a_step_from_the_later_of_the_largest() -> None:
+def test_a_part_left_with_nothing_takes_a_step_from_the_later_of_equal_holders() -> (
+    None
+):
     # A 1-point page is 4 steps for weights 1, 9, 9 (sum 19): 4 x (1, 9, 9) / 19 =
     # 0.21, 1.89, 1.89. Floors 0, 1, 1 leave 2 steps for Q2 and Q3 (remainders 17,
-    # 17 against Q1's 4): 0, 2, 2. Q1 has nothing, so it takes one step from the part
-    # holding the most; Q2 and Q3 tie at 2, and the later one, Q3, gives it up.
+    # 17 against Q1's 4): 0, 2, 2. Q1 has nothing, so it takes one step from the
+    # lightest part holding the most; Q2 and Q3 hold 2 each and weigh the same, so
+    # the later one, Q3, gives it up.
     key = keyed(
         [part("Q1", 1, "1"), part("Q2", 1, "9"), part("Q3", 1, "9")], pages=["1"]
     )
 
     assert allocation(key) == {"Q1": D("0.25"), "Q2": D("0.5"), "Q3": D("0.25")}
+
+
+def test_the_step_comes_from_the_part_holding_the_most_not_the_lightest_above_one() -> (
+    None
+):
+    # 5 steps for weights 1, 5, 10 (sum 16): 5 x (1, 5, 10) / 16 = 0.31, 1.56, 3.13.
+    # Floors 0, 1, 3 leave 1 step, for Q2 (remainder 9, against 5 and 2): 0, 2, 3.
+    # Q1 takes a step from Q3, the only part holding the most (3), not from Q2.
+    key = keyed(
+        [part("Q1", 1, "1"), part("Q2", 1, "5"), part("Q3", 1, "10")], pages=["1.25"]
+    )
+
+    assert allocation(key) == {"Q1": D("0.25"), "Q2": D("0.5"), "Q3": D("0.5")}
+
+
+def test_of_the_parts_holding_the_most_the_lightest_gives_up_the_step() -> None:
+    # 1.5 points is 6 steps for weights 15, 3, 18 (sum 36): 6 x (15, 3, 18) / 36 =
+    # 2.5, 0.5, 3. Floors 2, 0, 3 leave 1 step; Q1 and Q2 tie on remainder 18 of 36,
+    # so the earlier, Q1, takes it: 3, 0, 3. Q2 takes a step from the parts holding
+    # the most, Q1 (weight 15) and Q3 (weight 18): the lighter, Q1, gives it up.
+    # 2, 1, 3 steps: no heavier part ends below a lighter one (the rule of the brief
+    # gave 0.75, 0.25, 0.5).
+    key = keyed(
+        [part("Q1", 1, "15"), part("Q2", 1, "3"), part("Q3", 1, "18")], pages=["1.5"]
+    )
+
+    assert allocation(key) == {"Q1": D("0.5"), "Q2": D("0.25"), "Q3": D("0.75")}
 
 
 def test_a_step_left_over_between_equal_remainders_goes_to_the_earlier_part() -> None:
@@ -341,11 +372,13 @@ def constrained(draw: st.DrawFn) -> Key:
                 step * draw(st.integers(1, 12)) for _ in range(draw(st.integers(1, 3)))
             ]
             parts.append(part(id, draw(st.integers(1, pages)), *weights))
+    # Often scarce: barely one step per part, where a part is left with nothing.
+    extra = st.one_of(st.integers(0, 2), st.integers(0, 60))
     if draw(st.booleans()):
-        total = step * (len(parts) + draw(st.integers(0, 60)))
+        total = step * (len(parts) + draw(extra))
         return keyed(parts, str(step), total=total)
     counts = [sum(p.home_page == n for p in parts) for n in range(1, pages + 1)]
-    maxima = [step * (n + draw(st.integers(0, 30))) if n else D(0) for n in counts]
+    maxima = [step * (n + draw(extra)) if n else D(0) for n in counts]
     return keyed(parts, str(step), pages=maxima)
 
 
@@ -368,6 +401,31 @@ def test_allocated_points_always_sum_exactly_to_the_constraint(key: Key) -> None
     # same points.
     assert allocation(Key.model_validate_json(key.model_dump_json())) == points
     assert point_problems(key, len(key.points.pages or [])) == []
+
+
+@settings(deadline=None, max_examples=1000)
+@given(key=constrained())
+def test_no_heavier_part_gets_fewer_points_than_a_lighter_one_it_shares_with(
+    key: Key,
+) -> None:
+    points = allocation(key)
+    assert key.points is not None
+    pages = sorted({p.home_page for p in key.parts})
+    groups = (
+        [key.parts]
+        if key.points.total is not None
+        else [[p for p in key.parts if p.home_page == n] for n in pages]
+    )
+
+    for group in groups:
+        for a in group:
+            for b in group:
+                if weight(a) > weight(b):
+                    assert points[a.id] >= points[b.id], (
+                        [weight(p) for p in group],
+                        [points[p.id] for p in group],
+                        key.points,
+                    )
 
 
 def stored(key: Key, earned: Mapping[str, Sequence[Decimal]]) -> Stored:

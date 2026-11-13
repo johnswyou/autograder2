@@ -328,8 +328,9 @@ def allocation(key: Key) -> dict[str, Decimal]:
     maximums the parts printed on a page share its points, and under a total all
     parts share it: in proportion to their weights, in whole steps by the largest
     remainder (a tie to the earlier part). Then a part left with nothing takes one
-    step from the part that holds the most (the later one on a tie). Raises
-    ValueError for a constraint that cannot be met."""
+    step from the lightest of the parts that hold the most (the later one when
+    their weights are equal too). Raises ValueError for a constraint that cannot be
+    met."""
     weights = {p.id: weight(p) for p in key.parts}
     if key.points is None:
         return weights
@@ -355,9 +356,11 @@ def _steps(steps: int, weights: Sequence[Decimal]) -> list[int]:
     for i in sorted(range(len(cuts)), key=lambda i: -cuts[i][1])[: steps - sum(given)]:
         given[i] += 1
     for i in range(len(given)):
-        if not given[i]:  # max keeps the first it meets: the later part on a tie
-            most = max(reversed(range(len(given))), key=given.__getitem__)
-            given[most] -= 1
+        if not given[i]:
+            most = [j for j in range(len(given)) if given[j] == max(given)]
+            # Of those, the lightest gives, so that no heavier part ends below it.
+            donor = min(most, key=lambda j: (weights[j], -j))
+            given[donor] -= 1
             given[i] += 1
     return given
 
