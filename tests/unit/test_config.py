@@ -1,10 +1,20 @@
 import re
 import tomllib
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from redpen.config import Config, ConfigError, load_config, openrouter_api_key
+from redpen.config import (
+    Config,
+    ConfigError,
+    Lock,
+    load_config,
+    openrouter_api_key,
+    read_lock,
+    write_lock,
+)
+from redpen.llm.models import ModelInfo
 
 
 def test_defaults_load_with_no_file(
@@ -82,3 +92,27 @@ def test_missing_api_key_raises_a_clear_error(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(ConfigError, match="OPENROUTER_API_KEY is not set"):
         openrouter_api_key()
+
+
+def test_the_lock_is_written_with_its_lists_sorted_and_the_same_every_time(
+    tmp_path: Path,
+) -> None:
+    model = ModelInfo(
+        slug="vendor/model-1",
+        supported_parameters=frozenset({"tools", "max_tokens", "response_format"}),
+        accepts_images=True,
+        prompt_price=Decimal("0.000002"),
+        completion_price=Decimal("0.00001"),
+        providers=frozenset({"zeta/us", "alpha", "mid/eu"}),
+    )
+    lock = Lock(profile="balanced", models={"reader": model}, prompts={"a/b": "1"})
+    first, second = tmp_path / "first.toml", tmp_path / "second.toml"
+
+    write_lock(first, lock)
+    write_lock(second, Lock.model_validate(lock.model_dump()))
+
+    assert first.read_bytes() == second.read_bytes()
+    lines = first.read_text().splitlines()
+    assert 'providers = ["alpha", "mid/eu", "zeta/us"]' in lines
+    assert 'supported_parameters = ["max_tokens", "response_format", "tools"]' in lines
+    assert read_lock(first) == lock
