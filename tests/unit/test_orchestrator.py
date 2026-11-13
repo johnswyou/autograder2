@@ -362,6 +362,25 @@ def test_a_dry_run_of_run_puts_no_stored_text_on_the_terminal(
     )
 
 
+def test_the_failures_are_named_even_when_the_report_cannot_be_written(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object) -> None:
+        raise RuntimeError(MARKER)
+
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map("Ben"))
+    monkeypatch.setattr("redpen.cli.write_report", broken)
+
+    result = grade()
+
+    quiet(result)
+    assert result.stderr.splitlines()[-5:] == [  # after the progress lines
+        *(f"{stage}: 1 of 3 students failed." for stage in ("map", "read", "grade")),
+        f"Each traceback is in {WS.run_log}.",
+        f"The report could not be written. The traceback is in {WS.run_log}.",
+    ]
+
+
 def test_report_rebuilds_out_byte_for_byte_with_no_api_key(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:

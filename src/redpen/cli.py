@@ -427,11 +427,7 @@ def _grade(
     except Exception as error:  # outside any one student: the cache or the ledger
         log_failure(ws, "grade", error)
         _fail(f"The class could not be graded. The traceback is in {ws.run_log}.")
-    try:
-        write_report(ws, key, summary.students, [f.file for f in summary.failed])
-    except Exception as error:  # written to the log: it may quote stored work
-        log_failure(ws, "report", error)
-        _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
+    # Named before the report is tried, so that a report that fails hides none.
     for stage in STAGES:
         if count := sum(1 for done, _ in failed if done == stage):
             typer.echo(
@@ -439,6 +435,11 @@ def _grade(
             )
     if failed:
         typer.echo(f"Each traceback is in {ws.run_log}.", err=True)
+    try:
+        write_report(ws, key, summary.students, [f.file for f in summary.failed])
+    except Exception as error:  # written to the log: it may quote stored work
+        log_failure(ws, "report", error)
+        _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
     if summary.failed:
         typer.echo(
             f"Files not ingested: {len(summary.failed)}. {ws.run_report_md} lists"
