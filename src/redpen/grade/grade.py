@@ -147,12 +147,12 @@ async def grade_student(
             )
             by_id = {p.id: p for p in asked}
             for g in found.grades:
-                levels = {c.id: _levels(c) for c in by_id[g.part_id].criteria}
+                allowed = {c.id: levels(c) for c in by_id[g.part_id].criteria}
                 # Each award as the key writes the level the checks matched it to.
                 criteria = [
                     c.model_copy(
                         update={
-                            "awarded": next(x for x in levels[c.id] if x == c.awarded)
+                            "awarded": next(x for x in allowed[c.id] if x == c.awarded)
                         }
                     )
                     for c in g.criteria
@@ -162,7 +162,7 @@ async def grade_student(
                 # On a part with several final-answer criteria, a reason is kept,
                 # unasked, only when every one of them goes against the check.
                 against = _against(by_id[g.part_id], verdict, g)
-                overruled = bool(against) and len(against) == _finals(by_id[g.part_id])
+                overruled = bool(against) and len(against) == finals(by_id[g.part_id])
                 kept = g.model_copy(
                     update={
                         "criteria": criteria,
@@ -190,10 +190,10 @@ def by_code(part: KeyPart, reading: Reading) -> Grade:
     read = reading.final_answer.choices
     if reading.status == "blank":
         earned, why = False, "No response."
-    elif len(_options(part.answer.choices)) == 1 and len(_options(read)) > 1:
+    elif len(options(part.answer.choices)) == 1 and len(options(read)) > 1:
         earned, why = False, "Two or more options are marked; the question has one."
     else:
-        earned = _options(read) == _options(part.answer.choices)
+        earned = options(read) == options(part.answer.choices)
         chosen, answer = ", ".join(read), ", ".join(part.answer.choices)
         why = (
             f"Chooses {chosen}, the answer."
@@ -248,10 +248,10 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
         for c in g.criteria:
             if (want := criteria.get(c.id)) is None:
                 continue
-            levels = _levels(want)
-            if c.awarded not in levels:
+            allowed = levels(want)
+            if c.awarded not in allowed:
                 wrong.append(
-                    f"{c.id}: the award is one of {', '.join(map(number, levels))}"
+                    f"{c.id}: the award is one of {', '.join(map(number, allowed))}"
                 )
             for what, n, count in (
                 ("line", c.evidence_line, len(reading.lines)),
@@ -277,7 +277,7 @@ def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]
         # Only a part with exactly one final-answer criterion is held: with two,
         # one is often about something the check did not compare.
         part = parts[g.part_id]
-        if not (g.code_overruled or "").strip() and _finals(part) == 1:
+        if not (g.code_overruled or "").strip() and finals(part) == 1:
             wrong += [
                 f"{id}: the award goes against the answer check, so code_overruled"
                 " gives the reason"
@@ -318,11 +318,11 @@ def _against(part: KeyPart, found: Check | None, grade: Grade) -> list[str]:
     ]
 
 
-def _finals(part: KeyPart) -> int:
+def finals(part: KeyPart) -> int:
     return sum(c.kind == "final_answer" for c in part.criteria)
 
 
-def _levels(criterion: Criterion) -> list[Decimal]:
+def levels(criterion: Criterion) -> list[Decimal]:
     """The awards `criterion` allows, as the key writes them: zero, its full points
     and its partial levels."""
     return sorted(
@@ -330,7 +330,7 @@ def _levels(criterion: Criterion) -> list[Decimal]:
     )
 
 
-def _options(labels: Sequence[str]) -> set[str]:
+def options(labels: Sequence[str]) -> set[str]:
     return {label.strip().casefold() for label in labels}
 
 
