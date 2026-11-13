@@ -296,9 +296,14 @@ def test_a_check_that_raises_cannot_tell(
 
 
 @pytest.mark.parametrize("said", HOSTILE, ids=range(len(HOSTILE)))
-def test_hostile_expressions_are_cannot_tell_and_fast(said: str) -> None:
+@pytest.mark.parametrize("key", ["x^2", None], ids=["against x^2", "against itself"])
+def test_hostile_expressions_are_cannot_tell_and_fast(
+    said: str, key: str | None
+) -> None:
+    # Against itself, the same names and values: only the parser refusing the text
+    # keeps the verdict from being a match.
     start = time.perf_counter()
-    found = check_answer(symbolic("x^2"), stated(expression=said), ON)
+    found = check_answer(symbolic(key or said), stated(expression=said), ON)
     took = time.perf_counter() - start
 
     assert found is not None and found.verdict == UNSURE
