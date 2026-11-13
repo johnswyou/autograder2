@@ -8,7 +8,7 @@ from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import Flag
 from redpen.schemas.grade import Grade, GradeRecord
 from redpen.schemas.key import Key
-from redpen.schemas.reading import Reading, ReadingRecord
+from redpen.schemas.reading import Reading, ReadingRecord, SecondReadings
 from redpen.schemas.spec import Spec
 from redpen.schemas.strict import strict_problems
 from redpen.schemas.submission import Fingerprint, IngestRecord, Map, MapRecord
@@ -23,6 +23,7 @@ MODELS: list[type[BaseModel]] = [
     MapRecord,
     Reading,
     ReadingRecord,
+    SecondReadings,
     Grade,
     GradeRecord,
     Flag,

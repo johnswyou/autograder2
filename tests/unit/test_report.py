@@ -15,6 +15,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from hypothesis import example, given, settings
@@ -23,7 +24,7 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
+from redpen.grade.read import digest, problem_of
 from redpen.llm.ledger import Ledger, Usage
 from redpen.prepare.key import load_key, number, page_points, part_hash, save_key
 from redpen.report.report import (
@@ -34,6 +35,7 @@ from redpen.report.report import (
     UNREADABLE,
     flags,
     load,
+    score,
     status,
     write_report,
 )
@@ -46,6 +48,8 @@ from redpen.schemas.reading import (
     ProblemReadings,
     Reading,
     ReadingRecord,
+    SecondReading,
+    SecondReadings,
 )
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
@@ -573,6 +577,78 @@ def test_each_flag_rule_and_the_status_it_gives(
     assert {f.code for f in raised} == codes
     assert {f.part_id for f in raised} <= {"Q4.b"}
     assert status(KEY, stored, raised) == state
+
+
+# What the stored second reading of a part read with doubt does to its flags.
+DOUBT = {F.HARD_TO_READ, F.LOW_RESOLUTION}
+
+
+@pytest.mark.parametrize(
+    ("result", "tied", "codes", "state", "counts"),
+    [
+        ("same", True, set(), "final", "1. The same: 1. Different: 0. Not decided: 0"),
+        (
+            "differ",
+            True,
+            DOUBT | {F.READERS_DISAGREE},
+            "provisional",
+            "1. The same: 0. Different: 1. Not decided: 0",
+        ),
+        (
+            "not decided",
+            True,
+            DOUBT,
+            "provisional",
+            "1. The same: 0. Different: 0. Not decided: 1",
+        ),
+        ("failed", True, DOUBT, "provisional", "1. The same: 0. Different: 0."),
+        ("same", False, DOUBT, "provisional", "0. The same: 0. Different: 0."),
+    ],
+    ids=["same", "differ", "not decided", "failed", "made for another first reading"],
+)
+def test_a_second_reading_changes_the_part_s_flags_and_never_its_score(
+    built: Built,
+    tmp_path: Path,
+    result: Literal["same", "differ", "not decided", "failed"],
+    tied: bool,
+    codes: set[FlagCode],
+    state: str,
+    counts: str,
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+
+    def doubted(r: ReadingRecord) -> ReadingRecord:
+        crops = [c.model_copy(update={"scale": 2.0}) for c in r.crops]
+        changed = {"medium": "handwritten", "uncertain": [1]}
+        reading = r.reading.model_copy(update=changed)
+        return r.model_copy(update={"reading": reading, "crops": crops})
+
+    change_reading(workspace, student, "Q4.b", doubted)
+    before = load(workspace, KEY, student)
+    first = before.readings["Q4.b"]
+    second = first.model_copy(update={"reading": first.reading.model_copy()})
+    record = SecondReading(
+        part_id="Q4.b",
+        first=digest(first) if tied else "000000000000",
+        result=result,
+        second=None if result == "failed" else second,
+    )
+    write_model(
+        workspace.second_json(student.student_key), SecondReadings(records=[record])
+    )
+
+    stored = load(workspace, KEY, student)
+    raised = flags(KEY, [stored])
+
+    assert {f.code for f in raised} == codes
+    assert {f.part_id for f in raised} <= {"Q4.b"}
+    assert all(f.severity == "high" for f in raised if f.code == F.READERS_DISAGREE)
+    assert status(KEY, stored, raised) == state
+    assert score(KEY, stored) == score(KEY, before)
+    write_report(workspace, KEY, [student])
+    report = workspace.run_report_md.read_text()
+    assert f"Parts read a second time, by another vendor's model: {counts}" in report
 
 
 NAMES = [

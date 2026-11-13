@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from redpen.config import read_lock
 from redpen.grade.grade import levels, part_points
-from redpen.grade.read import problem_of
+from redpen.grade.read import digest, problem_of, unsure
 from redpen.imaging import render
 from redpen.llm.ledger import Ledger, Usage
 from redpen.prepare.key import (
@@ -36,7 +36,12 @@ from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode
 from redpen.schemas.grade import CriterionGrade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key, KeyPart
-from redpen.schemas.reading import ProblemReadings, ReadingRecord
+from redpen.schemas.reading import (
+    ProblemReadings,
+    ReadingRecord,
+    SecondReading,
+    SecondReadings,
+)
 from redpen.schemas.spec import CHOICE_TYPES
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model
@@ -66,6 +71,8 @@ DETAIL = {
     FlagCode.KEY_UNVERIFIED: "The key's answer or rubric for this part is not"
     " verified, so every student's score on it is provisional.",
     FlagCode.HARD_TO_READ: "The reader was unsure of some of the writing.",
+    FlagCode.READERS_DISAGREE: "A second reader, another vendor's model, read this"
+    " part differently. The score comes from the first reading.",
     FlagCode.LOW_RESOLUTION: "The work was read at the full resolution of the"
     " source and is still hard to read.",
     FlagCode.ADDRESSED_TO_GRADER: "The response holds text addressed to the grader.",
@@ -85,13 +92,16 @@ NO_USE = Usage(0, 0, Decimal(0))
 @dataclass(frozen=True)
 class Stored:
     """One student's ingest record, and each part's reading and grade record that
-    are stored, by part id; and the class audit of each part, the same for every
-    student."""
+    are stored, by part id; the class audit of each part, the same for every
+    student; and each part's second reading compared with the stored first."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
     grades: dict[str, GradeRecord]
     audits: Mapping[str, PartAudit] = field(default_factory=dict[str, PartAudit])
+    seconds: Mapping[str, SecondReading] = field(
+        default_factory=dict[str, SecondReading]
+    )
 
 
 @dataclass(frozen=True)
@@ -192,7 +202,8 @@ def columns(workspace: Workspace, key: Key) -> tuple[list[str], list[int]]:
 
 def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     """What is stored for `student`: the readings and grade records of each of the
-    key's top-level problems whose file exists."""
+    key's top-level problems whose file exists, and each second reading made for
+    the first reading stored now."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -201,7 +212,13 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
             readings |= {r.reading.part_id: r for r in found.records}
         if graded := _read(workspace.grade_json(who, problem), ProblemGrades):
             grades |= {r.grade.part_id: r for r in graded.records}
-    return Stored(student, readings, grades, audits(workspace, key))
+    found = _read(workspace.second_json(who), SecondReadings)
+    seconds = {
+        s.part_id: s
+        for s in (found.records if found else [])
+        if s.part_id in readings and s.first == digest(readings[s.part_id])
+    }
+    return Stored(student, readings, grades, audits(workspace, key), seconds)
 
 
 def audits(workspace: Workspace, key: Key) -> dict[str, PartAudit]:
@@ -351,13 +368,16 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
     raised: list[tuple[FlagCode, str]] = []
     if found := stored.readings.get(part.id):
         reading = found.reading
-        hard = reading.status == "answered" and (
-            bool(reading.uncertain) or reading.legibility == "poor"
-        )
+        second = stored.seconds.get(part.id)
+        # A second reader that read the same settles the doubt.
+        hard = unsure(reading) and not (second and second.result == "same")
         if reading.status == "unreadable":
             raised.append((FlagCode.UNREADABLE, UNREADABLE))
         if hard:
             raised.append((FlagCode.HARD_TO_READ, DETAIL[FlagCode.HARD_TO_READ]))
+        if second and second.result == "differ":
+            code = FlagCode.READERS_DISAGREE
+            raised.append((code, DETAIL[code]))
         # Zooming cannot help when every crop already shows the source at full size.
         # Never on a blank reading: nothing there was read.
         native = found.crops and all(c.scale and c.scale >= 1 for c in found.crops)
@@ -542,9 +562,10 @@ def _run_report(
     raised: Sequence[Flag],
     not_ingested: Sequence[str],
 ) -> str:
-    """The state of every key part, the class audit, each page's maximum and the
-    total, the students with parts not scored and why, the files not ingested, the
-    flags by code, the pinned models, and the cost by role from the usage ledger."""
+    """The state of every key part, the class audit, the second read's results,
+    each page's maximum and the total, the students with parts not scored and why,
+    the files not ingested, the flags by code, the pinned models, and the cost by
+    role from the usage ledger."""
     maxima = page_points(key)
     lines = ["# Run report", "", "## Key", ""]
     if key.points is not None:
@@ -559,6 +580,15 @@ def _run_report(
         for p in key.parts
     ]
     lines += ["", "## Class audit", "", *_audit_lines(audits(workspace, key))]
+    seconds = Counter(r.result for s, _ in scored for r in s.seconds.values())
+    lines += [
+        "",
+        "## Second read",
+        "",
+        f"Parts read a second time, by another vendor's model: {seconds.total()}."
+        f" The same: {seconds['same']}. Different: {seconds['differ']}. Not"
+        f" decided: {seconds['not decided']}. Failed: {seconds['failed']}.",
+    ]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
     lines += [f"| Total | {number(points_of(key, key.parts))} |", "", "## Students", ""]

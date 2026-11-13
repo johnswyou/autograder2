@@ -1,12 +1,13 @@
 """Running a class (design 5, 12 and 14.1).
 
-`grade_class` maps, reads and grades the students of an ingest, one stage over the
-whole class before the next, the students concurrent inside a stage as tasks on
-one thread: pdfium, which the stages open PDFs with, is not safe across threads. A
-student's failure in a stage, or in one unit of a stage, is recorded with its
-traceback in the run log and the class goes on; the later stages run on whatever
-files that student has. Then the class audit runs over every student. Resuming is
-the call cache's work: nothing is skipped because a file exists.
+`grade_class` maps, reads, reads again where the reader was unsure, and grades the
+students of an ingest, one stage over the whole class before the next, the
+students concurrent inside a stage as tasks on one thread: pdfium, which the
+stages open PDFs with, is not safe across threads. A student's failure in a stage,
+or in one unit of a stage, is recorded with its traceback in the run log and the
+class goes on; the later stages run on whatever files that student has. Then the
+class audit runs over every student. Resuming is the call cache's work: nothing is
+skipped because a file exists.
 
 `privacy_problems` is the gate before the first student page is sent, and
 `estimate` is the dry run's cost estimate."""
@@ -29,6 +30,8 @@ from redpen.grade.audit import audit_class
 from redpen.grade.grade import grade_student
 from redpen.grade.map import map_student
 from redpen.grade.read import problem_of, read_student
+from redpen.grade.second import ROLE as SECOND
+from redpen.grade.second import read_again
 from redpen.imaging import render
 from redpen.llm.client import Gateway
 from redpen.llm.ledger import Ledger, Usage
@@ -40,7 +43,7 @@ from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, log_failure
 
 # Each grade stage and the role whose model it sends student pages to.
-STAGES = {"map": "mapper", "read": "reader", "grade": "grader"}
+STAGES = {"map": "mapper", "read": "reader", "second": SECOND, "grade": "grader"}
 NO_USE = Usage(0, 0, Decimal(0))
 
 
@@ -72,10 +75,10 @@ async def grade_class(
     api_key: str,
     students: Sequence[IngestRecord],
 ) -> list[tuple[str, str]]:
-    """Map, read and grade `students` (the ingest's), showing each stage's progress
-    and running cost, then audit the class. The earlier audit's files are removed
-    first, so that none can apply to a new grade. Returns each (stage, student key)
-    that failed."""
+    """Map, read, read again where the reader was unsure, and grade `students` (the
+    ingest's), showing each stage's progress and running cost, then audit the
+    class. The earlier audit's files are removed first, so that none can apply to a
+    new grade. Returns each (stage, student key) that failed."""
     for old in workspace.audit_dir.glob("*.json"):
         old.unlink()
     keys = [s.student_key for s in students]
@@ -86,6 +89,9 @@ async def grade_class(
         ),
         "read": lambda g, s: read_student(
             workspace, s, spec, g, models["reader"], budget
+        ),
+        "second": lambda g, s: read_again(
+            workspace, s, spec, key, g, models[SECOND], budget
         ),
         "grade": lambda g, s: grade_student(workspace, s, key, g, models["grader"]),
     }
@@ -258,7 +264,8 @@ def estimate(
             **{f.name: getattr(PER_PAGE, f.name) * len(blank) for f in fields(Shape)}
         )
     )
-    costs = {stage: Cost() for stage in ("prepare", *STAGES)}
+    # Not the second read: how many parts a reader will be unsure of is not known.
+    costs = {stage: Cost() for stage in ("prepare", "map", "read", "grade")}
 
     def add(stage: str, role: str, kind: str, calls: float, images: float = 0) -> None:
         text, out = TOKENS[kind]

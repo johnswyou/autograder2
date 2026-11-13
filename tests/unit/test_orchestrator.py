@@ -47,7 +47,7 @@ from redpen.schemas.submission import (
 )
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
-from tests.pinned import GRADE_MODELS, GRADER, MAPPER, READER, ZDR
+from tests.pinned import GRADE_MODELS, GRADER, MAPPER, READER, SECOND, ZDR
 
 runner = CliRunner()
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
@@ -59,8 +59,9 @@ ROLES = GRADE_MODELS
 class OpenRouter:
     """A mock OpenRouter that keeps every request: the ZDR listing answers as
     `zdr` says; with `reads`, a read request gets a valid reading of each part it
-    names; with `decides`, the class audit's request gets full points for every
-    case; every other chat request is refused with HTTP 400."""
+    names, handwritten with its line marked uncertain when `unsure`; with
+    `decides`, the class audit's request gets full points for every case; every
+    other chat request is refused with HTTP 400."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -68,6 +69,7 @@ class OpenRouter:
             200, json={"data": ZDR}
         )
         self.reads = False
+        self.unsure = False
         self.decides = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -76,7 +78,7 @@ class OpenRouter:
             return self.zdr(request)
         body = json.loads(request.content)
         if self.reads and kind(body) == "Readings":
-            return httpx.Response(200, json=answer(body, readings(body)))
+            return httpx.Response(200, json=answer(body, readings(body, self.unsure)))
         if self.decides and kind(body) == "Decisions":
             cases = json.loads(body["messages"][1]["content"][2]["text"])["cases"]
             found = [{"case": c["case"], "reason": "r", "awarded": 1} for c in cases]
@@ -93,16 +95,17 @@ def kind(body: dict[str, Any]) -> str:
     return body["response_format"]["json_schema"]["name"]
 
 
-def readings(body: dict[str, Any]) -> dict[str, Any]:
+def readings(body: dict[str, Any], unsure: bool = False) -> dict[str, Any]:
     """A reading of each part in a read request's outline (its first text part):
-    one typed line, and the first printed option of a choice part."""
+    one typed line, and the first printed option of a choice part; or, `unsure`,
+    the line handwritten and marked uncertain."""
     outline = json.loads(body["messages"][1]["content"][0]["text"])
     return {
         "readings": [
             {
                 "part_id": part["id"],
                 "status": "answered",
-                "medium": "typed",
+                "medium": "handwritten" if unsure else "typed",
                 "lines": ["x = 4"],
                 "final_answer": {
                     "choices": part["options"][:1],
@@ -111,7 +114,7 @@ def readings(body: dict[str, Any]) -> dict[str, Any]:
                     "expression": None,
                 },
                 "elements": [],
-                "uncertain": [],
+                "uncertain": [1] if unsure else [],
                 "addressed_to_grader": [],
                 "legibility": "clear",
             }
@@ -580,6 +583,14 @@ ROLE = {"Inventory": "mapper", "Resolution": "mapper", "Readings": "reader"}
 ROLE |= {"Grades": "grader"}
 
 
+def role(body: dict[str, Any]) -> str:
+    """The role a chat request is made for: by the response model it asks for, and
+    a reading by the model it goes to, the reader's or the second reader's."""
+    if kind(body) == "Readings" and body["model"] == ROLES["second"].slug:
+        return "second"
+    return ROLE[kind(body)]
+
+
 def restricted(chats: list[httpx.Request]) -> set[str]:
     """The roles of `chats`, once each request is seen to carry a page and to go
     to the lock's model for its role, on the endpoints that keep nothing and
@@ -587,7 +598,7 @@ def restricted(chats: list[httpx.Request]) -> set[str]:
     assert chats
     for request in chats:
         body = json.loads(request.content)
-        model = ROLES[ROLE[kind(body)]]
+        model = ROLES[role(body)]
         assert b"image_url" in request.content
         assert body["model"] == model.slug
         assert body["provider"] == {
@@ -596,7 +607,7 @@ def restricted(chats: list[httpx.Request]) -> set[str]:
             "zdr": True,
             "only": sorted(model.providers),
         }
-    return {ROLE[kind(json.loads(r.content))] for r in chats}
+    return {role(json.loads(r.content)) for r in chats}
 
 
 async def mapped_everywhere(
@@ -636,13 +647,132 @@ def test_with_the_privacy_check_passing_read_and_grade_send_crops_restricted(
     result = grade()
 
     assert restricted(router.chats) == {"reader", "grader"}
-    per_role = Counter(ROLE[kind(json.loads(r.content))] for r in router.chats)
+    per_role = Counter(role(json.loads(r.content)) for r in router.chats)
     # Three read units, each student's the same pages, so later ones may come from
     # the cache; two problems go to the grader for each student, and are refused.
     assert per_role["reader"] >= 3 and per_role["grader"] == 3 * 2
     assert result.exit_code == 1  # the grader's requests are refused
     assert "grade: 3 of 3 students failed." in result.stderr.splitlines()
     assert "read:" not in result.stderr
+
+
+def fast(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every part mapped in one box, and the gateway on `router` with no wait."""
+    transport = httpx.MockTransport(router)
+    monkeypatch.setattr(
+        "redpen.orchestrator.Gateway",
+        functools.partial(Gateway, transport=transport, requests_per_second=1e6),
+    )
+    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_everywhere)
+
+
+def test_a_part_in_doubt_is_read_again_by_the_second_model_as_the_reader_was_asked(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router.reads = router.unsure = True
+    fast(router, monkeypatch)
+
+    result = grade()
+
+    assert restricted(router.chats) == {"reader", "second", "grader"}
+    asked = [json.loads(r.content) for r in router.chats]
+    reads = [b for b in asked if role(b) == "reader"]
+    again = [b for b in asked if role(b) == "second"]
+
+    def sent(body: dict[str, Any]) -> str:  # all but the model and its endpoints
+        return json.dumps({k: v for k, v in body.items() if k not in WHERE})
+
+    # Every part is in doubt, so each unit is read again with the read stage's own
+    # request: its system text, parts, images, parameters and session.
+    assert again and {sent(b) for b in again} == {sent(b) for b in reads}
+    for request in router.chats:
+        for text in [*NAMES, *students()]:
+            assert text.encode() not in request.content
+    assert "second:" not in result.stderr  # the grader's requests are refused
+    report = WS.run_report_md.read_text()
+    parts = len(KEY.parts) * len(NAMES)
+    assert (
+        f"Parts read a second time, by another vendor's model: {parts}. The same:"
+        f" {parts}. Different: 0. Not decided: 0. Failed: 0."
+    ) in report.splitlines()
+    assert "hard_to_read" not in report and "| second | " in report
+
+
+WHERE = ("model", "provider")
+
+
+def refuse(request: httpx.Request) -> httpx.Response:
+    raise AssertionError(f"a request was made: {request.url}")
+
+
+def test_a_second_reader_of_the_reader_s_vendor_is_refused_before_anything_is_sent(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = httpx.MockTransport(refuse)
+    monkeypatch.setattr(
+        "redpen.orchestrator.Gateway", functools.partial(Gateway, transport=transport)
+    )
+    monkeypatch.setattr(
+        "redpen.orchestrator.recheck_providers",
+        functools.partial(recheck_providers, transport=transport),
+    )
+    write_lock(
+        WS.config_lock_toml,
+        Lock(profile="balanced", models={**ROLES, "second": GRADER}),
+    )
+
+    result = grade()
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert result.stderr.splitlines() == [
+        f"ws/config.lock.toml: the second reader {GRADER.slug} is of the reader's"
+        f" vendor, so it cannot check the reader {READER.slug}; pin a model of"
+        " another vendor."
+    ]
+    assert not WS.students_dir.exists()
+
+
+@pytest.mark.parametrize("how", ["not pinned", "its endpoints are not listed"])
+def test_the_privacy_gate_covers_the_second_reader(
+    router: OpenRouter, tmp_path: Path, how: str
+) -> None:
+    if how == "not pinned":
+        shutil.rmtree("ws")
+        models = {r: m for r, m in ROLES.items() if r != "second"}
+        prepared(tmp_path, Lock(profile="balanced", models=models))
+        line = "second: no model is pinned in the lock"
+    else:
+        listed = [z for z in ZDR if z["model_id"] != SECOND.slug]
+        router.zdr = lambda _: httpx.Response(200, json={"data": listed})
+        line = f"second: {SECOND.slug} pinned endpoint azure is no longer zero data"
+        line += " retention"
+
+    result = grade()
+
+    assert result.exit_code == 1
+    assert line in result.stderr.splitlines()
+    assert router.chats == []
+
+
+@pytest.mark.parametrize("how", ["dry run", "gate fails"])
+def test_no_part_is_read_again_under_a_dry_run_or_past_a_failed_gate(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    router.reads = router.unsure = True
+    fast(router, monkeypatch)
+    grade()  # stores readings in doubt, and reads them again
+    assert any(role(json.loads(r.content)) == "second" for r in router.chats)
+    WS.cache_sqlite.unlink()  # so that no answer could come from the cache
+    router.requests.clear()
+    if how == "gate fails":
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+    args = ["grade", "subs", "--workspace", "ws"]
+
+    result = runner.invoke(app, [*args, "--dry-run"] if how == "dry run" else args)
+
+    assert result.exit_code == (0 if how == "dry run" else 1), result.output
+    assert router.chats == []
 
 
 def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> None:

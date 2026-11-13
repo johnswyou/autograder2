@@ -125,6 +125,10 @@ class Workspace:
     def reading_json(self, student: str, problem: str) -> Path:
         return self.student_dir(student) / "readings" / f"{problem}.json"
 
+    def second_json(self, student: str) -> Path:
+        """The parts read a second time, each compared with its first reading."""
+        return self.student_dir(student) / "readings" / "second.json"
+
     def grade_json(self, student: str, problem: str) -> Path:
         return self.student_dir(student) / "grades" / f"{problem}.json"
 

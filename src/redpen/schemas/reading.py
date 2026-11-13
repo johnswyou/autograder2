@@ -55,3 +55,20 @@ class ReadingRecord(Schema):
 
 class ProblemReadings(Schema):
     records: list[ReadingRecord]
+
+
+# A part read a second time, by another vendor's model, and compared with its first
+# reading in code: "failed" when that call failed or its answer failed the read
+# stage's checks twice, and then `second` is null. `first` is the digest of the
+# first reading's stored record (`grade.read.digest`); a result made for any other
+# first reading is ignored. The first reading is the one graded.
+class SecondReading(Schema):
+    part_id: PartId
+    first: str
+    result: Literal["same", "differ", "not decided", "failed"]
+    second: ReadingRecord | None
+
+
+# One student's parts read a second time: `Workspace.second_json`.
+class SecondReadings(Schema):
+    records: list[SecondReading]

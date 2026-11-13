@@ -36,6 +36,7 @@ from redpen.config import (
 )
 from redpen.eval.eval import GoldError, evaluate, markdown, table
 from redpen.grade.ingest import IngestSummary, ingest
+from redpen.grade.second import vendor_problem
 from redpen.imaging import render
 from redpen.llm.client import (
     FatalError,
@@ -626,6 +627,8 @@ def _grade(
     if dry_run:
         _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
         return
+    if found := vendor_problem(lock.models):  # before anything is sent
+        _fail(f"{ws.config_lock_toml}: {found}.")
     summary = _ingest(ws, submissions, roster)
     strict = config.strict_privacy
     gate = privacy_problems(lock, api_key, strict)
@@ -786,7 +789,8 @@ def _print_estimate(
         f" region is {READ_REGION} tokens to the reader and {GRADE_CROP} to the"
         " grader.",
         "Text and output tokens per call as measured on the fixture run. No retry,"
-        " second look or gap re-read; prompt caching, not counted, costs less.",
+        " second read, second look or gap re-read; prompt caching, not counted,"
+        " costs less.",
         f"USD per million tokens of the models {whose}: {prices}.",
     ]
     if keyed:

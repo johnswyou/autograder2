@@ -88,8 +88,11 @@ MAPPER = ModelInfo(
     completion_price=Decimal("5E-7"),
     providers=_VERTEX,
 )
+# ~openai/gpt-sol-latest as well: the second reader, of another vendor than the
+# reader's
+SECOND = CHECKER
 # The roles `redpen grade` sends student pages to.
-GRADE_MODELS = {"mapper": MAPPER, "reader": READER, "grader": GRADER}
+GRADE_MODELS = {"mapper": MAPPER, "reader": READER, "second": SECOND, "grader": GRADER}
 # OpenRouter's ZDR listing as it held those models' pinned endpoints: none retains.
 ZDR = [
     {
@@ -98,6 +101,6 @@ ZDR = [
         "safety_retention": False,
         "supported_parameters": ["structured_outputs"],
     }
-    for slug in sorted({m.slug for m in GRADE_MODELS.values()})
-    for tag in sorted(_VERTEX)
+    for slug, model in sorted({m.slug: m for m in GRADE_MODELS.values()}.items())
+    for tag in sorted(model.providers)
 ]
