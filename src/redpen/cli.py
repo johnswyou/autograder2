@@ -626,7 +626,7 @@ def _grade(
             " may go to providers that keep them.",
             err=True,
         )
-    students = [s.student_key for s in summary.students]
+    students = summary.students
     run = grade_class(ws, spec, key, lock.models, config, api_key, students)
     try:
         failed = asyncio.run(run)

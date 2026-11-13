@@ -70,11 +70,15 @@ async def grade_class(
     models: Mapping[str, ModelInfo],
     config: Config,
     api_key: str,
-    students: Sequence[str],
+    students: Sequence[IngestRecord],
 ) -> list[tuple[str, str]]:
-    """Map, read and grade `students` (keys of ingested students), showing each
-    stage's progress and running cost, then audit the class. Returns each (stage,
-    student) that failed."""
+    """Map, read and grade `students` (the ingest's), showing each stage's progress
+    and running cost, then audit the class. The earlier audit's files are removed
+    first, so that none can apply to a new grade. Returns each (stage, student key)
+    that failed."""
+    for old in workspace.audit_dir.glob("*.json"):
+        old.unlink()
+    keys = [s.student_key for s in students]
     budget = config.image_budget
     runs: dict[str, Callable[[Gateway, str], Awaitable[object]]] = {
         "map": lambda g, s: map_student(
@@ -118,7 +122,7 @@ async def grade_class(
                 progress.update(tasks[stage], advance=1, cost=f"${spent:.4f}")
 
             for stage in runs:
-                await asyncio.gather(*(one(stage, s) for s in students))
+                await asyncio.gather(*(one(stage, s) for s in keys))
             # On the same gateway: a reading is student work, sent only past the gate.
             await audit_class(workspace, key, students, gw, models["grader"])
     return failed

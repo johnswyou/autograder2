@@ -31,6 +31,9 @@ MAX_DEPTH = 30  # nested parentheses, signs and powers
 MAX_EXPONENT = 64  # size of an exponent that holds no name
 MAX_UNIT = 40  # characters in a unit
 POINTS = 6  # where two expressions are evaluated
+# Why a number in a unit other than the key's, which does not match as read, is
+# "cannot tell": a unit Pint misread could make it match.
+OTHER_UNIT = "The answer is in a unit other than the key's, and does not match as read."
 _ROOT2, _ROOT3 = math.sqrt(2), math.sqrt(3)
 
 _FUNCTIONS: dict[str, Callable[[complex], complex]] = {
@@ -166,10 +169,7 @@ def _number(part: KeyPart, stated: FinalAnswer, policies: Policies) -> Check:
     # In another unit, a conversion can make an answer match and nothing else: Pint
     # may have read the unit as something the student did not mean (`Mm` for mm).
     if not own:
-        return Check(
-            UNSURE,
-            "The answer is in a unit other than the key's, and does not match as read.",
-        )
+        return Check(UNSURE, OTHER_UNIT)
     return Check(
         NO_MATCH, "The value is outside the tolerance of every value the key accepts."
     )
@@ -223,6 +223,19 @@ def _unit(text: str) -> pint.Unit | None:
         name, _, power = factor.partition("^")
         units.append(_registry().Unit(name) ** (sign * int(power or 1)))
     return functools.reduce(operator.mul, units)
+
+
+def converts(unit: str, to: str) -> bool:
+    """Whether the whitelist reads both units and Pint converts the first to the
+    second: they are of one dimension. It never raises."""
+    try:
+        found, target = _unit(unit), _unit(to)
+        if found is None or target is None:
+            return False
+        _convert(1.0, found, target)
+    except Exception:  # a name Pint does not know, another dimension
+        return False
+    return True
 
 
 def _convert(value: float, unit: pint.Unit, to: pint.Unit) -> Decimal:

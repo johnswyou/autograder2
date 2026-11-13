@@ -130,8 +130,12 @@ class Workspace:
 
     # audit/, overrides and cache
 
+    @property
+    def audit_dir(self) -> Path:
+        return self.root / "audit"
+
     def audit_json(self, part: str) -> Path:
-        return self.root / "audit" / f"{part}.json"
+        return self.audit_dir / f"{part}.json"
 
     @property
     def overrides_yaml(self) -> Path:

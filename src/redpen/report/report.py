@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from redpen.config import read_lock
-from redpen.grade.grade import part_points
+from redpen.grade.grade import levels, part_points
 from redpen.grade.read import problem_of
 from redpen.imaging import render
 from redpen.llm.ledger import Ledger, Usage
@@ -34,7 +34,7 @@ from redpen.prepare.key import (
 )
 from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode
-from redpen.schemas.grade import GradeRecord, ProblemGrades
+from redpen.schemas.grade import CriterionGrade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import ProblemReadings, ReadingRecord
 from redpen.schemas.spec import CHOICE_TYPES
@@ -48,6 +48,9 @@ UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
 UNGRADED = "No reading or no grade was recorded for it."
+# Before the requirement of a criterion the class audit lowered, where the grader
+# gave no feedback: the student's file never shows the audit's own reason.
+LOWERED = "This was marked again beside the rest of the class. It asks for:"
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
 # Under the pinned models, once a grade run of the workspace had strict privacy off.
@@ -255,7 +258,9 @@ def score(key: Key, stored: Stored) -> list[Score]:
 def audited(stored: Stored, part: KeyPart) -> GradeRecord:
     """The stored grade record of `part` with each change of the class audit to the
     student's awards that still holds: one decided on the record's own part hash
-    and award, which the change's reason then explains. Any other is ignored."""
+    and award, to one of the criterion's levels, which the change's reason then
+    explains to the instructor. Any other is ignored. A lowered award with no
+    feedback gets fixed words and the criterion's requirement, never the reason."""
     record = stored.grades[part.id]
     audit = stored.audits.get(part.id)
     whose = stored.student.student_key
@@ -264,21 +269,31 @@ def audited(stored: Stored, part: KeyPart) -> GradeRecord:
         if audit
         else {}
     )
-    criteria = [
-        c.model_copy(
-            update={
-                "awarded": change.after,
-                "rationale": f"Changed by the class audit from {number(change.before)}:"
-                f" {change.reason}",
-            }
+    criteria = {c.id: c for c in part.criteria}
+    found: list[CriterionGrade] = []
+    for c in record.grade.criteria:
+        change = changes.get(c.id)
+        if (
+            change is None
+            or c.id not in criteria
+            or change.part_hash != record.provenance.key_part_hash
+            or change.before != c.awarded
+            or change.after not in levels(criteria[c.id])
+        ):
+            found.append(c)
+            continue
+        feedback = c.feedback
+        if change.after < criteria[c.id].points and not feedback.strip():
+            feedback = f"{LOWERED} {criteria[c.id].requirement}"
+        why = (
+            f"Changed by the class audit from {number(change.before)}: {change.reason}"
         )
-        if (change := changes.get(c.id))
-        and change.part_hash == record.provenance.key_part_hash
-        and change.before == c.awarded
-        else c
-        for c in record.grade.criteria
-    ]
-    grade = record.grade.model_copy(update={"criteria": criteria})
+        found.append(
+            c.model_copy(
+                update={"awarded": change.after, "rationale": why, "feedback": feedback}
+            )
+        )
+    grade = record.grade.model_copy(update={"criteria": found})
     return record.model_copy(update={"grade": grade})
 
 

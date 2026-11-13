@@ -943,3 +943,29 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
     with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
         rows = [r for r in csv.DictReader(file) if r["criterion"] == "Q4.c.c1"]
     assert [r["awarded"] for r in rows] == ["1"] * len(NAMES)
+
+
+@pytest.mark.parametrize("how", ["dry run", "gate fails", "dies before the audit"])
+def test_an_earlier_audit_is_removed_only_once_pages_may_be_sent(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    async def nothing(*args: object) -> None:
+        pass
+
+    async def dies(*args: object) -> None:
+        raise RuntimeError("the run died between grading and the audit")
+
+    for stage in ("map", "read", "grade"):
+        monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", nothing)
+    monkeypatch.setattr("redpen.orchestrator.audit_class", dies)
+    if how == "gate fails":
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+    earlier = WS.audit_json("Q4.c")
+    earlier.parent.mkdir(parents=True)
+    earlier.write_text("{}")
+
+    args = ["grade", "subs", "--workspace", "ws"]
+    result = runner.invoke(app, [*args, "--dry-run"] if how == "dry run" else args)
+
+    assert result.exit_code == (0 if how == "dry run" else 1)
+    assert earlier.exists() == (how != "dies before the audit")
