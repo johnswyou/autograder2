@@ -5,6 +5,7 @@ rebuilt from stored files, and the lock's prompt versions.
 No model is called. OpenRouter is a mock transport that answers the ZDR listing and
 refuses every chat request, and some tests replace stages with fakes."""
 
+import asyncio
 import csv
 import functools
 import hashlib
@@ -203,6 +204,34 @@ def test_grade_runs_each_stage_over_the_ingested_class_in_order(
     assert [row["student"] for row in by_problem(WS)] == list(NAMES)
     assert WS.run_report_md.exists() and len(list(WS.feedback_dir.iterdir())) == 3
     assert router.chats == []
+
+
+def test_no_more_students_run_at_once_in_a_stage_than_the_gateway_s_limit(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("Dee Example", "Eve Example"):
+        write_pdf(Path("subs") / f"HW 1 - {name}.pdf", "1. x = 4")
+    transport = httpx.MockTransport(router)
+    monkeypatch.setattr(
+        "redpen.orchestrator.Gateway",
+        functools.partial(Gateway, transport=transport, max_concurrency=2),
+    )
+    running: list[str] = []
+    peak = 0
+    mapped = unanswered_map()
+
+    async def fake(workspace: Workspace, student: str, *args: Any) -> None:
+        nonlocal peak
+        running.append(student)
+        peak = max(peak, len(running))
+        await asyncio.sleep(0.01)  # the others get their turn here
+        running.remove(student)
+        await mapped(workspace, student, *args)
+
+    monkeypatch.setattr("redpen.orchestrator.map_student", fake)
+
+    assert grade().exit_code == 0
+    assert len(students()) == 5 and peak == 2
 
 
 def test_a_folder_in_students_not_in_the_ingest_summary_is_in_no_output(

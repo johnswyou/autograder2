@@ -133,6 +133,8 @@ class Gateway:
         )
         self._strict_privacy = strict_privacy
         self._offline = offline
+        self.max_concurrency = max_concurrency
+        """The most requests in flight at once."""
         self._slots = asyncio.Semaphore(max_concurrency)
         self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}

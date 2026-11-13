@@ -100,10 +100,14 @@ async def grade_class(
         with closing(sqlite3.connect(workspace.cache_sqlite)) as db, progress:
             ledger = Ledger(db)
             before = ledger.totals_by_role()
+            # A student's stage loads every one of their pages before its first
+            # request waits on the gateway, so no more start than it can serve.
+            at_once = asyncio.Semaphore(gw.max_concurrency)
 
             async def one(stage: str, student: str) -> None:
                 try:
-                    await runs[stage](gw, student)
+                    async with at_once:
+                        await runs[stage](gw, student)
                 except Exception as error:  # one student never stops the class
                     failed.append((stage, student))
                     log_failure(workspace, f"{stage} {student}", error)
