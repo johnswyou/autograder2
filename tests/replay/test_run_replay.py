@@ -5,7 +5,9 @@ map and the grader the reader's readings, not the truth's. So a change to any ma
 read or grade prompt orphans its recording, `tests/recordings/run_chain.jsonl`.
 That was made, as the stages' recordings were, by running this seed live into a
 scratch workspace with a persistent call cache and keeping exactly the calls the
-run made (task 2.7 report); `REDPEN_RECORD=1` does not rewrite it.
+run made (task 2.7 report). This test loads the recording itself into an
+offline gateway and does not use the `replay` fixture, so `REDPEN_RECORD=1`
+neither calls the network here nor rewrites the recording.
 
 The workspace holds the fixtures' key (`spec.json`, and `key.yaml` written from
 `key.json`), its blank's page images and a lock pinning `tests/pinned`'s models.

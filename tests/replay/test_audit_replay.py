@@ -9,8 +9,10 @@ small-writing's 4(c) c1, from 1 to 0, so that seven identical readings of 4(c)
 disagree. The audit's calls are `tests/recordings/audit_class.jsonl`: the seeded
 group, and 4(a) c2, where partly-blank's drawing rightly earns less for the same
 cited arrow. It was made by running this seed live into a persistent scratch cache
-and dumping exactly the calls made (task 4.7 report, fix round 1);
-`REDPEN_RECORD=1` does not rewrite it."""
+and dumping exactly the calls made (task 4.7 report, fix round 1). Under
+`REDPEN_RECORD=1` the `replay` fixture would call the grader again (paid) and
+rewrite it once the test passes; it was not made that way, and should not be
+remade that way."""
 
 import asyncio
 from collections.abc import Callable, Sequence
