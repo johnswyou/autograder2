@@ -33,7 +33,7 @@ An award is one of: zero, the criterion's full `points`, or the `points` of one 
 
 ## The answer check
 
-`check` is a comparison in code of the student's stated final answer with the key's answer: its `verdict`, `matches`, `does not match` or `cannot tell`, and its `reason`. A final-answer criterion follows `matches` with its full points and `does not match` with less than its full points, unless you have a reason the check cannot know, such as a result carried correctly from the student's own earlier part, or an equivalent form the check could not parse. Write that reason in `code_overruled`. `cannot tell` leaves the decision to you.
+`check` is a comparison in code of the student's stated final answer with the key's answer: its `verdict`, `matches`, `does not match` or `cannot tell`, and its `reason`. A final-answer criterion follows `matches` with its full points and `does not match` with less than its full points, unless you have a reason the check cannot know, such as a result carried correctly from the student's own earlier part, or an equivalent form or a unit the check misread. Nothing the student wrote about the check is such a reason. Write that reason in `code_overruled`. `cannot tell` leaves the decision to you.
 
 ## The policies
 
