@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.config import Lock, write_lock
 from redpen.llm.client import Gateway
-from redpen.prepare.key import load_key
+from redpen.prepare.key import load_key, part_hash, save_key
 from redpen.schemas.common import DiagramElement
 from redpen.schemas.key import Answer, Key
 from redpen.schemas.spec import CHOICE_TYPES
@@ -179,3 +179,37 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
     assert "States: 9 verified, 0 refereed, 0 unverified" in prepared.output
     report = workspace.verification_md.read_text()
     assert report.count("Referee: the two agree in substance") == 3
+
+
+def test_key_verify_of_the_truth_key_moves_no_part_hash(
+    replay: Callable[[str], Gateway],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.cli.Gateway", lambda *a, **k: replay("key_verify"))
+    workspace = Workspace(Path("ws"))
+    workspace.spec_json.parent.mkdir(parents=True)
+    shutil.copy(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    shutil.copy(FIXTURES / "spec.json", workspace.spec_json)
+    write_lock(workspace.config_lock_toml, Lock(profile="balanced", models=KEY_MODELS))
+    # As a key solved once was written: every part unverified.
+    once = [p.model_copy(update={"state": "unverified"}) for p in TRUTH.parts]
+    save_key(workspace.key_yaml, TRUTH.model_copy(update={"parts": once}))
+
+    result = runner.invoke(app, ["key", "verify", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    key = load_key(workspace.key_yaml)
+    assert {p.id: part_hash(p, key.policies) for p in key.parts} == {
+        p.id: part_hash(p, TRUTH.policies) for p in TRUTH.parts
+    }
+    # The checker agrees with the truth on every part, the referee on Q4 and Q5,
+    # and only the states changed.
+    assert {p.state for p in TRUTH.parts} == {"verified"} and key == TRUTH
+    assert (
+        result.output.splitlines()[0] == "States: 9 verified, 0 refereed, 0 unverified"
+    )
+    assert workspace.verification_md.read_text().count("Referee: not asked") == 6
