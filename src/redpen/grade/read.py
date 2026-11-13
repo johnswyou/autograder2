@@ -5,6 +5,7 @@ problem at a time. A call is sent the parts' text, each page of the unit whole a
 an overview, and each mapped region rendered from the PDF. Nothing from the key
 reaches a call."""
 
+import hashlib
 import json
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -84,8 +85,6 @@ async def read_student(
             earlier.unlink()
     for problem in by_problem:
         workspace.reading_json(student, problem).unlink(missing_ok=True)
-    system, version = prompts.load("read", "unit")
-    session = f"{workspace.root.name}:read"
     done: dict[str, ReadingRecord] = {}
 
     def keep(records: Mapping[str, ReadingRecord]) -> None:
@@ -97,47 +96,73 @@ async def read_student(
 
     async def read(unit: Unit) -> None:
         images = unit_images(workspace, student, unit, mapped.pages, image_budget)
-        fields = {"id", "label", "prompt", "response_type", "options"}
-        outline = json.dumps(
-            {"parts": [p.model_dump(include=fields) for p in unit.parts]}
-        )
-
-        async def ask(extra: Sequence[Content]) -> Readings:
-            result = await gateway.call(
-                ROLE,
-                model,
-                system,
-                [outline],
-                [*images.items, *extra],
-                Readings,
-                version,
-                params=PARAMS,
-                session_id=session,
-            )
-            return Readings(readings=[settle_status(r) for r in result.value.readings])
-
-        found = await ask_checked(
-            ask,
-            lambda r: problems(unit.parts, r),
-            f"the reading of {unit.name} of {student}",
-        )
-        provenance = Provenance(
-            key_part_hash=None, prompt_version=version, model_slug=model.slug
-        )
-        keep(
-            {
-                r.part_id: ReadingRecord(
-                    provenance=provenance, reading=r, crops=images.crops[r.part_id]
-                )
-                for r in found.readings
-            }
-        )
+        found = await read_unit(workspace, student, unit, images, gateway, ROLE, model)
+        keep({r.reading.part_id: r for r in found})
 
     todo = units(spec, mapped.map)
     sent = {p.id for unit in todo for p in unit.parts}
     keep({p.id: _blank(p.id) for p in spec.parts if p.id not in sent})
     await finish_all(read(unit) for unit in todo)
     return {p.id: done[p.id] for p in spec.parts}
+
+
+async def read_unit(
+    workspace: Workspace,
+    student: str,
+    unit: Unit,
+    images: UnitImages,
+    gateway: Gateway,
+    role: str,
+    model: ModelInfo,
+) -> list[ReadingRecord]:
+    """The read stage's call for `unit` of `student`: its parts' text, then
+    `images`, sent to `model` (`role` names it in the usage ledger). An answer that
+    fails `problems` is asked for once more, and each reading's status is settled
+    in code. A record per part read, with the crops it was read from; `StageError`
+    when the checks still fail."""
+    system, version = prompts.load("read", "unit")
+    fields = {"id", "label", "prompt", "response_type", "options"}
+    outline = json.dumps({"parts": [p.model_dump(include=fields) for p in unit.parts]})
+
+    async def ask(extra: Sequence[Content]) -> Readings:
+        result = await gateway.call(
+            role,
+            model,
+            system,
+            [outline],
+            [*images.items, *extra],
+            Readings,
+            version,
+            params=PARAMS,
+            session_id=f"{workspace.root.name}:read",
+        )
+        return Readings(readings=[settle_status(r) for r in result.value.readings])
+
+    found = await ask_checked(
+        ask,
+        lambda r: problems(unit.parts, r),
+        f"the reading of {unit.name} of {student}",
+    )
+    provenance = Provenance(
+        key_part_hash=None, prompt_version=version, model_slug=model.slug
+    )
+    return [
+        ReadingRecord(provenance=provenance, reading=r, crops=images.crops[r.part_id])
+        for r in found.readings
+    ]
+
+
+def unsure(reading: Reading) -> bool:
+    """Whether the reader was unsure of an answered reading: a line marked
+    uncertain, or poor legibility (what raises `hard_to_read`)."""
+    return reading.status == "answered" and (
+        bool(reading.uncertain) or reading.legibility == "poor"
+    )
+
+
+def digest(record: ReadingRecord) -> str:
+    """A short digest of `record` as stored: what a second reading is tied to."""
+    return hashlib.sha256(record.model_dump_json().encode()).hexdigest()[:12]
 
 
 def units(spec: Spec, found: Map) -> list[Unit]:
