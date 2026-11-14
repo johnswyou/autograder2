@@ -111,11 +111,19 @@ def _matches(slug: str, tag: str) -> bool:
 async def fetch_catalog(
     api_key: str, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> Catalog:
-    """The models and the ZDR endpoints OpenRouter lists now. Listing is free."""
-    async with _client(api_key, transport) as http:
-        models = await _data(http, "/models")
-        zdr_endpoints = await _data(http, "/endpoints/zdr")
-    return Catalog({model["id"]: model for model in models}, zdr_endpoints)
+    """The models and the ZDR endpoints OpenRouter lists now. Listing is free. No
+    answer, or one of another shape, is a ModelError, which every caller says."""
+    try:
+        async with _client(api_key, transport) as http:
+            models = await _data(http, "/models")
+            zdr_endpoints = await _data(http, "/endpoints/zdr")
+        return Catalog({model["id"]: model for model in models}, zdr_endpoints)
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+        raise ModelError(
+            f"OpenRouter's list of models could not be fetched"
+            f" ({type(error).__name__}). Check the network connection and run the"
+            " same command again."
+        ) from error
 
 
 async def recheck_providers(

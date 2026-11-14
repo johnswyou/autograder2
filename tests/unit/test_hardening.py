@@ -22,7 +22,7 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
 from redpen.llm.client import STOPS, Gateway, StopError
-from redpen.llm.models import recheck_providers
+from redpen.llm.models import Catalog, fetch_catalog, recheck_providers
 from redpen.prepare.key import save_key
 from redpen.prepare.parse import render_blank
 from redpen.schemas.key import Key
@@ -155,6 +155,40 @@ def test_the_commands_that_need_no_api_key_run_without_one(
         result = runner.invoke(app, command)
         assert result.exit_code == 0, (command, result.output)
         assert "OPENROUTER_API_KEY" not in result.output, command
+
+
+NO_CATALOG = (
+    "OpenRouter's list of models could not be fetched (ConnectError). Check the"
+    " network connection and run the same command again."
+)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["models", "check"],
+        ["models", "check", "--workspace", "ws"],
+        ["prepare", str(FIXTURES / "blank.pdf"), "--workspace", "new"],
+        ["run", str(FIXTURES / "blank.pdf"), "subs", "--dry-run", "--workspace", "new"],
+    ],
+    ids=["models check", "models check --workspace", "prepare", "run --dry-run"],
+)
+def test_a_catalog_the_network_does_not_give_is_said_in_one_line(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    def no_network(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("network disabled")
+
+    async def fetch(api_key: str, **_: object) -> Catalog:
+        return await fetch_catalog(api_key, transport=httpx.MockTransport(no_network))
+
+    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch)
+    monkeypatch.setattr("redpen.config.fetch_catalog", fetch)
+    dry_run = "--dry-run" in command
+
+    result = runner.invoke(app, command)
+
+    assert_one_line(result, f"No estimate: {NO_CATALOG}" if dry_run else NO_CATALOG)
 
 
 # --- the paths given ----------------------------------------------------------------

@@ -275,6 +275,36 @@ def test_pin_writes_a_lock_that_is_then_read_back_as_it_is(tmp_path: Path) -> No
     assert untouched.paths == []
 
 
+NO_CATALOG = (
+    "OpenRouter's list of models could not be fetched ({}). Check the network"
+    " connection and run the same command again."
+)
+
+
+@pytest.mark.parametrize(
+    ("answer", "error"),
+    [
+        (httpx.ConnectError("connection refused"), "ConnectError"),
+        (httpx.Response(200, text="<html>"), "JSONDecodeError"),
+        (httpx.Response(200, json={"models": []}), "KeyError"),
+        (httpx.Response(200, json={"data": [["a list"]]}), "TypeError"),
+    ],
+    ids=["no network", "not JSON", "no data", "data of another shape"],
+)
+def test_a_catalog_that_cannot_be_fetched_is_a_model_error(
+    answer: httpx.Response | Exception, error: str
+) -> None:
+    def models(request: httpx.Request) -> httpx.Response:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    with pytest.raises(ModelError) as raised:
+        asyncio.run(fetch_catalog("k", transport=httpx.MockTransport(models)))
+
+    assert str(raised.value) == NO_CATALOG.format(error)
+
+
 def test_pin_refuses_a_model_that_fails_the_check(tmp_path: Path) -> None:
     workspace = Workspace(tmp_path / "ws")
     transport = httpx.MockTransport(OpenRouter())
