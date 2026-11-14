@@ -290,7 +290,14 @@ def prepare(
     page_points: PagePoints = None,
     profile: ProfileOption = None,
     roster: Roster = None,
-    dry_run: DryRun = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Not supported yet, so refused. `redpen run --dry-run` estimates"
+            " the key too.",
+        ),
+    ] = False,
     workspace: WorkspaceDir = None,
 ) -> None:
     """Build the key only. On a workspace that has one, --total or --page-points

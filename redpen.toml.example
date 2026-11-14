@@ -27,5 +27,6 @@ checker = "~openai/gpt-sol-latest"         # second solver, different vendor on 
 mapper  = "~anthropic/claude-haiku-latest"
 reader  = "~anthropic/claude-sonnet-latest"
 grader  = "~anthropic/claude-sonnet-latest"
-second  = "~openai/gpt-sol-latest"         # second reads and second grades, different vendor
+second  = "~openai/gpt-sol-latest"         # second reader, different vendor from the reader's on purpose;
+                                           # the second grade asks the grader's own model again
 referee = "~anthropic/claude-opus-latest"
