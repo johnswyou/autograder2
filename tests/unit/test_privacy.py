@@ -8,7 +8,13 @@ URL, its headers or its body, session id included. Every chat request goes to it
 role's pinned model on exactly that model's pinned endpoints, with data collection
 denied and zero data retention required. With names masked, every image of a
 student's page sent after the map is the unmasked run's image with the names
-blanked in flat black and nothing else changed."""
+blanked in flat black and nothing else changed.
+
+The mock's answers write the class's names wherever a model's text goes into a
+later request: a block's description into the resolve request, a transcript line
+into the grade, the second grade and the class audit, a rationale into the audit,
+and an invalid read and audit answer into the gateway's repair turn. Each is posted
+as `NAME` and stored as written."""
 
 import base64
 import functools
@@ -26,6 +32,7 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.config import Lock, write_lock
 from redpen.grade.ingest import IngestSummary
+from redpen.llm.client import NAME as TOKEN
 from redpen.llm.client import Gateway
 from redpen.llm.models import ModelInfo, recheck_providers
 from redpen.prepare.key import load_key, save_key
@@ -71,6 +78,16 @@ ASKED_BY = {
 BLOCK = [0.05, 0.05, 0.95, 0.5]  # the one block of work the mock finds on a page
 NAME = [0.6, 0.01, 0.9, 0.04]  # and the name it finds there, clear of the block
 IMAGE = re.compile(rb"data:image/[a-z]+;base64,[A-Za-z0-9+/=]+")
+# The names the mock's answers write: a student can write a classmate's.
+CLASS = [truth_of(pdf).student_name for pdf in QUIZ_SUBMISSIONS]
+FIRST, LAST = CLASS[1].split()
+WRITTEN = {
+    "description": f"a typed name, {CLASS[0]}",
+    "line": f"{LAST}, {FIRST}",
+    "part": CLASS[2].upper(),
+    "rationale": f"Not set up, says {CLASS[0]}.",
+    "awarded": f"{FIRST}\n{LAST}",
+}
 
 
 class OpenRouter:
@@ -79,10 +96,12 @@ class OpenRouter:
     first grade request of a problem earns every criterion and later ones lose the
     first, so that the class audit is asked (the self-test's requests, which carry
     no image, earn every criterion); the reader is unsure of every part and
-    the second reader is not."""
+    the second reader is not. Each first answer of a reader and of the audit is
+    invalid, so that the gateway repairs it."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
+        self.given: list[tuple[str, frozenset[str]]] = []  # each gateway's names
         self.graded: dict[bytes, dict[str, Any]] = {}  # a grade request asked again
         self.first: set[str] = set()  # the problems a grade request was answered for
 
@@ -169,7 +188,8 @@ class OpenRouter:
             self.first.add(problem)
 
         def lose(reading: dict[str, Any], criterion: dict[str, Any]) -> str | None:
-            return "Not set up." if loses and criterion["id"].endswith("c1") else None
+            lost = loses and criterion["id"].endswith("c1")
+            return WRITTEN["rationale"] if lost else None
 
         found = grades(body, lose).model_dump(mode="json")
         self.graded[asked] = found
@@ -177,14 +197,17 @@ class OpenRouter:
 
     def Decisions(self, body: Any, texts: list[Any]) -> Any:  # noqa: N802
         [cases] = [t["cases"] for t in texts if "cases" in t]
+        awarded = WRITTEN["awarded"] if first_ask(body) else 1
         return {
             "decisions": [
-                {"case": c["case"], "reason": "r", "awarded": 1} for c in cases
+                {"case": c["case"], "reason": "r", "awarded": awarded} for c in cases
             ]
         }
 
     def Inventory(self, body: Any, texts: list[Any]) -> Any:  # noqa: N802
-        block = {"box": BLOCK, "label": "", "description": "work", "candidates": []}
+        description = WRITTEN["description"]
+        block = {"box": BLOCK, "label": "", "description": description}
+        block["candidates"] = []
         return {"rotation": 0, "photo": False, "blocks": [block]}
 
     def NamedInventory(self, body: Any, texts: list[Any]) -> Any:  # noqa: N802
@@ -219,15 +242,17 @@ class OpenRouter:
 
     def Readings(self, body: Any, texts: list[Any]) -> Any:  # noqa: N802
         unsure = body["model"] != SECOND.slug
+        ids = [p["id"] for p in texts[0]["parts"]]
+        options = {p["id"]: p["options"][:1] for p in texts[0]["parts"]}
         return {
             "readings": [
                 {
-                    "part_id": part["id"],
+                    "part_id": id,
                     "status": "answered",
                     "medium": "handwritten",
-                    "lines": ["x = 4"],
+                    "lines": ["x = 4", WRITTEN["line"]],
                     "final_answer": {
-                        "choices": part["options"][:1],
+                        "choices": options.get(id, []),
                         "value": None,
                         "unit": None,
                         "expression": None,
@@ -237,7 +262,7 @@ class OpenRouter:
                     "addressed_to_grader": [],
                     "legibility": "clear",
                 }
-                for part in texts[0]["parts"]
+                for id in [*ids, *([WRITTEN["part"]] if first_ask(body) else [])]
             ]
         }
 
@@ -260,12 +285,22 @@ def request_text(body: dict[str, Any]) -> bytes:
     return json.dumps(body["messages"]).encode()
 
 
+def first_ask(body: dict[str, Any]) -> bool:
+    """Whether a chat request is as its stage built it, not the gateway's repair."""
+    return len(body["messages"]) == 2
+
+
 def run_class(root: Path, masked: bool) -> tuple[OpenRouter, Workspace]:
     """The whole run in `root`, through the command line, each command seen to
-    succeed."""
+    succeed; each gateway's names kept under its command."""
     router = OpenRouter()
     transport = httpx.MockTransport(router)
-    gateway = functools.partial(Gateway, transport=transport, requests_per_second=1e6)
+    command = ""
+
+    def gateway(*args: Any, **options: Any) -> Gateway:
+        router.given.append((command, frozenset(options.get("names", ()))))
+        return Gateway(*args, transport=transport, requests_per_second=1e6, **options)
+
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
         patch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -285,6 +320,7 @@ def run_class(root: Path, masked: bool) -> tuple[OpenRouter, Workspace]:
         write_lock(workspace.config_lock_toml, Lock(profile="balanced", models=MODELS))
         on = ["--workspace", "ws"]
         for args in (["prepare", "blank.pdf", *on], ["grade", "subs", *on]):
+            command = args[0]
             done = CliRunner().invoke(app, args)
             assert done.exit_code == 0, done.output
         key = load_key(workspace.key_yaml)
@@ -298,6 +334,7 @@ def run_class(root: Path, masked: bool) -> tuple[OpenRouter, Workspace]:
             ),
         )
         for args in (["regrade", *on], ["key", "verify", *on]):
+            command = " ".join(args[:-2])
             done = CliRunner().invoke(app, args)
             assert done.exit_code == 0, done.output
         assert not workspace.run_log.exists()
@@ -374,10 +411,67 @@ def test_no_request_of_a_whole_run_holds_a_student_s_name_file_name_or_key(
     }
 
     for request in router.requests:
-        text = everything_but_images(request)
-        assert not [f for f in forbidden if f in text], request.url
+        text = everything_but_images(request).casefold()
+        assert not [f for f in forbidden if f.casefold() in text], request.url
     sessions = {b.get("session_id") for b in router.chats}
     assert sessions and all(s and s.startswith("ws:") for s in sessions)
+
+
+def posted_text(body: dict[str, Any]) -> str:
+    """Every text of a chat request's messages, one a line."""
+    return "\n".join(
+        part if isinstance(part, str) else part.get("text", "")
+        for m in body["messages"]
+        for part in ([m["content"]] if isinstance(m["content"], str) else m["content"])
+    )
+
+
+@pytest.mark.parametrize("masked", [False, True], ids=["off", "on"])
+def test_names_a_model_wrote_are_posted_as_one_token_and_stored_as_written(
+    runs: dict[bool, tuple[OpenRouter, Workspace]], masked: bool
+) -> None:
+    router, workspace = runs[masked]
+    students = read_model(workspace.ingest_summary_json, IngestSummary).students
+    sent = [(kind(b), first_ask(b), posted_text(b)) for b in router.chats]
+
+    def each(asked: str, first: bool, holds: str) -> bool:
+        found = [t for k, f, t in sent if k == asked and f is first]
+        return bool(found) and all(holds in t for t in found)
+
+    # The description in the resolve request.
+    assert each("Resolution", True, f"a typed name, {TOKEN}")
+    # The transcript line in each grade and second grade request of a student's
+    # work, and in the audit with the rationale.
+    student_work = [
+        posted_text(b) for b in router.chats if kind(b) == "Grades" and images(b)
+    ]
+    assert student_work and all(f'"x = 4", "{TOKEN}"' in t for t in student_work)
+    assert each("Decisions", True, f'"x = 4", "{TOKEN}"')
+    assert each("Decisions", True, f"Not set up, says {TOKEN}.")
+    # Invalid answers and their errors, repeated by the gateway's repair turn.
+    assert each("Readings", False, f'"part_id": "{TOKEN}"')
+    assert each("Readings", False, f"input_value='{TOKEN}'")
+    assert each("Decisions", False, f'"awarded": "{TOKEN}"')
+    assert each("Decisions", False, f"input_value='{TOKEN}'")
+    # What is stored keeps what the model wrote.
+    for student in students:
+        page = workspace.student_page_json(student.student_key, 1).read_text()
+        assert WRITTEN["description"] in page
+        reading = workspace.reading_json(student.student_key, "Q2").read_text()
+        assert json.dumps(WRITTEN["line"]) in reading
+
+
+def test_only_the_commands_that_follow_ingest_give_the_gateway_the_class_s_names(
+    runs: dict[bool, tuple[OpenRouter, Workspace]],
+) -> None:
+    router, _ = runs[False]
+
+    assert set(router.given) == {
+        ("prepare", frozenset()),
+        ("grade", frozenset(CLASS)),
+        ("regrade", frozenset(CLASS)),
+        ("key verify", frozenset()),
+    }
 
 
 def images(body: dict[str, Any]) -> list[Image.Image]:

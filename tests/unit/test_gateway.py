@@ -592,6 +592,131 @@ def test_an_error_does_not_quote_the_response(
     assert SECRET not in "".join(traceback.format_exception(error.value))
 
 
+# A class's names as ingest holds them. A name of one word is never replaced.
+CLASS = ["Ada Quill", "José Núñez Peña", "Cher"]
+
+
+@pytest.mark.parametrize(
+    ("sent", "posted"),
+    [
+        ("by Ada Quill.", "by [name]."),
+        ("Quill, Ada wrote it", "[name] wrote it"),
+        ("Quill,Ada", "[name]"),
+        ("ADA quill", "[name]"),
+        ("Ada \n\t Quill", "[name]"),
+        (
+            r'{"lines": ["Ada\nQuill", "Name:\nAda Quill"]}',
+            '{"lines": ["[name]", "Name:\\n[name]"]}',
+        ),
+        (json.dumps(["José Núñez Peña"]), '["[name]"]'),
+        ("Peña, José  Núñez", "[name]"),
+        ("Ada Quills, MacAda Quill", "Ada Quills, MacAda Quill"),
+        ("Quill Ada", "Quill Ada"),
+        ("Ada wrote", "Ada wrote"),
+        ("Cher wrote", "Cher wrote"),
+    ],
+    ids=[
+        "as ingest has it",
+        "last word first",
+        "no space after the comma",
+        "case",
+        "white space",
+        "escaped line breaks",
+        "escaped letters",
+        "three words",
+        "inside a longer word",
+        "last first with no comma",
+        "one word of a name",
+        "a name of one word",
+    ],
+)
+def test_a_name_of_the_class_is_posted_as_one_token(
+    tmp_path: Path, sent: str, posted: str
+) -> None:
+    server = Server('{"letter": "B"}')
+
+    run(tmp_path / "cache.sqlite", server, ask(items=(sent, PNG)), names=CLASS)
+
+    [body] = server.requests
+    assert body["messages"][1]["content"][1:] == [
+        {"type": "text", "text": posted},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/png;base64," + base64.b64encode(PNG).decode()
+            },
+        },
+    ]
+
+
+def test_every_text_posted_has_the_names_replaced_the_repair_turn_too(
+    tmp_path: Path,
+) -> None:
+    server = Server('{"letter": "Ada Quill"}', '{"letter": "B"}')
+
+    def scenario(gateway: Gateway) -> Awaitable[Result[BaseModel]]:
+        return gateway.call(
+            "reader",
+            MODEL,
+            "system text, Ada Quill",
+            ("shared text, Quill, Ada",),
+            ("item text, ada QUILL", PNG),
+            Answer,
+            "v1",
+            session_id="assignment:Q1",
+        )
+
+    result = run(tmp_path / "cache.sqlite", server, scenario, names=CLASS)
+
+    assert result.value == Answer(letter="B")
+    first, repair = server.requests
+    assert "Quill" not in json.dumps(server.requests)
+    assert first["messages"][0]["content"] == "system text, [name]"
+    texts = [c.get("text") for c in first["messages"][1]["content"]]
+    assert texts == ["shared text, [name]", "item text, [name]", None]
+    assert repair["messages"][:2] == first["messages"]
+    assert repair["messages"][2] == {
+        "role": "assistant",
+        "content": '{"letter": "[name]"}',
+    }
+    assert "input_value='[name]'" in repair["messages"][3]["content"]
+    assert first["session_id"] == "assignment:Q1"
+
+
+def test_a_request_with_no_name_is_posted_as_without_names(tmp_path: Path) -> None:
+    def posted(names: list[str]) -> list[bytes]:
+        sent: list[bytes] = []
+        server = Server('{"letter": "bb"}', '{"letter": "B"}')
+
+        def keep(request: httpx.Request) -> httpx.Response:
+            sent.append(request.content)
+            return server(request)
+
+        shared = ("Ada and Quill",)
+        run(tmp_path / f"{len(names)}.sqlite", keep, ask(shared), names=names)
+        return sent
+
+    named = posted(CLASS)
+
+    assert len(named) == 2  # the repair turn too
+    assert named == posted([])
+
+
+def test_a_request_with_a_name_keeps_the_key_it_has_without_names(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    server = Server('{"letter": "B"}')
+    named = ask(items=("by Ada Quill", PNG))
+
+    run(db, server, named, names=CLASS)
+    again = run(db, server, named, offline=True)  # the key as it was before names
+
+    assert again.from_cache
+    assert len(server.requests) == 1
+    assert "[name]" in json.dumps(server.requests)
+
+
 def test_offline_a_hit_returns_and_a_miss_raises_without_a_request(
     tmp_path: Path,
 ) -> None:

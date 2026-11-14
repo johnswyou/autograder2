@@ -116,7 +116,10 @@ async def grade_class(
         for stage in stages
     }
     strict = config.strict_privacy
-    async with Gateway(workspace.cache_sqlite, api_key, strict_privacy=strict) as gw:
+    names = [s.student_name for s in students]  # never posted (design 14.1)
+    async with Gateway(
+        workspace.cache_sqlite, api_key, names=names, strict_privacy=strict
+    ) as gw:
         with closing(sqlite3.connect(workspace.cache_sqlite)) as db, progress:
             ledger = Ledger(db)
             before = ledger.totals_by_role()

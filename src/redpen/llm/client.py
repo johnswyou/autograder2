@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import random
+import re
 import sqlite3
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -23,6 +24,8 @@ from redpen.schemas.strict import strict_problems
 
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = 1.0
+NAME = "[name]"
+"""What each name of the class is replaced by in the text posted to a model."""
 
 # Keywords that only narrow the valid values. Provider strict modes differ on which
 # they accept, and the full Pydantic model validates every response anyway.
@@ -107,7 +110,9 @@ class Gateway:
     With `strict_privacy` every request goes only to the model's `providers`, the
     endpoints that retain nothing; `False` drops that and the zero-retention and
     no-data-collection requirements. With `offline` a cache miss raises and no
-    request is ever made.
+    request is ever made. Each of `names` (a class's, as ingest holds them) of two
+    or more words is replaced by `NAME` in every text posted, after the cache key
+    is made from the text as it was (design 14.1).
     """
 
     def __init__(
@@ -115,6 +120,7 @@ class Gateway:
         db_path: Path,
         api_key: str,
         *,
+        names: Iterable[str] = (),
         strict_privacy: bool = True,
         offline: bool = False,
         max_concurrency: int = 8,
@@ -131,6 +137,7 @@ class Gateway:
             timeout=httpx.Timeout(600, connect=10),
             transport=transport,
         )
+        self._names = _names_pattern(names)
         self._strict_privacy = strict_privacy
         self._offline = offline
         self.max_concurrency = max_concurrency
@@ -259,7 +266,16 @@ class Gateway:
     async def _post(
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
-        """The response to `body`, retried with backoff on a transient failure."""
+        """The response to `body`, its names replaced, retried with backoff on a
+        transient failure."""
+        if (names := self._names) is not None:
+            body = {
+                **body,
+                "messages": [
+                    {**m, "content": _unnamed(names, m["content"])}
+                    for m in body["messages"]
+                ],
+            }
         for attempt in range(MAX_ATTEMPTS - 1):
             try:
                 return await self._attempt(role, model, body)
@@ -388,6 +404,47 @@ def _locations(error: ValidationError, schema: dict[str, Any]) -> str:
         ]
         found.append(e["type"] + (f" at {'.'.join(loc)}" if loc else ""))
     return "; ".join(found)
+
+
+# Between two words of a name: white space, or its escape inside a JSON string.
+_SPACE = r"(?:\s|\\[ntr])"
+
+
+def _names_pattern(names: Iterable[str]) -> re.Pattern[str] | None:
+    """Each of `names` of two or more words, in its own order or its last word first
+    and a comma, in any letter case, never inside a longer word; `None` for none.
+    A single word is too often an ordinary word or a unit."""
+    forms: set[str] = set()
+    for name in names:
+        # Each word as written, or as `json.dumps` escapes it in a text part.
+        words = [
+            "(?:"
+            + "|".join(dict.fromkeys(map(re.escape, (w, json.dumps(w)[1:-1]))))
+            + ")"
+            for w in name.split()
+        ]
+        if len(words) > 1:
+            gap = _SPACE + "+"
+            forms |= {
+                gap.join(words),
+                words[-1] + "," + _SPACE + "*" + gap.join(words[:-1]),
+            }
+    if not forms:
+        return None
+    # Longest first, so that "Ann Lee Ng" is tried before "Ann Lee".
+    longest = "|".join(sorted(forms, key=lambda f: (-len(f), f)))
+    return re.compile(rf"(?:(?<!\w)|(?<=\\[ntr]))(?:{longest})(?!\w)", re.IGNORECASE)
+
+
+def _unnamed(names: re.Pattern[str], content: Any) -> Any:
+    """A message's content, string or parts, with `NAME` for each of `names` in its
+    text."""
+    if isinstance(content, str):
+        return names.sub(NAME, content)
+    return [
+        {**p, "text": names.sub(NAME, p["text"])} if p["type"] == "text" else p
+        for p in content
+    ]
 
 
 def _messages(
