@@ -278,3 +278,108 @@ def test_the_scan_s_own_frame_and_page_number_leave_its_whole_page_the_ceiling()
     region = render.render_region(page, "other", [0, 0, 1, 1], BUDGET)
 
     assert region.scale == pytest.approx(BUDGET / 792 * 72 / LOW_PPI)
+
+
+def worksheet(path: Path, size: tuple[int, int] = (612, 792)) -> Canvas:
+    """A canvas whose page is one 72 ppi image, to draw marks on."""
+    canvas = Canvas(str(path), pagesize=size)
+    gray = Image.new("RGB", size, (235, 235, 235))
+    canvas.drawImage(ImageReader(gray), 0, 0, *size)
+    return canvas
+
+
+# The box of `marked_scan`'s first row for VECTOR_MARKS marks, and of `worksheet`'s.
+ROW = [90 / 612, (792 - 610) / 792, (100 + 10 * render.VECTOR_MARKS) / 612, 202 / 792]
+
+
+def test_a_vector_region_rendered_below_twice_native_still_has_no_ceiling(
+    tmp_path: Path,
+) -> None:
+    box = marked_scan(tmp_path / "scan.pdf", render.VECTOR_MARKS, "path")
+    page = pdfium.PdfDocument(tmp_path / "scan.pdf")[0]
+
+    assert render.render_region(page, "other", box, 200).scale is None
+
+
+def test_a_page_with_no_image_is_never_searched_for_vector_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canvas = Canvas(str(tmp_path / "ink.pdf"), pagesize=(612, 792))
+    for n in range(render.VECTOR_MARKS):
+        canvas.rect(100 + 10 * n, 600, 4, 4, stroke=0, fill=1)
+    canvas.save()
+    page = pdfium.PdfDocument(tmp_path / "ink.pdf")[0]
+
+    def counted(*_: object) -> bool:
+        raise AssertionError("the marks of a page with no image were counted")
+
+    monkeypatch.setattr(render, "_drawn", counted)
+
+    assert render.render_region(page, "other", ROW, BUDGET).scale is None
+
+
+def test_marks_inside_a_form_inside_a_form_count_where_the_page_shows_them(
+    tmp_path: Path,
+) -> None:
+    canvas = worksheet(tmp_path / "forms.pdf")
+    canvas.beginForm("inner")  # pyright: ignore[reportUnknownMemberType]
+    for n in range(render.VECTOR_MARKS):
+        canvas.rect(10 * n, 0, 4, 4, stroke=0, fill=1)
+    canvas.endForm()  # pyright: ignore[reportUnknownMemberType]
+    canvas.beginForm("outer")  # pyright: ignore[reportUnknownMemberType]
+    canvas.translate(30, 20)  # each form's space is its own
+    canvas.doForm("inner")  # pyright: ignore[reportUnknownMemberType]
+    canvas.endForm()  # pyright: ignore[reportUnknownMemberType]
+    canvas.translate(70, 580)
+    canvas.doForm("outer")  # pyright: ignore[reportUnknownMemberType]
+    canvas.save()
+    page = pdfium.PdfDocument(tmp_path / "forms.pdf")[0]
+
+    assert render.render_region(page, "other", ROW, BUDGET).scale is None
+
+
+def test_images_inside_a_region_are_not_vector_marks(tmp_path: Path) -> None:
+    canvas = worksheet(tmp_path / "stamps.pdf")
+    stamp = ImageReader(Image.new("RGB", (8, 8), (0, 0, 0)))
+    for n in range(render.VECTOR_MARKS):
+        canvas.drawImage(stamp, 100 + 10 * n, 600, 4, 4)
+    canvas.save()
+    page = pdfium.PdfDocument(tmp_path / "stamps.pdf")[0]
+
+    assert render.render_region(page, "other", ROW, BUDGET).scale is not None
+
+
+def test_a_mark_counts_only_with_all_four_corners_inside(tmp_path: Path) -> None:
+    # Each mark a square turned 45 degrees by its form: a diamond whose left and
+    # right corners are inside a thin box, its top and bottom corners outside.
+    canvas = worksheet(tmp_path / "diamonds.pdf")
+    canvas.beginForm("square")  # pyright: ignore[reportUnknownMemberType]
+    canvas.rect(0, 0, 4, 4, stroke=0, fill=1)
+    canvas.endForm()  # pyright: ignore[reportUnknownMemberType]
+    for n in range(render.VECTOR_MARKS):
+        canvas.saveState()
+        canvas.translate(100 + 10 * n, 600)
+        canvas.rotate(-45)
+        canvas.doForm("square")  # pyright: ignore[reportUnknownMemberType]
+        canvas.restoreState()
+    canvas.save()
+    page = pdfium.PdfDocument(tmp_path / "diamonds.pdf")[0]
+    thin = [95 / 612, (792 - 601) / 792, 270 / 612, (792 - 599) / 792]
+    whole = [95 / 612, (792 - 604) / 792, 270 / 612, (792 - 596) / 792]
+
+    assert render.render_region(page, "other", thin, BUDGET).scale is not None
+    assert render.render_region(page, "other", whole, BUDGET).scale is None
+
+
+def test_a_mark_on_the_edge_of_the_region_is_inside_it(tmp_path: Path) -> None:
+    # Sizes in powers of two, so that the box's edges are the marks' exactly.
+    side, n = 1024, render.VECTOR_MARKS
+    canvas = worksheet(tmp_path / "edges.pdf", (side, side))
+    for i in range(n):
+        canvas.rect(128 + 8 * i, 512, 4, 4, stroke=0, fill=1)
+    canvas.save()
+    page = pdfium.PdfDocument(tmp_path / "edges.pdf")[0]
+    right = 128 + 8 * (n - 1) + 4
+    box = [128 / side, (side - 516) / side, right / side, (side - 512) / side]
+
+    assert render.render_region(page, "other", box, BUDGET).scale is None

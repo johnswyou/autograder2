@@ -175,7 +175,11 @@ def render_region(
     cut = (x0 * width, (1 - y1) * height, (1 - x1) * width, y0 * height)
     bitmap = page.render(scale=scale, crop=cut)  # pyright: ignore[reportArgumentType]
     image = bitmap.to_pil().convert("RGB")
-    ppi = None if _drawn(page, box) else _native_ppi(_images(page))
+    # The marks counted only where a ceiling could be lifted: a page can hold
+    # thousands of paths.
+    ppi = _native_ppi(_images(page))
+    if ppi and _drawn(page, box):
+        ppi = None
     return Region(image, list(box), scale * 72 / ppi if ppi else None)
 
 
