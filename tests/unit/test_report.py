@@ -1008,13 +1008,23 @@ def test_the_review_list_shows_both_awards_and_rationales_as_untrusted_text(
             assert "Someone else" not in path.read_text(encoding="utf-8-sig")
 
 
-@pytest.mark.parametrize("profile", ["economy", "balanced", "thorough"])
+@pytest.mark.parametrize(
+    "profile", ["economy", "balanced", "thorough", "economy, a result stored"]
+)
 def test_the_run_report_says_when_the_profile_does_no_second_grade(
     built: Built, tmp_path: Path, profile: str
 ) -> None:
     workspace = new_workspace(tmp_path)
-    workspace.config_lock_toml.write_text(LOCK.replace("balanced", profile))
+    workspace.config_lock_toml.write_text(
+        LOCK.replace("balanced", profile.split(",")[0])
+    )
     student = copy_student(built, workspace, "typed-in-place")
+    if profile.endswith("stored"):  # graded a second time; the lock edited since
+        record = second_grade_of_q4b(load(workspace, KEY, student), "differ")
+        write_model(
+            workspace.second_grade_json(student.student_key),
+            SecondGrades(records=[record]),
+        )
 
     write_report(workspace, KEY, [student])
 
@@ -1025,6 +1035,9 @@ def test_the_run_report_says_when_the_profile_does_no_second_grade(
         assert said == "The second grade is not done under the profile economy."
     else:
         assert said.startswith("Awards graded a second time")
+    # A flag on a first grade known to depend on the draw stays raised.
+    if profile.endswith("stored"):
+        assert "| graders_disagree | high | 1 |" in lines
 
 
 NAMES = [

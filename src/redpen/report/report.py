@@ -818,10 +818,11 @@ def _run_report(
 def _second_grade_lines(
     scored: Sequence[tuple[Stored, list[Score]]], profile: Profile | None
 ) -> list[str]:
-    """The second grade's counts, or why there is none: the lock's profile."""
-    if profile is not None and profile not in PROFILES:
-        return [f"The second grade is not done under the profile {profile}."]
+    """The second grade's counts, or why there is none: the lock's profile, when
+    no result is stored (a lock edited since keeps the flags of those that are)."""
     found = [(s, r) for s, _ in scored for r in s.second_grades.values()]
+    if not found and profile is not None and profile not in PROFILES:
+        return [f"The second grade is not done under the profile {profile}."]
     pairs = [(s.grades[r.part_id].grade, r.second.grade) for s, r in found if r.second]
     awards = sum(len(first.criteria) for first, _ in pairs)
     differ = sum(len(differing(first, second)) for first, second in pairs)
