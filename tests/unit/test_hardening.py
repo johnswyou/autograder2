@@ -291,6 +291,31 @@ def test_one_unreadable_submission_is_listed_and_the_others_are_graded(
     )
 
 
+def out_files() -> dict[str, bytes]:
+    out = WS.root / "out"
+    return {
+        p.relative_to(out).as_posix(): p.read_bytes()
+        for p in sorted(out.rglob("*"))
+        if p.is_file()
+    }
+
+
+def test_submissions_with_no_pdf_leave_the_stored_class_as_it_was(
+    class_folder: Path,
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    before = out_files()
+    summary = WS.ingest_summary_json.read_bytes()
+    Path("empty").mkdir()
+
+    refused = runner.invoke(app, ["grade", "empty", "--workspace", "ws"])
+
+    assert refused.exit_code == 1
+    assert WS.ingest_summary_json.read_bytes() == summary
+    assert runner.invoke(app, ["report", "--workspace", "ws"]).exit_code == 0
+    assert out_files() == before
+
+
 # --- the workspace ------------------------------------------------------------------
 
 

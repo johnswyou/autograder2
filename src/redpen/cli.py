@@ -923,8 +923,7 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
             f"{submissions} cannot be read as a folder or ZIP of PDFs, or the roster"
             f" cannot be read ({type(error).__name__}). {GIVE_SUBMISSIONS}"
         )
-    write_model(ws.ingest_summary_json, summary)
-    if not summary.students:
+    if not summary.students:  # the stored class stays as it was
         failed = len(summary.failed)
         _fail(
             f"No student PDF could be ingested from {submissions}: {failed} could"
@@ -932,6 +931,7 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
             if failed
             else f"No student PDF was found in {submissions}. {GIVE_SUBMISSIONS}"
         )
+    write_model(ws.ingest_summary_json, summary)
     return summary
 
 
