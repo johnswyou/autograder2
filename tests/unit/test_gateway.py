@@ -1124,9 +1124,10 @@ def test_a_wait_told_to_one_request_moves_no_turn_already_taken_earlier(
     clock = Clock(monkeypatch)
     starts: list[float] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    async def handler(request: httpx.Request) -> httpx.Response:
         starts.append(clock.now)
-        if len(starts) == 1:  # turns are taken until 5 s; the wait ends at 3 s
+        await clock.sleep(0.1)  # in flight, while the others take their turns
+        if len(starts) == 1:  # turns are taken until 5 s; the wait ends at 3.1 s
             return limited(429, "3")
         return completion('{"letter": "B"}')
 
