@@ -798,7 +798,7 @@ def _grade(
             " remove those not meant to be graded.",
             err=True,
         )
-    if failed or summary.failed or summary.duplicates:
+    if failed or summary.failed:  # a student's other PDFs are only said
         raise typer.Exit(code=1)
 
 

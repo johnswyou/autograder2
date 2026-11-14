@@ -422,7 +422,7 @@ def test_two_submissions_of_one_student_are_said_in_one_line(
 
     result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 0  # said, and not a failure: the newest is graded
     assert said(result)[-1] == (
         f"Students with more than one PDF: 1. The newest of each was graded, and"
         f" {WS.ingest_summary_json} names the others; remove those not meant to be"
