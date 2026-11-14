@@ -3788,15 +3788,39 @@ def test_the_terminal_shows_the_entry_its_criteria_and_where_each_file_is(
         .grade.criteria
     )
     root = workspace.root.absolute() / "students" / "s1"
+    asks = [c.requirement for p in KEY.parts if p.id == "Q4.b" for c in p.criteria]
     assert shown[criteria:] == [
         "- Criteria:",
         f"  - Q4.b.c1: 2 / 2. {code_span(c1.rationale)}",
+        f"    - It asks for: {code_span(asks[0])}",
         f"  - Q4.b.c2: 1 / 1. {code_span(c2.rationale)}",
+        f"    - It asks for: {code_span(asks[1])}",
         "- Files:",
         f"  - crop 1: {root / 'crops' / 'Q4.b-1.png'}",
         f"  - reading: {root / 'readings' / 'Q4.json'}",
         f"  - grade: {root / 'grades' / 'Q4.json'}",
     ]
+
+
+def test_the_criteria_s_requirements_on_the_terminal_leave_every_review_holding(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = four_entries(built, workspace)
+    write_report(workspace, KEY, [student])
+    before = workspace.review_md.read_bytes()
+
+    result = session(workspace, *["accept"] * 4)
+
+    assert result.exit_code == 0, result.output
+    asks = [
+        f"    - It asks for: {code_span(c.requirement)}" for c in KEY.parts[0].criteria
+    ]
+    assert all(line in result.stdout.splitlines() for line in asks)
+    assert b"It asks for" not in before + workspace.review_md.read_bytes()
+    assert write_report(workspace, KEY, [student]) == []
+    assert section(workspace.review_md, "## Reviews out of date") == []
 
 
 def review_students(workspace: Workspace) -> list[IngestRecord]:

@@ -1365,7 +1365,8 @@ def review_entries(
 
 def _criteria(s: Score) -> list[str]:
     """Each criterion of a student's part with the award shown, in its own points,
-    and why; or, on a part withheld, the instructor's award, or none."""
+    and why, or, on a part withheld, the instructor's award, or none; and under it
+    what the criterion asks for."""
     given = {c.id: c for c in s.record.grade.criteria} if s.record else {}
     lines = ["- Criteria:"]
     for c in s.part.criteria:
@@ -1379,6 +1380,7 @@ def _criteria(s: Score) -> list[str]:
             lines.append(f"  - {c.id}: {number(o.points)} / {worth}, the instructor's.")
         else:
             lines.append(f"  - {c.id}: none, out of {worth}.")
+        lines.append(f"    - It asks for: {code_span(c.requirement)}")
     return lines
 
 
