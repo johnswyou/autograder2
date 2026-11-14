@@ -314,11 +314,11 @@ class Gateway:
             try:
                 return await self._attempt(role, model, body)
             except RetryableError as error:
+                backoff = BACKOFF_SECONDS * 2**attempt * random.uniform(1, 2)
                 if error.wait is None:
-                    backoff = BACKOFF_SECONDS * 2**attempt * random.uniform(1, 2)
                     await self._sleep(backoff)
                 else:  # every request to the model waits it out, in `_wait_turn`
-                    until = time.monotonic() + error.wait
+                    until = time.monotonic() + max(error.wait, backoff)
                     slug = model.slug
                     self._next_start[slug] = max(self._next_start.get(slug, 0), until)
         return await self._attempt(role, model, body)

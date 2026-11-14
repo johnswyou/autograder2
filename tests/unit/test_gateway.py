@@ -849,10 +849,9 @@ def limited(code: int, wait: str | None) -> httpx.Response:
     [
         (limited(429, "7"), 7),
         (limited(503, "3"), 3),
-        (limited(429, "0"), 0),
         (limited(429, "3600"), MAX_WAIT),
     ],
-    ids=["429", "503", "now", "past the bound"],
+    ids=["429", "503", "past the bound"],
 )
 def test_a_retry_after_is_waited_for_before_the_retry(
     tmp_path: Path, reply: httpx.Response, waited: float
@@ -865,6 +864,21 @@ def test_a_retry_after_is_waited_for_before_the_retry(
     assert result.value == Answer(letter="B")
     assert len(server.requests) == 2
     assert sum(sleeps) == pytest.approx(waited, abs=0.05)
+
+
+def test_a_retry_after_of_zero_is_never_shorter_than_the_backoff(
+    tmp_path: Path,
+) -> None:
+    server = Server(limited(429, "0"))
+    sleeps: list[float] = []
+
+    with pytest.raises(RetryableError):
+        run(tmp_path / "cache.sqlite", server, ask(), sleep=sleeps_into(sleeps))
+
+    assert len(server.requests) == MAX_ATTEMPTS
+    assert len(sleeps) == MAX_ATTEMPTS - 1
+    for attempt, slept in enumerate(sleeps):  # less only by the time asking took
+        assert slept >= BACKOFF_SECONDS * 2**attempt - 0.05
 
 
 @pytest.mark.parametrize("wait", [None, "soon", "-5", "nan"])
