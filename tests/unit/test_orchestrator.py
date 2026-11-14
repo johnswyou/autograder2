@@ -2349,6 +2349,11 @@ BAD_REVIEWS = {
         "- {digest: d}\n",
         ", entry 1: it names no student and no part.",
     ),
+    # Unquoted, by hand: written back by the tool, it would not read the same.
+    "a digest read as a number": (
+        "- {student: STUDENT, part: Q4.b, part_hash: h, digest: 1e1111111111}\n",
+        ", entry 1 is not a review",
+    ),
     "a duplicate": (
         "- {part: Q4.b, part_hash: h, digest: d}\n"
         "- {part: Q4.b, part_hash: h, digest: e}\n",
@@ -2363,7 +2368,15 @@ REVIEWED_BY = ("report", "regrade", "grade", "review", "override")
     [
         *((c, "unknown student") for c in REVIEWED_BY),
         *((c, "not YAML") for c in REVIEWED_BY),
-        *(("review", b) for b in ("not a review", "unknown part", "naming nothing")),
+        *(
+            ("review", b)
+            for b in (
+                "not a review",
+                "unknown part",
+                "naming nothing",
+                "a digest read as a number",
+            )
+        ),
         ("review", "a duplicate"),
     ],
 )

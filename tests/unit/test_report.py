@@ -42,7 +42,7 @@ from redpen.prepare.key import (
     yaml_writer,
 )
 from redpen.report import report as reporting
-from redpen.report.overrides import record_review
+from redpen.report.overrides import OverrideError, record_review
 from redpen.report.report import (
     CLOSED,
     CORRECTED,
@@ -80,6 +80,7 @@ from redpen.schemas.grade import (
     GradeRecord,
     Override,
     ProblemGrades,
+    Review,
     SecondGrade,
     SecondGrades,
 )
@@ -2583,6 +2584,21 @@ def review_of(
     ]
     keys = [s.student_key for s in students]
     record_review(workspace.reviews_yaml, key, keys, entry.review)
+
+
+def test_a_review_that_would_not_read_back_is_refused_as_a_review(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "reviews.yaml"
+    unknown = Review(student="s1", part="Q9", part_hash="h", digest="d")
+
+    with pytest.raises(OverrideError) as refused:
+        record_review(path, KEY, ["s1"], unknown)
+
+    assert str(refused.value) == (
+        f"{path} would not read back as the reviews, so it is left as it is."
+    )
+    assert not path.exists()
 
 
 def section(path: Path, heading: str) -> list[str]:

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
+from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.error import YAMLError
 
@@ -60,12 +61,17 @@ def _text(path: Path) -> str:
 
 
 def _parsed[E: Schema](
-    path: Path, text: str, entries: TypeAdapter[list[E]], kind: str, holds: str
+    path: Path,
+    text: str,
+    reader: YAML,
+    entries: TypeAdapter[list[E]],
+    kind: str,
+    holds: str,
 ) -> list[E]:
-    """`text`, the file `path`, as its entries, each a `kind` that `holds` what it
-    says."""
+    """`text`, the file `path`, read by `reader` as its entries, each a `kind` that
+    `holds` what it says."""
     try:
-        return entries.validate_python(yaml_reader().load(text) or [])
+        return entries.validate_python(reader.load(text) or [])
     except YAMLError as error:  # its message quotes the file
         mark = getattr(error, "problem_mark", None)
         line = f" at line {mark.line + 1}" if mark else ""
@@ -88,6 +94,7 @@ def _checked(
     found = _parsed(
         path,
         text,
+        yaml_reader(),
         _ENTRIES,
         "correction",
         "a student key, a criterion id, points, a part_hash and an optional note",
@@ -142,6 +149,7 @@ def record_override(
         lambda text: _checked(path, text, key, students),
         _corrects,
         [((student, criterion), new)],
+        "corrections",
     )
 
 
@@ -155,6 +163,7 @@ def record_overrides(
         lambda text: _checked(path, text, key, students),
         _corrects,
         [(_corrects(o), o) for o in new],
+        "corrections",
     )
 
 
@@ -171,6 +180,7 @@ def record_review(path: Path, key: Key, students: Collection[str], new: Review) 
         lambda text: _reviewed(path, text, key, students),
         lambda r: (r.student, r.part),
         [((new.student, new.part), new)],
+        "reviews",
     )
 
 
@@ -181,6 +191,9 @@ def _reviewed(
     found = _parsed(
         path,
         text,
+        # A number stays one, so that a digest written as one by hand is refused
+        # here: written back by `record_review`, it would not read the same.
+        YAML(typ="safe", pure=True),
         _REVIEWS,
         "review",
         "a digest and, as its entry has them, a student key, a part id and a part_hash",
@@ -207,11 +220,12 @@ def _record[E: Schema, I](
     check: Callable[[str], list[E]],
     ident: Callable[[E], I],
     changes: Sequence[tuple[I, E | None]],
+    kind: str,
 ) -> None:
     """For each change in turn, make its new entry the entry of `path` with its
     `ident`, in place of an earlier one, or remove that one when the new entry is
     None, as `record_override` says; then write `path` once. `check` loads a text
-    of the file."""
+    of the file, which holds the `kind`."""
     text = _text(path)
     for at_ident, new in changes:
         before = check(text)
@@ -249,8 +263,7 @@ def _record[E: Schema, I](
                 pass
         else:
             raise OverrideError(
-                f"{path} would not read back as the corrections, so it is left as"
-                " it is."
+                f"{path} would not read back as the {kind}, so it is left as it is."
             )
     partial = path.with_name(path.name + ".partial")
     partial.write_text(text, encoding="utf-8")
