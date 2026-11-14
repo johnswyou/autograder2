@@ -1029,9 +1029,9 @@ def test_strict_privacy_once_off_stays_recorded(
 
 
 MASKED = (
-    "Names masked (`mask_names`). Name regions blanked in the images sent after the"
-    " map: 3, on 3 pages. Left whole because they overlap a response: 3. The mapper"
-    " sees each page whole, before it is blanked."
+    "Names masked (`mask_names`). Name regions blanked: 3, found on 3 pages, each in"
+    " every image of its page that is sent after the map. Left whole because they"
+    " overlap a response: 3. The mapper sees each page whole, before it is blanked."
 )
 
 

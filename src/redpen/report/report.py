@@ -926,10 +926,10 @@ def _run_report(
             blanked, named, left = name_counts(workspace, who)
             lines += [
                 "",
-                "Names masked (`mask_names`). Name regions blanked in the images sent"
-                f" after the map: {blanked}, on {named} pages. Left whole because they"
-                f" overlap a response: {left}. The mapper sees each page whole, before"
-                " it is blanked.",
+                f"Names masked (`mask_names`). Name regions blanked: {blanked}, found"
+                f" on {named} pages, each in every image of its page that is sent after"
+                f" the map. Left whole because they overlap a response: {left}. The"
+                " mapper sees each page whole, before it is blanked.",
             ]
     else:
         lines.append("No model is pinned in this workspace.")
