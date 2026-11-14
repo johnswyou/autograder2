@@ -326,13 +326,11 @@ class Gateway:
     async def _attempt(
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
-        if self.stopped is not None:
-            raise StopError(*self.stopped.args)
+        self._go_on()
         async with self._slots:
             # Waiting inside the slot stops queued requests bursting past the rate.
             await self._wait_turn(model.slug)
-            if self.stopped is not None:  # only what is in flight is sent
-                raise StopError(*self.stopped.args)
+            self._go_on()  # only what is in flight is sent
             try:
                 reply = await self._http.post("/chat/completions", json=body)
             except httpx.TransportError as error:
@@ -346,13 +344,11 @@ class Gateway:
                 ) from error
             response = {}
         if (code := reply.status_code) != 200:
-            wait = _retry_after(reply)
-            # A 402 with a wait is OpenRouter's in-flight budget, not the balance.
-            if code in STOPS and not (code == 402 and wait is not None):
+            if code in STOPS:
                 self.stopped = StopError(STOPS[code])
                 raise self.stopped
             message = f"{model.slug}: HTTP {code}{_message(response.get('error'))}"
-            _raise_for(code, message, wait)
+            _raise_for(code, message, _retry_after(reply))
         self._ledger.record(role, model.slug, _usage(response, model))
         # A provider failure can arrive inside a 200 response.
         choice = _first_choice(response)
@@ -365,6 +361,11 @@ class Gateway:
                 f"asked for {model.slug}, served by {response.get('model')}"
             )
         return response
+
+    def _go_on(self) -> None:
+        """Raise the stop, once one is met: nothing more is sent."""
+        if self.stopped is not None:
+            raise StopError(*self.stopped.args)
 
     async def _wait_turn(self, slug: str) -> None:
         """Start requests to `slug` at most `requests_per_second` a second."""
@@ -420,7 +421,7 @@ async def finish_all[T](awaitables: Iterable[Awaitable[T]]) -> list[T]:
 
 
 def _raise_for(code: int, message: str, wait: float | None = None) -> NoReturn:
-    if code in (408, 429) or code >= 500 or (code == 402 and wait is not None):
+    if code in (408, 429) or code >= 500:
         raise RetryableError(message, wait)
     raise FatalError(message)
 

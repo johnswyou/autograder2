@@ -850,10 +850,9 @@ def limited(code: int, wait: str | None) -> httpx.Response:
         (limited(429, "7"), 7),
         (limited(503, "3"), 3),
         (limited(429, "0"), 0),
-        (limited(402, "4"), 4),  # the in-flight budget, not the balance
         (limited(429, "3600"), MAX_WAIT),
     ],
-    ids=["429", "503", "now", "402 with the header", "past the bound"],
+    ids=["429", "503", "now", "past the bound"],
 )
 def test_a_retry_after_is_waited_for_before_the_retry(
     tmp_path: Path, reply: httpx.Response, waited: float
@@ -937,11 +936,15 @@ def test_a_model_that_rate_limits_its_first_answers_is_asked_once_more_for_each(
     assert all(r.value == Answer(letter="B") for r in found)
 
 
-@pytest.mark.parametrize("code", [401, 402, 404])
+@pytest.mark.parametrize(
+    ("code", "wait"),
+    [(401, None), (402, None), (402, "4"), (404, None)],
+    ids=["401", "402", "402 with a Retry-After", "404"],
+)
 def test_a_failure_no_retry_cures_stops_every_later_request_with_one_fixed_line(
-    tmp_path: Path, code: int
+    tmp_path: Path, code: int, wait: str | None
 ) -> None:
-    server = Server(httpx.Response(code, json={"error": {"code": code}}))
+    server = Server(limited(code, wait))
 
     async def scenario(gateway: Gateway) -> list[Result[BaseModel] | BaseException]:
         first = await asyncio.gather(ask()(gateway), return_exceptions=True)
