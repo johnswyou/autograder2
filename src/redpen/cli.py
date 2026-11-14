@@ -289,15 +289,9 @@ def prepare(
     total: Total = None,
     page_points: PagePoints = None,
     profile: ProfileOption = None,
-    roster: Roster = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            help="Not supported yet, so refused. `redpen run --dry-run` estimates"
-            " the key too.",
-        ),
-    ] = False,
+    # Hidden: `run` passes them on, and prepare ignores the one and refuses the other.
+    roster: Annotated[Path | None, typer.Option(hidden=True)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", hidden=True)] = False,
     workspace: WorkspaceDir = None,
 ) -> None:
     """Build the key only. On a workspace that has one, --total or --page-points
@@ -307,7 +301,10 @@ def prepare(
     keep_out_of_git(ws)  # a workspace that exists; a new one once the blank is in
     # Refused rather than ignored: ignoring --dry-run would spend money.
     if dry_run:
-        _fail("--dry-run is not supported yet")
+        _fail(
+            "prepare has no dry run. `redpen run BLANK.pdf SUBMISSIONS --dry-run`"
+            " estimates the key and the grading, and sends nothing."
+        )
     # Opened before anything is copied, so a bad file leaves the workspace free.
     try:
         data = blank.read_bytes()

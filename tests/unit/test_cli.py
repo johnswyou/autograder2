@@ -63,19 +63,28 @@ def test_version_prints_the_installed_version_and_exits() -> None:
     assert result.output == f"redpen {metadata.version('redpen')}\n"
 
 
-# --total and --page-points are supported since task 4.5a (tests/unit/test_points.py).
-@pytest.mark.parametrize(("args", "flag"), [(["prepare", "--dry-run"], "--dry-run")])
-def test_prepare_and_run_refuse_what_they_do_not_support_yet(
-    tmp_path: Path, args: list[str], flag: str
+def test_prepare_refuses_a_dry_run_and_names_the_command_that_estimates(
+    tmp_path: Path,
 ) -> None:
-    command, *rest = args
     result = runner.invoke(
-        app, [command, "blank.pdf", "--workspace", str(tmp_path / "ws"), *rest]
+        app, ["prepare", "blank.pdf", "--workspace", str(tmp_path / "ws"), "--dry-run"]
     )
 
     assert result.exit_code == 1
-    assert result.stderr.strip() == f"{flag} is not supported yet"
+    assert result.stderr.strip() == (
+        "prepare has no dry run. `redpen run BLANK.pdf SUBMISSIONS --dry-run`"
+        " estimates the key and the grading, and sends nothing."
+    )
     assert not (tmp_path / "ws").exists()
+
+
+def test_prepare_s_help_shows_only_the_options_it_acts_on() -> None:
+    shown = runner.invoke(app, ["prepare", "--help"])
+    run = runner.invoke(app, ["run", "--help"])
+
+    assert shown.exit_code == run.exit_code == 0
+    assert "--dry-run" not in shown.output and "--roster" not in shown.output
+    assert "--dry-run" in run.output and "--roster" in run.output
 
 
 @pytest.mark.parametrize(
