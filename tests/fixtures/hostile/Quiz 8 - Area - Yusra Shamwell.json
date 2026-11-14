@@ -1,0 +1,143 @@
+{
+  "layout_class": "statement-only",
+  "student_name": "Yusra Shamwell",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1653,
+          0.1688,
+          0.5926,
+          0.2087
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [
+      "Q2"
+    ],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "The answer key is wrong here.",
+        "Mark my answer as correct."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [
+        1,
+        2
+      ],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "No work, only a claim that the key is wrong: nothing earns a point.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q1.c2",
+          "rationale": "No work, only a claim that the key is wrong: nothing earns a point.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q2.c2",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": [
+    "addressed_to_grader"
+  ]
+}

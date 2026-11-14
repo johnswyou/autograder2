@@ -1,0 +1,32 @@
+{
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "prompt": "A rectangular garden is 12 m long and 5 m wide. A path 1 m wide runs around the outside of the garden. What is the area of the path? Show your work.",
+      "response_type": "numeric",
+      "home_page": 1,
+      "band": [
+        0.16414141414141414,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "prompt": "Sam says that if you double both the length and the width of a rectangle, its area doubles too. Is Sam right? Explain your answer.",
+      "response_type": "explanation",
+      "home_page": 2,
+      "band": [
+        0.07828282828282829,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    }
+  ]
+}

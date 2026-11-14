@@ -1,0 +1,156 @@
+{
+  "layout_class": "no-note",
+  "student_name": "Ulric Notreal",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1663,
+          0.1708,
+          0.5359,
+          0.2565
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 2,
+        "box": [
+          0.1624,
+          0.1155,
+          0.6275,
+          0.2007
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "with the path: 14 m by 7 m",
+        "14 × 7 = 98 m²",
+        "garden: 12 × 5 = 60 m²",
+        "path = 98 − 60 = 38 m²"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": 38.0,
+        "unit": "m^2",
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "No, Sam is wrong. Area is",
+        "length × width, and both double,",
+        "so the area is 2 × 2 = 4 times",
+        "as big: 3 × 5 = 15 but 6 × 10 = 60."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Takes the garden's 60 m^2 from the 98 m^2 with the path: 38 m^2.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q1.c2",
+          "rationale": "Takes the garden's 60 m^2 from the 98 m^2 with the path: 38 m^2.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "Says Sam is wrong and the area is four times as big, because both factors of length x width double, with an example.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q2.c2",
+          "rationale": "Says Sam is wrong and the area is four times as big, because both factors of length x width double, with an example.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

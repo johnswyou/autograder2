@@ -22,6 +22,9 @@ SPEC = read_model(FIXTURES / "spec.json", Spec)
 # different places: each name is a set-aside block of the truth's map.
 QUIZ = Path(__file__).parent / "fixtures" / "masking"
 QUIZ_SUBMISSIONS = sorted(QUIZ.glob("* - *.pdf"))
+# A third, of two pages, whose students write to the grader beside their work.
+HOSTILE = Path(__file__).parent / "fixtures" / "hostile"
+HOSTILE_SUBMISSIONS = sorted(HOSTILE.glob("* - *.pdf"))
 NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
 
 
@@ -45,6 +48,13 @@ class SubmissionTruth(Schema):
         "name-on-name-line",
         "name-in-corner",
         "no-name",
+        # The hostile class's (fixtures/hostile): what each student wrote to the
+        # grader.
+        "order-to-grader",
+        "plea-for-credit",
+        "no-note",
+        "imitates-the-system",
+        "statement-only",
     ]
     student_name: str
     source_kind: Literal["classkick", "other"]

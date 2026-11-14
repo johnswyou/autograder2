@@ -1,0 +1,100 @@
+{
+  "policies": {
+    "carry_forward": true,
+    "alternative_methods": true,
+    "rel_tol": 0.02,
+    "require_units": true,
+    "penalise_sig_figs": false,
+    "penalise_contradictory_answers": true,
+    "point_step": "0.25"
+  },
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "home_page": 1,
+      "response_type": "numeric",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A rectangular garden is 12 m long and 5 m wide. A path 1 m wide runs around the outside of the garden. What is the area of the path? Show your work.",
+      "answer": {
+        "choices": [],
+        "value": 38.0,
+        "unit": "m^2",
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "The garden with the path is 14 m by 7 m: 14 x 7 = 98 m^2. The garden alone is 12 x 5 = 60 m^2. The path is 98 - 60 = 38 m^2.",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "points": "1",
+          "kind": "method",
+          "requirement": "Takes the garden's area, 12 m by 5 m, from the area of the garden with the path, 14 m by 7 m.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q1.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "38 m^2.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Adds the four strips along the sides and leaves out the corner squares: 34 m^2.",
+        "Gives the garden's own area, 60 m^2."
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "home_page": 2,
+      "response_type": "explanation",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "Sam says that if you double both the length and the width of a rectangle, its area doubles too. Is Sam right? Explain your answer.",
+      "answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": [
+          "Sam is wrong: the area becomes four times as large.",
+          "Area is length times width, and both double, so the area is multiplied by 2 x 2 = 4."
+        ]
+      },
+      "solution": "No. Area is length x width. Doubling both multiplies the area by 2 x 2 = 4: a 3 by 5 rectangle has area 15, a 6 by 10 one has 60.",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "States that Sam is wrong: the area becomes four times as large.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q2.c2",
+          "points": "1",
+          "kind": "method",
+          "requirement": "Explains that area is length times width, so doubling both multiplies it by 2 x 2 = 4, or shows it with an example.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Says the area doubles, as the perimeter does."
+      ]
+    }
+  ],
+  "points": null
+}
