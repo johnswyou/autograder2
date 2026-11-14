@@ -418,6 +418,7 @@ def reading(part_id: str, response: Response | None) -> Reading:
 
 async def draw(root: Path) -> dict[str, dict[str, GradeRecord]]:
     """Every case graded once, in a fresh cache, so that each draw is a new call."""
+    root.mkdir(parents=True)
     workspace = Workspace(root / "ws")
     found: dict[str, dict[str, GradeRecord]] = {}
     async with Gateway(root / "cache.sqlite", openrouter_api_key()) as gateway:
@@ -440,8 +441,17 @@ async def draw(root: Path) -> dict[str, dict[str, GradeRecord]]:
     return found
 
 
+def drawn(root: Path) -> dict[str, dict[str, GradeRecord]]:
+    try:
+        return asyncio.run(draw(root))
+    except Exception as error:
+        # Without its frames: pytest prints each frame's arguments, the gateway's
+        # API key among them.
+        raise RuntimeError(f"{type(error).__name__}: {error}") from None
+
+
 def test_method_credit_is_never_earned_where_it_must_not_be(tmp_path: Path) -> None:
-    draws = [asyncio.run(draw(tmp_path / f"draw-{n}")) for n in range(DRAWS)]
+    draws = [drawn(tmp_path / f"draw-{n}") for n in range(DRAWS)]
 
     table: defaultdict[tuple[str, str], list[Decimal]] = defaultdict(list)
     for found in draws:
