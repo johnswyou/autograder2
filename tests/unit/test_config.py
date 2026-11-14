@@ -69,7 +69,16 @@ def test_file_overrides_a_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             'profile = "fast"\n',
             "profile: Input should be 'economy', 'balanced' or 'thorough'",
         ),
-        ("image_budget = 0\n", "image_budget: Input should be greater than 0"),
+        (
+            "image_budget = 0\n",
+            "image_budget: Input should be greater than or equal to 256",
+        ),
+        (
+            "image_budget = 15360\n",
+            "image_budget: Input should be less than or equal to 4096",
+        ),
+        ("image_budget = 2\n", "image_budget: Input should be greater than or equal"),
+        ("image_budget = true\n", "image_budget: Input should be greater than or"),
         ("profile = \n", "redpen.toml: Invalid value"),
     ],
 )
@@ -103,6 +112,14 @@ def test_a_file_that_is_not_utf_8_text_is_rejected_in_one_line(
         f"{path}: cannot be read as UTF-8 text ({error}). Save it as UTF-8 text, or"
         " move it away to use the defaults."
     )
+
+
+@pytest.mark.parametrize("budget", [256, 1536, 4096])
+def test_an_image_budget_in_its_bounds_is_taken(tmp_path: Path, budget: int) -> None:
+    path = tmp_path / "redpen.toml"
+    path.write_text(f"image_budget = {budget}\n")
+
+    assert load_config(path).image_budget == budget
 
 
 def test_example_file_shows_every_setting_with_its_default() -> None:

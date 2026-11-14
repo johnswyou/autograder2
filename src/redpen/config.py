@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from redpen.llm.models import ModelError, ModelInfo, Secret, check, fetch_catalog
 from redpen.workspace import Workspace
@@ -40,8 +40,9 @@ class Config(BaseModel):
 
     models: Models = Field(default_factory=Models)
     profile: Profile = "balanced"
-    image_budget: PositiveInt = 1536
-    """Longest image edge, in pixels, sent to a model."""
+    image_budget: int = Field(default=1536, ge=256, le=4096)
+    """Longest image edge, in pixels, sent to a model: bounded, so that a typing
+    mistake makes neither a 900 MB image nor one too small to crop."""
     strict_privacy: bool = True
     """Route only to endpoints that retain nothing: zero data retention, no Safety
     Retention, no data collection."""
