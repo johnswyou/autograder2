@@ -22,6 +22,7 @@ from redpen.grade.map import (
     Block,
     Entry,
     Inventory,
+    NamedInventory,
     PageBlock,
     PageInventory,
     Resolution,
@@ -122,11 +123,12 @@ class Mapper:
                 "images": images,
                 "texts": [c["text"] for c in content if c["type"] == "text"],
                 "session": body["session_id"],
+                "body": body,
             }
         )
         value: BaseModel = (
             self.inventory(images[0])
-            if name == "Inventory"
+            if name in ("Inventory", "NamedInventory")
             else self.resolutions.pop(0)
         )
         return httpx.Response(
@@ -177,7 +179,7 @@ def workspace_with(
     return workspace
 
 
-def run(workspace: Workspace, mapper: Mapper) -> MapRecord:
+def run(workspace: Workspace, mapper: Mapper, mask_names: bool = False) -> MapRecord:
     async def main() -> MapRecord:
         async with Gateway(
             workspace.root.parent / "cache.sqlite",
@@ -185,7 +187,9 @@ def run(workspace: Workspace, mapper: Mapper) -> MapRecord:
             requests_per_second=1000,
             transport=httpx.MockTransport(mapper),
         ) as gateway:
-            return await map_student(workspace, STUDENT, SPEC, gateway, MODEL, 1536)
+            return await map_student(
+                workspace, STUDENT, SPEC, gateway, MODEL, 1536, mask_names
+            )
 
     return asyncio.run(main())
 
@@ -361,6 +365,66 @@ def test_blocks_get_ids_in_order_and_the_map_carries_their_page_and_box(
     assert {r["session"] for r in mapper.requests} == {"ws:map"}
 
 
+# On page 1, a name clear of the work, and one inside the box of Q1's block p1.b2.
+NAMES = {100: [[0.1, 0.05, 0.3, 0.1], [0.6, 0.65, 0.65, 0.7]], 120: []}
+
+
+def named_pages(image: Image.Image) -> NamedInventory:
+    return NamedInventory(**two_pages(image).model_dump(), names=NAMES[image.width])
+
+
+def test_with_names_masked_the_mapper_is_asked_where_names_are_and_the_map_keeps_it(
+    tmp_path: Path,
+) -> None:
+    resolution = Resolution(
+        entries=[entry("Q1", "p1.b2"), entry("Q2.a", "p2.b1")],
+        unanswered=["Q2.b"],
+        set_aside=[Aside(block_id="p1.b1", reason="a name")],
+    )
+    plain, masked = Mapper([resolution], two_pages), Mapper([resolution], named_pages)
+    run(workspace_with(tmp_path / "off", [page(100), page(120)]), plain)
+    workspace = workspace_with(tmp_path / "on", [page(100), page(120)])
+
+    mapped = run(workspace, masked, mask_names=True)
+
+    inventory, names = prompts.load("map", "inventory"), prompts.load("map", "names")
+    for asked in plain.of("Inventory"):
+        assert asked["body"]["messages"][0]["content"] == inventory[0]
+        assert "names" not in json.dumps(asked["body"]["response_format"])
+    looks = masked.of("NamedInventory")
+    assert len(looks) == 2 and not masked.of("Inventory")
+    for asked, alike in zip(looks, plain.of("Inventory"), strict=True):
+        body = asked["body"]
+        assert body["messages"][0]["content"] == inventory[0] + "\n" + names[0]
+        assert body["messages"][1] == alike["body"]["messages"][1]
+        schema = body["response_format"]["json_schema"]["schema"]
+        assert schema["properties"]["names"]["type"] == "array"
+    assert masked.of("Resolution")[0]["body"] == plain.of("Resolution")[0]["body"]
+    assert [(p.names, p.names_on_responses) for p in mapped.pages] == [
+        ([[0.1, 0.05, 0.3, 0.1]], [[0.6, 0.65, 0.65, 0.7]]),
+        ([], []),
+    ]
+    assert read_model(workspace.map_json(STUDENT), MapRecord) == mapped
+    stored = read_model(workspace.student_page_json(STUDENT, 1), PageInventory)
+    assert stored.names == NAMES[100]
+    versions = inventory[1] + names[1] + prompts.load("map", "resolve")[1]
+    assert (
+        mapped.provenance.prompt_version
+        == hashlib.sha256(versions.encode()).hexdigest()[:12]
+    )
+
+
+def test_a_map_stored_before_names_were_masked_loads_with_no_name_regions() -> None:
+    page = {"number": 1, "rotation": 0, "photo": False}
+    found = {"entries": [], "unanswered": [], "set_aside": []}
+    provenance = {"key_part_hash": None, "prompt_version": None, "model_slug": None}
+    data = {"provenance": provenance, "pages": [page], "map": found}
+
+    [loaded] = MapRecord.model_validate_json(json.dumps(data)).pages
+
+    assert loaded.names == [] and loaded.names_on_responses == []
+
+
 def test_a_map_that_fails_its_checks_is_resolved_once_more_with_the_failures(
     tmp_path: Path,
 ) -> None:
@@ -446,6 +510,36 @@ def test_a_turned_page_is_looked_at_again_upright_and_its_boxes_come_back(
     [found] = mapped.map.entries
     x0, y0, x1, y1 = found.box
     left, top, right, bottom = RECTANGLE  # drawn inclusive of its right and bottom
+    assert [x0 * 300, y0 * 600, x1 * 300, y1 * 600] == pytest.approx(
+        [left, top, right + 1, bottom + 1]
+    )
+
+
+def test_a_name_found_on_a_turned_page_comes_back_to_the_page_s_frame(
+    tmp_path: Path,
+) -> None:
+    drawn = page(300, 600)
+    ImageDraw.Draw(drawn).rectangle(RECTANGLE, fill="black")
+    workspace = workspace_with(tmp_path, [drawn])
+    looks = turned(90, 0)
+
+    def named(image: Image.Image) -> NamedInventory:
+        found = looks(image)
+        [block] = found.blocks if found.rotation == 0 else [found.blocks[0]]
+        name = block.box if found.rotation == 0 else [0.0, 0.0, 0.5, 0.5]
+        work = Block(box=[0.9, 0.9, 1.0, 1.0], label="", description="", candidates=[])
+        return NamedInventory(
+            rotation=found.rotation, photo=True, blocks=[work], names=[name]
+        )
+
+    only = Resolution(
+        entries=[entry("Q1", "p1.b1")], unanswered=["Q2.a", "Q2.b"], set_aside=[]
+    )
+
+    mapped = run(workspace, Mapper([only], named), mask_names=True)
+
+    [(x0, y0, x1, y1)] = mapped.pages[0].names
+    left, top, right, bottom = RECTANGLE
     assert [x0 * 300, y0 * 600, x1 * 300, y1 * 600] == pytest.approx(
         [left, top, right + 1, bottom + 1]
     )

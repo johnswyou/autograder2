@@ -79,6 +79,12 @@ class MapPage(Schema):
     rotation: Literal[0, 90, 180, 270]
     # Whether the student's work on the page is a photograph or scan of paper.
     photo: bool
+    # Where a student's name is, found only with names masked: blanked in every
+    # image of the page sent after the map.
+    names: list[Box] = Field(default_factory=list[list[float]])
+    # Where a name overlaps a mapped response, so is left whole: a mask never
+    # covers a response.
+    names_on_responses: list[Box] = Field(default_factory=list[list[float]])
 
 
 class MapRecord(Schema):

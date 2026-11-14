@@ -56,6 +56,11 @@ class Inventory(Schema):
     blocks: list[Block]
 
 
+# What it returns with names masked: also the box of each name on the page.
+class NamedInventory(Inventory):
+    names: list[Box]
+
+
 # A block as code keeps it: its id `p<page>.b<n>` and its page added, and its box in
 # fractions of the page image as ingest wrote it.
 class PageBlock(Block):
@@ -63,7 +68,8 @@ class PageBlock(Block):
     page: PositiveInt
 
 
-# One page's inventory as stored (`Workspace.student_page_json`).
+# One page's inventory as stored (`Workspace.student_page_json`). Its `names` are
+# every name found on the page: which overlap a response is the map's to say.
 class PageInventory(MapPage):
     blocks: list[PageBlock]
 
@@ -95,13 +101,23 @@ async def map_student(
     gateway: Gateway,
     model: ModelInfo,
     image_budget: int,
+    mask_names: bool = False,
 ) -> MapRecord:
     """Map the ingested `student`: write each page's inventory and `map.json`, and
-    return what was written. Raises `StageError` if the map still fails its checks
-    after one more resolve call; no map is left then, not even an earlier one."""
+    return what was written. With `mask_names` each inventory call also asks where
+    a student's name is on the page. Raises `StageError` if the map still fails its
+    checks after one more resolve call; no map is left then, not even an earlier
+    one."""
     record = read_model(workspace.ingest_json(student), IngestRecord)
     workspace.map_json(student).unlink(missing_ok=True)
     inventory_prompt = prompts.load("map", "inventory")
+    asked = NamedInventory if mask_names else Inventory
+    if mask_names:
+        text, version = prompts.load("map", "names")
+        inventory_prompt = (
+            f"{inventory_prompt[0]}\n{text}",
+            inventory_prompt[1] + version,
+        )
     resolve_prompt = prompts.load("map", "resolve")
     session = f"{workspace.root.name}:map"
     fields = {"id", "label", "response_type", "home_page", "prompt"}
@@ -141,10 +157,10 @@ async def map_student(
                 # Without it the model was seen to measure a tall page as if it
                 # had a paper sheet's shape (task 2.3 report).
                 size = json.dumps({"width": sent.width, "height": sent.height})
-            return await ask(inventory_prompt, [shown, *before, size], Inventory)
+            return await ask(inventory_prompt, [shown, *before, size], asked)
 
         found = await look(0)
-        blocks, rotation = found.blocks, found.rotation
+        blocks, rotation, names = found.blocks, found.rotation, _names(found)
         if turns := found.rotation // 90:
             # Boxes found on a sideways page are not trusted: look again upright.
             # A turn reported then means the first look had the direction wrong.
@@ -154,10 +170,12 @@ async def map_student(
                 b.model_copy(update={"box": prep.box_from_rotated(b.box, turns)})
                 for b in upright.blocks
             ]
+            names = [prep.box_from_rotated(b, turns) for b in _names(upright)]
         page = PageInventory(
             number=number,
             rotation=rotation,  # pyright: ignore[reportArgumentType]
             photo=found.photo,
+            names=names,
             blocks=[
                 PageBlock(id=f"p{number}.b{n}", page=number, **b.model_dump())
                 for n, b in enumerate(blocks, 1)
@@ -181,16 +199,15 @@ async def map_student(
         else Resolution(entries=[], unanswered=[p.id for p in spec.parts], set_aside=[])
     )
     both = (inventory_prompt[1] + resolve_prompt[1]).encode()
+    found_map = to_map(found, blocks)
     mapped = MapRecord(
         provenance=Provenance(
             key_part_hash=None,
             prompt_version=hashlib.sha256(both).hexdigest()[:12],
             model_slug=model.slug,
         ),
-        pages=[
-            MapPage(number=p.number, rotation=p.rotation, photo=p.photo) for p in pages
-        ],
-        map=to_map(found, blocks),
+        pages=[_masked(p, found_map) for p in pages],
+        map=found_map,
     )
     write_model(workspace.map_json(student), mapped)
     return mapped
@@ -288,6 +305,28 @@ def to_map(found: Resolution, blocks: Mapping[str, PageBlock]) -> Map:
             )
             for a in aside.values()
         ],
+    )
+
+
+def _names(found: Inventory) -> list[list[float]]:
+    return found.names if isinstance(found, NamedInventory) else []
+
+
+def _masked(page: PageInventory, found: Map) -> MapPage:
+    """What the map keeps of `page`, its names split: a name that overlaps a box
+    of `found` on the page is left whole, since a mask never covers a response."""
+    responses = [e.box for e in found.entries if e.page == page.number]
+    kept = [
+        n
+        for n in page.names
+        if any(prep.box_within(n, r) is not None for r in responses)
+    ]
+    return MapPage(
+        number=page.number,
+        rotation=page.rotation,
+        photo=page.photo,
+        names=[n for n in page.names if n not in kept],
+        names_on_responses=kept,
     )
 
 
