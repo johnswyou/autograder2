@@ -1571,10 +1571,10 @@ def test_the_proposed_score_is_the_feedback_s_awarded_withheld_or_after_the_audi
     [part] = [p for p in KEY.parts if p.id == "Q4.b"]
     hashed = part_hash(part, KEY.policies)
 
-    def change(student: str, before: int, after: int) -> AuditChange:
+    def change(student: str, before: int, after: int, c: str = "c1") -> AuditChange:
         return AuditChange(
             student_key=student,
-            criterion="Q4.b.c1",
+            criterion=f"Q4.b.{c}",
             part_hash=hashed,
             before=Decimal(before),
             after=Decimal(after),
@@ -1582,15 +1582,15 @@ def test_the_proposed_score_is_the_feedback_s_awarded_withheld_or_after_the_audi
         )
 
     # The class audit lowers s3's method on Q4.b from 2 to its partial level 1.
-    # Its change for s1 was decided on an award of 1, which s1's grade no longer
-    # has: it does not hold.
+    # Its changes to s3's answer and to s1's method were decided on awards (0
+    # and 1) their grades no longer hold, so they do not hold either.
     audit = PartAudit(
         part_id="Q4.b",
         part_hash=hashed,
         groups=1,
         changed=1,
         undecided=0,
-        changes=[change("s1", 1, 0), change("s3", 2, 1)],
+        changes=[change("s1", 1, 0), change("s3", 2, 1), change("s3", 0, 1, "c2")],
         key_suspect=None,
     )
     write_model(workspace.audit_json("Q4.b"), audit)
