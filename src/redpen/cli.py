@@ -1084,7 +1084,7 @@ def _take(ws: Workspace, key: Key, summary: IngestSummary, entry: Entry) -> str:
         typer.echo(line)
     offered = ACTIONS if entry.score else tuple(a for a in ACTIONS if a != "correct")
     asked = f"{', '.join(offered[:-1])} or {offered[-1]}"
-    while (action := _answer(asked.capitalize())) not in offered:
+    while (action := _answer(asked.capitalize()).lower()) not in offered:
         typer.echo(f"Type {asked}.")
     keys = [s.student_key for s in summary.students]
     if action == "correct" and entry.score:

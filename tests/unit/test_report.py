@@ -3165,6 +3165,22 @@ def test_a_session_stores_each_action_as_it_is_taken_and_rebuilds_out(
     assert again.stdout.splitlines()[-1] == counts(0, 0, 0, 2)
 
 
+def test_an_action_is_read_whatever_its_case_and_the_spaces_around_it(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+
+    result = session(workspace, "  Accept ", "SKIP", "Quit")
+
+    assert result.exit_code == 0, result.output
+    assert AGAIN not in result.stdout.splitlines()
+    assert result.stdout.splitlines()[-1] == counts(1, 0, 1, 3)
+    reviews = yaml_reader().load(workspace.reviews_yaml)
+    assert [(r["student"], r["part"]) for r in reviews] == [("s1", "Q4.b")]
+
+
 def test_points_at_a_prompt_are_a_plain_decimal_number_and_zero_is_one(
     built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
