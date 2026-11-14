@@ -25,6 +25,9 @@ QUIZ_SUBMISSIONS = sorted(QUIZ.glob("* - *.pdf"))
 # A third, of two pages, whose students write to the grader beside their work.
 HOSTILE = Path(__file__).parent / "fixtures" / "hostile"
 HOSTILE_SUBMISSIONS = sorted(HOSTILE.glob("* - *.pdf"))
+# A fourth, of three pages: questions on a printed passage, with no calculation.
+CIVICS = Path(__file__).parent / "fixtures" / "civics"
+CIVICS_SUBMISSIONS = sorted(CIVICS.glob("* - *.pdf"))
 NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
 
 
@@ -55,6 +58,12 @@ class SubmissionTruth(Schema):
         "no-note",
         "imitates-the-system",
         "statement-only",
+        # The civics class's (fixtures/civics): what each student got right.
+        "all-right",
+        "own-words",
+        "common-errors",
+        "swapped-answers",
+        "only-choice",
     ]
     student_name: str
     source_kind: Literal["classkick", "other"]

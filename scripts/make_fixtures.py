@@ -2107,6 +2107,615 @@ def write_ink() -> None:
     )
 
 
+# --- A fourth, small class: a reading passage, not mathematics or a science ---------
+
+CIVICS_OUT = OUT.parent / "civics"
+CIVICS = "Civics 4 - The Library Vote"
+CIVICS_INTRO = "Read the passage, then answer questions 1 to 6."
+PASSAGE = (
+    "On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public "
+    "library from its old building on Elm Street to the empty Hartwell factory "
+    "beside the river. The Elm Street building is more than a hundred years old. Its "
+    "roof leaks every spring, and it has no elevator, so readers who use wheelchairs "
+    "cannot reach the upper floor. The factory has three times as much space and a "
+    "large parking lot. Mayor Rosa Delgado said that the move would cost less than "
+    "repairing the old roof. Councilor Tom Becker voted against the plan. He said "
+    "that many children walk to the library after school, and the factory is two "
+    "miles from the town center. The librarian, Ana Kim, asked the council to keep a "
+    "small reading room open on Elm Street. The council agreed to discuss her "
+    "request in June. The new library is planned to open in 2027."
+)
+CIVICS_MC = {
+    "Q1": (
+        "Where will the library move to?",
+        [
+            "a new building in the town center",
+            "the old Hartwell factory beside the river",
+            "the upper floor of the Elm Street building",
+            "the school on Elm Street",
+        ],
+    ),
+    "Q2": (
+        "Which TWO problems with the Elm Street building does the passage describe? "
+        "Choose two.",
+        [
+            "Its roof leaks every spring.",
+            "It is two miles from the town center.",
+            "Readers who use wheelchairs cannot reach the upper floor.",
+            "It is beside the river.",
+            "It will open in 2027.",
+        ],
+    ),
+}
+CIVICS_Q = {
+    "Q3": "On what date did the council vote on the library?",
+    "Q4": "Why did the council decide to move the library? Use two reasons from the "
+    "passage.",
+    "Q5": "Complete the table. For each person, write what the passage says that "
+    "person said or asked for.",
+    "Q6": "Do you think the council made the right decision? State your opinion and "
+    "support it with one detail from the passage.",
+}
+PEOPLE = ["Mayor Rosa Delgado", "Councilor Tom Becker", "Librarian Ana Kim"]
+# (page, top of the question's label, top of its answer space, bottom of that space)
+CIVICS_AT = {
+    "Q1": (1, 0, 0, 0),  # options: CIVICS_ROWS
+    "Q2": (1, 0, 0, 0),
+    "Q3": (2, 62, 102, 150),
+    "Q4": (2, 180, 226, 735),
+    "Q5": (3, 62, 0, 0),  # cells: TABLE
+    "Q6": (3, 400, 446, 735),
+}
+# The top of each choice question's label and of its option (A), set by draw_civics.
+CIVICS_STEM = {"Q1": 0.0, "Q2": 0.0}
+CIVICS_ROWS = {"Q1": 0.0, "Q2": 0.0}
+TABLE = (100, 124, 66)  # top of the table, top of its first row, height of a row
+TABLE_X = (72, 214, 540)  # left edge, the line between the columns, right edge
+
+
+def civics_prompt(pid: str) -> str:
+    """A part's prompt as a solver needs it: the passage, then the question."""
+    if pid in CIVICS_MC:
+        stem, options = CIVICS_MC[pid]
+        listed = " ".join(f"({x}) {o}" for x, o in zip("ABCDE", options, strict=False))
+        return f"{CIVICS_INTRO} {PASSAGE} {stem} {listed}"
+    rows = f" The table's rows: {'; '.join(PEOPLE)}." if pid == "Q5" else ""
+    return f"{CIVICS_INTRO} {PASSAGE} {CIVICS_Q[pid]}{rows}"
+
+
+def civics_key() -> Key:
+    def part(pid, rtype, ans, solution, criteria, errors) -> KeyPart:
+        return KeyPart(
+            id=pid,
+            label=pid[1:],
+            home_page=CIVICS_AT[pid][0],
+            response_type=rtype,
+            depends_on=[],
+            state="verified",
+            prompt=civics_prompt(pid),
+            answer=ans,
+            solution=solution,
+            criteria=criteria,
+            common_errors=errors,
+        )
+
+    return Key(
+        policies=Policies(),
+        parts=[
+            part(
+                "Q1",
+                "multiple_choice",
+                answer(choices=["B"]),
+                "The passage says the council voted to move the library to the empty "
+                "Hartwell factory beside the river.",
+                [criterion("Q1.c1", "1", "final_answer", "Chooses B.")],
+                [
+                    "Chooses A, a new building in the town center: no new building is "
+                    "named in the passage."
+                ],
+            ),
+            part(
+                "Q2",
+                "multiple_select",
+                answer(choices=["A", "C"]),
+                "The Elm Street building's roof leaks every spring (A), and readers "
+                "who use wheelchairs cannot reach its upper floor (C). Two miles from "
+                "the town center (B) and beside the river (D) describe the factory, "
+                "and 2027 (E) is when the new library opens.",
+                [
+                    criterion(
+                        "Q2.c1",
+                        "1",
+                        "final_answer",
+                        "Chooses A and C and no other option.",
+                    )
+                ],
+                [
+                    "Chooses B, the factory's distance from the town center, which "
+                    "Councilor Becker gave as a reason against the move."
+                ],
+            ),
+            part(
+                "Q3",
+                "short_text",
+                answer(must_include=["March 4, 2025"]),
+                "The passage begins: On March 4, 2025, the town council of Millbrook "
+                "voted.",
+                [
+                    criterion(
+                        "Q3.c1",
+                        "1",
+                        "final_answer",
+                        "Gives the date of the vote, March 4, 2025, written in any "
+                        "form.",
+                    )
+                ],
+                [
+                    "Gives June, when the council will discuss the librarian's "
+                    "request.",
+                    "Gives 2027, when the new library is planned to open.",
+                ],
+            ),
+            part(
+                "Q4",
+                "explanation",
+                answer(
+                    must_include=[
+                        "The Elm Street building's roof leaks, and the move costs "
+                        "less than repairing it.",
+                        "The Elm Street building has no elevator, so readers who use "
+                        "wheelchairs cannot reach the upper floor.",
+                        "The factory has three times as much space and a large "
+                        "parking lot.",
+                    ]
+                ),
+                "The passage gives three reasons for the move. The old building's "
+                "roof leaks every spring, and the mayor said the move would cost less "
+                "than repairing it. The old building has no elevator, so readers who "
+                "use wheelchairs cannot reach the upper floor. The factory has three "
+                "times as much space and a large parking lot. Any two of them answer "
+                "the question.",
+                [
+                    criterion(
+                        "Q4.c1",
+                        "1",
+                        "method",
+                        "Gives one reason from the passage for the move: the leaking "
+                        "roof and the cost of repairing it, the lack of an elevator "
+                        "for readers who use wheelchairs, or the factory's greater "
+                        "space and parking lot.",
+                    ),
+                    criterion(
+                        "Q4.c2",
+                        "1",
+                        "method",
+                        "Gives a second reason from the passage, different from the "
+                        "first.",
+                    ),
+                ],
+                [
+                    "Restates the question, that the council wanted to move the "
+                    "library, and gives no reason.",
+                    "Gives only one reason.",
+                ],
+            ),
+            part(
+                "Q5",
+                "other",
+                answer(
+                    must_include=[
+                        "Mayor Rosa Delgado: the move would cost less than repairing "
+                        "the old roof.",
+                        "Councilor Tom Becker: many children walk to the library after "
+                        "school, and the factory is two miles from the town center.",
+                        "Librarian Ana Kim: asked the council to keep a small reading "
+                        "room open on Elm Street.",
+                    ]
+                ),
+                "Mayor Rosa Delgado said the move would cost less than repairing the "
+                "old roof. Councilor Tom Becker said many children walk to the "
+                "library after school and the factory is two miles from the town "
+                "center. Librarian Ana Kim asked the council to keep a small reading "
+                "room open on Elm Street.",
+                [
+                    criterion(
+                        "Q5.c1",
+                        "1",
+                        "final_answer",
+                        "Writes for Mayor Rosa Delgado that the move would cost less "
+                        "than repairing the old roof.",
+                    ),
+                    criterion(
+                        "Q5.c2",
+                        "1",
+                        "final_answer",
+                        "Writes for Councilor Tom Becker that the factory is too far "
+                        "for the children who walk to the library after school.",
+                    ),
+                    criterion(
+                        "Q5.c3",
+                        "1",
+                        "final_answer",
+                        "Writes for Librarian Ana Kim that she asked to keep a small "
+                        "reading room open on Elm Street.",
+                    ),
+                ],
+                ["Swaps what the mayor and the councilor said."],
+            ),
+            part(
+                "Q6",
+                "explanation",
+                answer(
+                    must_include=[
+                        "An opinion on whether the council made the right decision.",
+                        "A detail from the passage that supports the opinion.",
+                    ]
+                ),
+                "Either opinion is right. For example: yes, because the factory has "
+                "three times as much space; or no, because many children walk to the "
+                "library and the factory is two miles from the town center.",
+                [
+                    criterion(
+                        "Q6.c1",
+                        "1",
+                        "final_answer",
+                        "States an opinion on whether the council made the right "
+                        "decision; agreeing and disagreeing both earn the point.",
+                    ),
+                    criterion(
+                        "Q6.c2",
+                        "1",
+                        "method",
+                        "Supports the opinion with a detail from the passage that "
+                        "bears on it.",
+                    ),
+                ],
+                [
+                    "Gives an opinion with no detail from the passage.",
+                    "Retells the passage without giving an opinion.",
+                ],
+            ),
+        ],
+    )
+
+
+CIVICS_KEY = civics_key()
+
+
+def draw_civics(path: Path) -> None:
+    """The blank: the passage and two choice questions on page 1, a date and an
+    explanation on page 2, a table to fill in and an opinion on page 3. Sets
+    CIVICS_STEM and CIVICS_ROWS."""
+    c = Canvas(str(path), pagesize=(PAGE_W, PAGE_H), invariant=1, pageCompression=1)
+    c.setTitle(CIVICS)
+    for page in (1, 2, 3):
+        c.setFont("Helvetica", 8)
+        c.setFillGray(0.35)
+        c.drawString(72, PAGE_H - 40, "CIVICS 4  ·  THE LIBRARY VOTE")
+        c.setFillGray(0)
+        c.setFont("Times-Roman", 10)
+        c.drawCentredString(PAGE_W / 2, PAGE_H - PAGE_NUMBER, str(page))
+        if page == 1:
+            c.setFont("Times-Bold", 16)
+            c.drawString(72, PAGE_H - 76, "Civics 4: The Library Vote")
+            c.setFont("Times-Roman", 11)
+            c.drawString(72, PAGE_H - 106, "Name:")
+            c.line(104, PAGE_H - 108, 300, PAGE_H - 108)
+            c.setFont("Times-Italic", 11)
+            c.drawString(72, PAGE_H - 140, CIVICS_INTRO)
+            y = para(c, 72, 156, PASSAGE) + 24
+            for pid, (stem, options) in CIVICS_MC.items():
+                CIVICS_STEM[pid] = y
+                y = para(c, 72, y, stem, bold=f"{pid[1:]}.") + 6
+                CIVICS_ROWS[pid] = y
+                for row, (x, option) in enumerate(zip("ABCDE", options, strict=False)):
+                    para(c, OPTION_X, y + 17 * row, f"({x})  {option}")
+                y += 17 * len(options) + 24
+        for pid, (home, top, _, _) in CIVICS_AT.items():
+            if home == page and pid not in CIVICS_MC:
+                para(c, 72, top, CIVICS_Q[pid], bold=f"{pid[1:]}.")
+        if page == 2:  # the answer line of question 3
+            c.line(90, PAGE_H - 132, 400, PAGE_H - 132)
+        if page == 3:  # question 5's table: a header row, then a row per person
+            top, first, row = TABLE
+            left, middle, right = TABLE_X
+            bottom = first + row * len(PEOPLE)
+            c.rect(left, PAGE_H - bottom, right - left, bottom - top)
+            c.line(middle, PAGE_H - top, middle, PAGE_H - bottom)
+            c.setFont("Times-Bold", 11)
+            c.drawString(left + 6, PAGE_H - top - 16, "Person")
+            c.drawString(
+                middle + 6, PAGE_H - top - 16, "What the person said or asked for"
+            )
+            c.setFont("Times-Roman", 11)
+            for i, person in enumerate(PEOPLE):
+                y = first + row * i
+                c.line(left, PAGE_H - y, right, PAGE_H - y)
+                c.drawString(left + 6, PAGE_H - y - 16, person)
+        c.showPage()
+    c.save()
+    assert CIVICS_ROWS["Q2"] + 17 * 5 < 735, CIVICS_ROWS
+
+
+def civics_spec() -> Spec:
+    """Each part's band runs from its label to the next label or the page number."""
+    tops = {pid: (home, top) for pid, (home, top, _, _) in CIVICS_AT.items() if top} | {
+        pid: (1, CIVICS_STEM[pid]) for pid in CIVICS_MC
+    }
+    parts = []
+    for part in CIVICS_KEY.parts:
+        page, top = tops[part.id]
+        below = [t for p, t in tops.values() if p == page and t > top]
+        parts.append(
+            Part(
+                id=part.id,
+                label=part.label,
+                prompt=part.prompt,
+                response_type=part.response_type,
+                home_page=part.home_page,
+                band=[top / PAGE_H, min(below, default=PAGE_NUMBER) / PAGE_H],
+                figures=[],
+                depends_on=[],
+                options=list("ABCDE"[: len(CIVICS_MC[part.id][1])])
+                if part.id in CIVICS_MC
+                else [],
+            )
+        )
+    return Spec(parts=parts)
+
+
+def civics_students() -> list[Student]:
+    """All right; right in other words with a reason missing from question 4;
+    common wrong choices and an explanation that restates the question; the answers
+    to questions 4 and 6 each written in the other's space; only question 1."""
+
+    def chose(pid: str, *letters: str) -> Work:
+        right = CIVICS_KEY.parts[int(pid[1:]) - 1].answer.choices
+        if list(letters) == right:
+            return Work([], {"choices": list(letters)}, ["1"], "Chooses the answer.")
+        why = f"Chooses {' and '.join(letters)}; the answer is {' and '.join(right)}."
+        return Work([], {"choices": list(letters)}, ["0"], why)
+
+    def said(lines: list[str], awards: list[str], why: str) -> Work:
+        return Work(lines, {}, awards, why)
+
+    table = "Two lines in each person's row of the table."
+    return [
+        Student(
+            "all-right",
+            "Odile Fictive",
+            {
+                "Q1": chose("Q1", "B"),
+                "Q2": chose("Q2", "A", "C"),
+                "Q3": said(["March 4, 2025"], ["1"], "The date as the passage has it."),
+                "Q4": said(
+                    [
+                        "The roof of the old building leaks",
+                        "and it has no elevator, so people",
+                        "in wheelchairs can't get upstairs.",
+                        "Also the move costs less than",
+                        "fixing the roof.",
+                    ],
+                    ["1", "1"],
+                    "Gives the leaking roof and the missing elevator, and the cost.",
+                ),
+                "Q5": said(
+                    [
+                        "the move costs less than",
+                        "repairing the old roof",
+                        "kids walk there after school",
+                        "and the factory is too far",
+                        "keep a small reading room",
+                        "open on Elm Street",
+                    ],
+                    ["1", "1", "1"],
+                    f"Each row right. {table}",
+                ),
+                "Q6": said(
+                    [
+                        "Yes. The factory has three times",
+                        "as much space, so the library",
+                        "can hold more books and people.",
+                    ],
+                    ["1", "1"],
+                    "Agrees, supported by the factory's greater space.",
+                ),
+            },
+            {},
+        ),
+        Student(
+            "own-words",
+            "Pell Madeup",
+            {
+                "Q1": chose("Q1", "B"),
+                "Q2": chose("Q2", "A", "C"),
+                "Q3": said(
+                    ["the 4th of march 2025"],
+                    ["1"],
+                    "The right date, written day first and in small letters.",
+                ),
+                "Q4": said(
+                    [
+                        "The old library had water coming",
+                        "in through the top every spring.",
+                    ],
+                    ["1", "0"],
+                    "One reason in its own words, the leaking roof; no second reason.",
+                ),
+                "Q5": said(
+                    [
+                        "said moving is cheaper",
+                        "than fixing the roof",
+                        "worried the new place is",
+                        "too far for kids on foot",
+                        "wanted part of the old",
+                        "building kept for reading",
+                    ],
+                    ["1", "1", "1"],
+                    f"Each row right in other words. {table}",
+                ),
+                "Q6": said(
+                    [
+                        "I think it was a smart move",
+                        "because the old place had no",
+                        "way for wheelchair users to",
+                        "get to the second floor.",
+                    ],
+                    ["1", "1"],
+                    "Agrees, supported by the missing elevator, in other words.",
+                ),
+            },
+            {},
+        ),
+        Student(
+            "common-errors",
+            "Quill Nobody",
+            {
+                "Q1": chose("Q1", "A"),
+                "Q2": chose("Q2", "A", "B"),
+                "Q3": said(["June"], ["0"], "June is when the request is discussed."),
+                "Q4": said(
+                    [
+                        "The council decided to move the",
+                        "library because they wanted to",
+                        "move the library to a new place.",
+                    ],
+                    ["0", "0"],
+                    "Restates the question and gives no reason from the passage.",
+                ),
+                "Q5": said(
+                    [
+                        "said the factory is too far",
+                        "for children who walk",
+                        "said the move costs less",
+                        "than fixing the roof",
+                        "keep a reading room on",
+                        "Elm Street",
+                    ],
+                    ["0", "0", "1"],
+                    f"The mayor's and the councilor's rows swapped. {table}",
+                ),
+                "Q6": said(
+                    ["No. I like old buildings better", "than new ones."],
+                    ["1", "0"],
+                    "Disagrees, with no detail from the passage.",
+                ),
+            },
+            {},
+        ),
+        Student(
+            "swapped-answers",
+            "Wren Unreal",
+            {
+                "Q1": chose("Q1", "B"),
+                "Q2": chose("Q2", "A", "C"),
+                "Q3": said(["Marhc 4, 2025"], ["1"], "The right date, March misspelt."),
+                "Q4": said(
+                    [
+                        "The old roof leaks every spring,",
+                        "and there is no elevator for",
+                        "people in wheelchairs.",
+                    ],
+                    ["1", "1"],
+                    "Two reasons, the roof and the elevator, written in question "
+                    "6's space.",
+                ),
+                "Q5": said(
+                    [
+                        "said moving costs less than",
+                        "fixing the roof",
+                        "said kids who walk can't",
+                        "get to the factory easily",
+                        "asked to keep a reading",
+                        "room on Elm Street",
+                    ],
+                    ["1", "1", "1"],
+                    f"Each row right. {table}",
+                ),
+                "Q6": said(
+                    [
+                        "I disagree with the council.",
+                        "Many kids walk to the library",
+                        "after school, and the factory",
+                        "is two miles from the center.",
+                    ],
+                    ["1", "1"],
+                    "Disagrees, supported by the children who walk and the "
+                    "distance, written in question 4's space.",
+                ),
+            },
+            {},
+        ),
+        Student("only-choice", "Yael Fakeworth", {"Q1": chose("Q1", "B")}, {}),
+    ]
+
+
+# Where a student wrote a part's answer, when not in its own space.
+CIVICS_ELSEWHERE = {"swapped-answers": {"Q4": "Q6", "Q6": "Q4"}}
+
+
+def build_civics(student: Student, printed) -> list[tuple[Image.Image, list[Placed]]]:
+    """Each slide of the submission, with where each block of work landed on it."""
+    rng = random.Random(student.name)
+    sheets = {
+        k: Sheet(blank_slide(p), SLIDE_SCALE, PRINTED_AT)
+        for k, p in enumerate(printed, 1)
+    }
+    moved = CIVICS_ELSEWHERE.get(student.layout, {})
+    for pid, work in student.works.items():
+        space = moved.get(pid, pid)
+        page = CIVICS_AT[space][0]
+        sheet, mask = sheets[page], sheets[page].mask()
+        if pid in CIVICS_MC:
+            for letter in work.final["choices"]:
+                row = CIVICS_ROWS[pid] + 17 * "ABCDE".index(letter)
+                loop(sheet, mask, OPTION_X + 8, row + 7.5, 13, 9, STYLUS, rng)
+        elif pid == "Q5":
+            _, first, height = TABLE
+            _, middle, right = TABLE_X
+            for i in range(len(PEOPLE)):
+                cell = sheet.mask()
+                top = first + height * i
+                lines = work.lines[2 * i : 2 * i + 2]
+                write_lines(sheet, cell, middle + 8, top + 2, lines, STYLUS, rng)
+                left, upper, edge, lower = cell.getbbox()
+                assert sheet.px(middle, top)[0] < left, pid
+                assert edge < sheet.px(right, 0)[0], (pid, i)
+                assert sheet.px(0, top)[1] < upper, (pid, i)
+                assert lower < sheet.px(0, top + height)[1], (pid, i)
+                mask.paste(255, (0, 0), cell)
+        else:
+            _, _, top, bottom = CIVICS_AT[space]
+            write_lines(sheet, mask, 80, top, work.lines, STYLUS, rng)
+            left, upper, edge, lower = mask.getbbox()
+            # In the answer space: below the question, inside the printed margins.
+            assert upper > sheet.px(0, top - 8)[1], pid
+            assert lower < sheet.px(0, bottom)[1], pid
+            assert sheet.px(72, 0)[0] < left and edge < sheet.px(540, 0)[0], pid
+        sheet.put(
+            pid, mask, STYLUS.color, basis="content" if space != pid else "position"
+        )
+    return [(s.image, s.placed()) for s in sheets.values()]
+
+
+def write_civics() -> None:
+    shutil.rmtree(CIVICS_OUT, ignore_errors=True)
+    CIVICS_OUT.mkdir(parents=True)
+    (CIVICS_OUT / "key.json").write_text(CIVICS_KEY.model_dump_json(indent=2) + "\n")
+    draw_civics(CIVICS_OUT / "blank.pdf")
+    spec_json = civics_spec().model_dump_json(indent=2) + "\n"
+    (CIVICS_OUT / "spec.json").write_text(spec_json)
+    printed = render_pages(CIVICS_OUT / "blank.pdf", PRINTED_SIZE)
+    for student in civics_students():
+        pages = build_civics(student, printed)
+        pdf = CIVICS_OUT / f"{CIVICS} - {student.name}.pdf"
+        write_classkick(pdf, [image for image, _ in pages], student.name, CIVICS)
+        found = truth(student, pages, CIVICS_KEY)
+        pdf.with_suffix(".json").write_text(
+            json.dumps(found, indent=2, ensure_ascii=False) + "\n"
+        )
+
+
 def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
@@ -2131,6 +2740,7 @@ def main() -> None:
     write_quiz()
     write_hostile()
     write_ink()
+    write_civics()
 
 
 if __name__ == "__main__":

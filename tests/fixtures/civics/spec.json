@@ -1,0 +1,99 @@
+{
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. Where will the library move to? (A) a new building in the town center (B) the old Hartwell factory beside the river (C) the upper floor of the Elm Street building (D) the school on Elm Street",
+      "response_type": "multiple_choice",
+      "home_page": 1,
+      "band": [
+        0.39204545454545453,
+        0.5340909090909091
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. Which TWO problems with the Elm Street building does the passage describe? Choose two. (A) Its roof leaks every spring. (B) It is two miles from the town center. (C) Readers who use wheelchairs cannot reach the upper floor. (D) It is beside the river. (E) It will open in 2027.",
+      "response_type": "multiple_select",
+      "home_page": 1,
+      "band": [
+        0.5340909090909091,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "id": "Q3",
+      "label": "3",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. On what date did the council vote on the library?",
+      "response_type": "short_text",
+      "home_page": 2,
+      "band": [
+        0.07828282828282829,
+        0.22727272727272727
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q4",
+      "label": "4",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. Why did the council decide to move the library? Use two reasons from the passage.",
+      "response_type": "explanation",
+      "home_page": 2,
+      "band": [
+        0.22727272727272727,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q5",
+      "label": "5",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. Complete the table. For each person, write what the passage says that person said or asked for. The table's rows: Mayor Rosa Delgado; Councilor Tom Becker; Librarian Ana Kim.",
+      "response_type": "other",
+      "home_page": 3,
+      "band": [
+        0.07828282828282829,
+        0.5050505050505051
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    },
+    {
+      "id": "Q6",
+      "label": "6",
+      "prompt": "Read the passage, then answer questions 1 to 6. On March 4, 2025, the town council of Millbrook voted 5 to 2 to move the public library from its old building on Elm Street to the empty Hartwell factory beside the river. The Elm Street building is more than a hundred years old. Its roof leaks every spring, and it has no elevator, so readers who use wheelchairs cannot reach the upper floor. The factory has three times as much space and a large parking lot. Mayor Rosa Delgado said that the move would cost less than repairing the old roof. Councilor Tom Becker voted against the plan. He said that many children walk to the library after school, and the factory is two miles from the town center. The librarian, Ana Kim, asked the council to keep a small reading room open on Elm Street. The council agreed to discuss her request in June. The new library is planned to open in 2027. Do you think the council made the right decision? State your opinion and support it with one detail from the passage.",
+      "response_type": "explanation",
+      "home_page": 3,
+      "band": [
+        0.5050505050505051,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    }
+  ]
+}

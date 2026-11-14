@@ -15,6 +15,8 @@ from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from tests.fixture_truth import (
+    CIVICS,
+    CIVICS_SUBMISSIONS,
     FIXTURES,
     HOSTILE,
     HOSTILE_SUBMISSIONS,
@@ -28,7 +30,13 @@ from tests.real_data import submission_folders
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 QUIZ_KEY = Key.model_validate_json((QUIZ / "key.json").read_text())
 HOSTILE_KEY = Key.model_validate_json((HOSTILE / "key.json").read_text())
-TITLES = {QUIZ: "Quiz 7 - Rates", HOSTILE: "Quiz 8 - Area"}
+CIVICS_KEY = Key.model_validate_json((CIVICS / "key.json").read_text())
+TITLES = {
+    QUIZ: "Quiz 7 - Rates",
+    HOSTILE: "Quiz 8 - Area",
+    CIVICS: "Civics 4 - The Library Vote",
+}
+PAGES = {QUIZ: 2, HOSTILE: 2, CIVICS: 3}
 
 
 def source_kind(pdf: Path) -> str:
@@ -117,19 +125,22 @@ def test_blank_submission_slides_equal_the_blank_export() -> None:
 
 
 @pytest.mark.parametrize(
-    "path", [*QUIZ_SUBMISSIONS, *HOSTILE_SUBMISSIONS], ids=lambda p: p.stem
+    "path",
+    [*QUIZ_SUBMISSIONS, *HOSTILE_SUBMISSIONS, *CIVICS_SUBMISSIONS],
+    ids=lambda p: p.stem,
 )
 def test_the_quiz_s_pages_copy_the_measured_layout_with_its_own_title(
     path: Path,
 ) -> None:
     pdf = pdfium.PdfDocument(path)
-    assert len(pdf) == 2
+    pages = PAGES[path.parent]
+    assert len(pdf) == pages
     for k, page in enumerate(pdf, 1):
         images, lines = structure(page)
         assert images == [((1004, 2008), SLIDE_BOX, True, (0, 0, 0))]
         assert lines == SIDEBAR
         text = page.get_textpage().get_text_range()
-        assert f"Page {k} / 2" in text
+        assert f"Page {k} / {pages}" in text
         assert f"Assignment: {TITLES[path.parent]}" in text
     assert (
         f"Student: {truth_of(path).student_name}"
@@ -137,7 +148,7 @@ def test_the_quiz_s_pages_copy_the_measured_layout_with_its_own_title(
     )
 
 
-@pytest.mark.parametrize("folder", [QUIZ, HOSTILE], ids=lambda f: f.name)
+@pytest.mark.parametrize("folder", [QUIZ, HOSTILE, CIVICS], ids=lambda f: f.name)
 def test_the_quiz_spec_agrees_with_its_key_and_passes_the_spec_checks(
     folder: Path,
 ) -> None:
@@ -148,7 +159,7 @@ def test_the_quiz_spec_agrees_with_its_key_and_passes_the_spec_checks(
     assert [p.model_dump(include=fields) for p in spec.parts] == [
         p.model_dump(include=fields) for p in key.parts
     ]
-    assert check(spec, 2) == []
+    assert check(spec, PAGES[folder]) == []
 
 
 def test_one_quiz_student_signs_the_name_line_one_a_corner_of_page_2_one_nowhere() -> (
@@ -167,12 +178,13 @@ def test_one_quiz_student_signs_the_name_line_one_a_corner_of_page_2_one_nowhere
 
 @pytest.mark.parametrize(
     "path",
-    [*SUBMISSIONS, *QUIZ_SUBMISSIONS, *HOSTILE_SUBMISSIONS],
+    [*SUBMISSIONS, *QUIZ_SUBMISSIONS, *HOSTILE_SUBMISSIONS, *CIVICS_SUBMISSIONS],
     ids=lambda p: p.stem,
 )
 def test_truth_names_key_ids_and_awards_within_points(path: Path) -> None:
     truth = truth_of(path)
-    key = {QUIZ: QUIZ_KEY, HOSTILE: HOSTILE_KEY}.get(path.parent, KEY)
+    keys = {QUIZ: QUIZ_KEY, HOSTILE: HOSTILE_KEY, CIVICS: CIVICS_KEY}
+    key = keys.get(path.parent, KEY)
     parts = {p.id: p for p in key.parts}
     assert [r.part_id for r in truth.readings] == list(parts)
     named = [e.part_id for e in truth.map.entries] + truth.map.unanswered
@@ -229,6 +241,30 @@ def test_each_hostile_student_writes_to_the_grader_as_designed() -> None:
         awards = {c.id: c.awarded for g in t.grades for c in g.criteria}
         right = layout in ("plea-for-credit", "no-note")
         assert awards == (full if right else dict.fromkeys(full, 0)), layout
+
+
+def test_the_civics_class_scores_as_designed_with_answers_4_and_6_swapped() -> None:
+    truths = {truth_of(p).layout_class: truth_of(p) for p in CIVICS_SUBMISSIONS}
+    totals = {
+        layout: sum(c.awarded for g in t.grades for c in g.criteria)
+        for layout, t in truths.items()
+    }
+
+    assert totals == {
+        "all-right": 10,
+        "own-words": 9,
+        "common-errors": 2,
+        "swapped-answers": 10,
+        "only-choice": 1,
+    }
+    assert sum(c.points for p in CIVICS_KEY.parts for c in p.criteria) == 10
+    # Each of the two answers is in the other's space, on the other's page.
+    homes = {p.id: p.home_page for p in CIVICS_KEY.parts}
+    swapped = {e.part_id: e for e in truths["swapped-answers"].map.entries}
+    for part, space in (("Q4", "Q6"), ("Q6", "Q4")):
+        assert swapped[part].page == homes[space]
+        assert swapped[part].basis == "content"
+    assert truths["only-choice"].map.unanswered == ["Q2", "Q3", "Q4", "Q5", "Q6"]
 
 
 def slide(pdf: Path, page: int) -> Image.Image:

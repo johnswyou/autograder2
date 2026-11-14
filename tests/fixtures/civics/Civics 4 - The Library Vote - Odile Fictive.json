@@ -1,0 +1,375 @@
+{
+  "layout_class": "all-right",
+  "student_name": "Odile Fictive",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.2764,
+          0.2281,
+          0.2963
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.3471,
+          0.2301,
+          0.3919
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 2,
+        "box": [
+          0.1604,
+          0.1006,
+          0.3576,
+          0.118
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4",
+        "page": 2,
+        "box": [
+          0.1604,
+          0.1892,
+          0.6335,
+          0.3038
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5",
+        "page": 3,
+        "box": [
+          0.3705,
+          0.1155,
+          0.752,
+          0.257
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q6",
+        "page": 3,
+        "box": [
+          0.1663,
+          0.3551,
+          0.6225,
+          0.4208
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "A",
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "March 4, 2025"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "The roof of the old building leaks",
+        "and it has no elevator, so people",
+        "in wheelchairs can't get upstairs.",
+        "Also the move costs less than",
+        "fixing the roof."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "the move costs less than",
+        "repairing the old roof",
+        "kids walk there after school",
+        "and the factory is too far",
+        "keep a small reading room",
+        "open on Elm Street"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q6",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "Yes. The factory has three times",
+        "as much space, so the library",
+        "can hold more books and people."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "rationale": "The date as the passage has it.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4",
+      "criteria": [
+        {
+          "id": "Q4.c1",
+          "rationale": "Gives the leaking roof and the missing elevator, and the cost.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c2",
+          "rationale": "Gives the leaking roof and the missing elevator, and the cost.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5",
+      "criteria": [
+        {
+          "id": "Q5.c1",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c2",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c3",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q6",
+      "criteria": [
+        {
+          "id": "Q6.c1",
+          "rationale": "Agrees, supported by the factory's greater space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q6.c2",
+          "rationale": "Agrees, supported by the factory's greater space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

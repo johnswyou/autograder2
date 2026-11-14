@@ -1,0 +1,374 @@
+{
+  "layout_class": "swapped-answers",
+  "student_name": "Wren Unreal",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1783,
+          0.2774,
+          0.2301,
+          0.2968
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.3466,
+          0.2301,
+          0.3914
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 2,
+        "box": [
+          0.1614,
+          0.1006,
+          0.3665,
+          0.1175
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q6",
+        "page": 2,
+        "box": [
+          0.1624,
+          0.1922,
+          0.5687,
+          0.2819
+        ],
+        "basis": "content",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4",
+        "page": 3,
+        "box": [
+          0.1673,
+          0.3541,
+          0.6066,
+          0.4168
+        ],
+        "basis": "content",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5",
+        "page": 3,
+        "box": [
+          0.3695,
+          0.12,
+          0.748,
+          0.2535
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "A",
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "Marhc 4, 2025"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "The old roof leaks every spring,",
+        "and there is no elevator for",
+        "people in wheelchairs."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "said moving costs less than",
+        "fixing the roof",
+        "said kids who walk can't",
+        "get to the factory easily",
+        "asked to keep a reading",
+        "room on Elm Street"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q6",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "I disagree with the council.",
+        "Many kids walk to the library",
+        "after school, and the factory",
+        "is two miles from the center."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "rationale": "The right date, March misspelt.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4",
+      "criteria": [
+        {
+          "id": "Q4.c1",
+          "rationale": "Two reasons, the roof and the elevator, written in question 6's space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c2",
+          "rationale": "Two reasons, the roof and the elevator, written in question 6's space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5",
+      "criteria": [
+        {
+          "id": "Q5.c1",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c2",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c3",
+          "rationale": "Each row right. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q6",
+      "criteria": [
+        {
+          "id": "Q6.c1",
+          "rationale": "Disagrees, supported by the children who walk and the distance, written in question 4's space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q6.c2",
+          "rationale": "Disagrees, supported by the children who walk and the distance, written in question 4's space.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

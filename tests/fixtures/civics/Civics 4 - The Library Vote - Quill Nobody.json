@@ -1,0 +1,372 @@
+{
+  "layout_class": "common-errors",
+  "student_name": "Quill Nobody",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.2639,
+          0.2301,
+          0.2834
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.3466,
+          0.2301,
+          0.3795
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 2,
+        "box": [
+          0.1693,
+          0.1021,
+          0.242,
+          0.118
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4",
+        "page": 2,
+        "box": [
+          0.1604,
+          0.1927,
+          0.6135,
+          0.253
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5",
+        "page": 3,
+        "box": [
+          0.3705,
+          0.117,
+          0.7231,
+          0.256
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q6",
+        "page": 3,
+        "box": [
+          0.1633,
+          0.3546,
+          0.5667,
+          0.3934
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "A"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "A",
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "June"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "The council decided to move the",
+        "library because they wanted to",
+        "move the library to a new place."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "said the factory is too far",
+        "for children who walk",
+        "said the move costs less",
+        "than fixing the roof",
+        "keep a reading room on",
+        "Elm Street"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q6",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "No. I like old buildings better",
+        "than new ones."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Chooses A; the answer is B.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "Chooses A and B; the answer is A and C.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "rationale": "June is when the request is discussed.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4",
+      "criteria": [
+        {
+          "id": "Q4.c1",
+          "rationale": "Restates the question and gives no reason from the passage.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c2",
+          "rationale": "Restates the question and gives no reason from the passage.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5",
+      "criteria": [
+        {
+          "id": "Q5.c1",
+          "rationale": "The mayor's and the councilor's rows swapped. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c2",
+          "rationale": "The mayor's and the councilor's rows swapped. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c3",
+          "rationale": "The mayor's and the councilor's rows swapped. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q6",
+      "criteria": [
+        {
+          "id": "Q6.c1",
+          "rationale": "Disagrees, with no detail from the passage.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q6.c2",
+          "rationale": "Disagrees, with no detail from the passage.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

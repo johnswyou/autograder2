@@ -1,0 +1,373 @@
+{
+  "layout_class": "own-words",
+  "student_name": "Pell Madeup",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.2774,
+          0.2291,
+          0.2968
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q2",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.3466,
+          0.2291,
+          0.3919
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q3",
+        "page": 2,
+        "box": [
+          0.1673,
+          0.1016,
+          0.4821,
+          0.12
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q4",
+        "page": 2,
+        "box": [
+          0.1673,
+          0.1912,
+          0.6235,
+          0.2361
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q5",
+        "page": 3,
+        "box": [
+          0.3695,
+          0.12,
+          0.7261,
+          0.255
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      },
+      {
+        "part_id": "Q6",
+        "page": 3,
+        "box": [
+          0.1643,
+          0.3511,
+          0.5747,
+          0.4392
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "A",
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q3",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "the 4th of march 2025"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q4",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "The old library had water coming",
+        "in through the top every spring."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q5",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "said moving is cheaper",
+        "than fixing the roof",
+        "worried the new place is",
+        "too far for kids on foot",
+        "wanted part of the old",
+        "building kept for reading"
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q6",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [
+        "I think it was a smart move",
+        "because the old place had no",
+        "way for wheelchair users to",
+        "get to the second floor."
+      ],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "rationale": "The right date, written day first and in small letters.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4",
+      "criteria": [
+        {
+          "id": "Q4.c1",
+          "rationale": "One reason in its own words, the leaking roof; no second reason.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c2",
+          "rationale": "One reason in its own words, the leaking roof; no second reason.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5",
+      "criteria": [
+        {
+          "id": "Q5.c1",
+          "rationale": "Each row right in other words. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c2",
+          "rationale": "Each row right in other words. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c3",
+          "rationale": "Each row right in other words. Two lines in each person's row of the table.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q6",
+      "criteria": [
+        {
+          "id": "Q6.c1",
+          "rationale": "Agrees, supported by the missing elevator, in other words.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        },
+        {
+          "id": "Q6.c2",
+          "rationale": "Agrees, supported by the missing elevator, in other words.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}

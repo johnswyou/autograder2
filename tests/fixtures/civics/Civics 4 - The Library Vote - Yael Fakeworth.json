@@ -1,0 +1,294 @@
+{
+  "layout_class": "only-choice",
+  "student_name": "Yael Fakeworth",
+  "source_kind": "classkick",
+  "pages": [
+    {
+      "number": 1,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 1,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 2,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 2,
+      "native_ppi": 184.6153846153846
+    },
+    {
+      "number": 3,
+      "width_px": 1004,
+      "height_px": 2008,
+      "slide_number": 3,
+      "native_ppi": 184.6153846153846
+    }
+  ],
+  "rotations": [
+    0,
+    0,
+    0
+  ],
+  "photos": [
+    false,
+    false,
+    false
+  ],
+  "map": {
+    "entries": [
+      {
+        "part_id": "Q1",
+        "page": 1,
+        "box": [
+          0.1773,
+          0.2774,
+          0.2301,
+          0.2968
+        ],
+        "basis": "position",
+        "role": "work",
+        "confidence": "high"
+      }
+    ],
+    "unanswered": [
+      "Q2",
+      "Q3",
+      "Q4",
+      "Q5",
+      "Q6"
+    ],
+    "set_aside": []
+  },
+  "readings": [
+    {
+      "part_id": "Q1",
+      "status": "answered",
+      "medium": "handwritten",
+      "lines": [],
+      "final_answer": {
+        "choices": [
+          "B"
+        ],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": "clear"
+    },
+    {
+      "part_id": "Q2",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q3",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q4",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q5",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    },
+    {
+      "part_id": "Q6",
+      "status": "blank",
+      "medium": null,
+      "lines": [],
+      "final_answer": {
+        "choices": [],
+        "value": null,
+        "unit": null,
+        "expression": null
+      },
+      "elements": [],
+      "uncertain": [],
+      "addressed_to_grader": [],
+      "legibility": null
+    }
+  ],
+  "grades": [
+    {
+      "part_id": "Q1",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "rationale": "Chooses the answer.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "1",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q2",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q3",
+      "criteria": [
+        {
+          "id": "Q3.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q4",
+      "criteria": [
+        {
+          "id": "Q4.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q4.c2",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q5",
+      "criteria": [
+        {
+          "id": "Q5.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c2",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q5.c3",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    },
+    {
+      "part_id": "Q6",
+      "criteria": [
+        {
+          "id": "Q6.c1",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        },
+        {
+          "id": "Q6.c2",
+          "rationale": "No response.",
+          "evidence_line": null,
+          "evidence_element": null,
+          "awarded": "0",
+          "feedback": ""
+        }
+      ],
+      "transcript_dispute": null,
+      "belongs_elsewhere": null,
+      "code_overruled": null
+    }
+  ],
+  "flags": []
+}
