@@ -135,8 +135,11 @@ def render_blank(workspace: Workspace) -> list[render.Page]:
         kind = "classkick" if render.classkick_sidebars(pdf) else "other"
         pages = [render.render_page(page, kind) for page in pdf]
     for number, page in enumerate(pages, 1):
-        workspace.key_page(number).parent.mkdir(parents=True, exist_ok=True)
-        page.image.save(workspace.key_page(number), compress_level=1)
+        path = workspace.key_page(number)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(path.name + ".partial")  # whole or not at all
+        page.image.save(partial, "PNG", compress_level=1)
+        partial.replace(path)
     return pages
 
 

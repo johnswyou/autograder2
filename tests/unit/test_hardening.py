@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 import pypdfium2 as pdfium  # pyright: ignore[reportMissingTypeStubs]
 import pytest
+from PIL import Image
 from reportlab.pdfgen.canvas import Canvas
 from typer.testing import CliRunner
 
@@ -23,6 +24,7 @@ from redpen.config import Lock, read_lock, write_lock
 from redpen.llm.client import STOPS, Gateway, StopError
 from redpen.llm.models import recheck_providers
 from redpen.prepare.key import save_key
+from redpen.prepare.parse import render_blank
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import Map, MapPage, MapRecord
@@ -635,3 +637,75 @@ def test_a_lock_that_does_not_load_is_called_damaged_by_each_command(
             assert said(result) == [LOCK_DAMAGED], command
     # A command that does not read the lock runs as before.
     assert runner.invoke(app, ["review", "--list", "--workspace", "ws"]).exit_code == 0
+
+
+# --- the stored blank and its page images (final fix round) --------------------------
+
+
+BLANK_DAMAGED = (
+    "ws/key/blank.pdf is damaged (not a PDF). Delete it and run `redpen prepare` again"
+    " with the same BLANK.pdf to have it copied again."
+)
+
+
+def test_the_blank_is_copied_once_and_whole_or_not_at_all(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blank, stored = str(FIXTURES / "blank.pdf"), WS.blank_pdf.read_bytes()
+    write_bytes = Path.write_bytes
+
+    def killed_halfway(self: Path, data: bytes) -> int:
+        write_bytes(self, data[: len(data) // 2])
+        raise Killed
+
+    monkeypatch.setattr(Path, "write_bytes", killed_halfway)
+
+    # The blank the workspace holds is not written again (probe e13).
+    again = runner.invoke(app, ["prepare", blank, "--workspace", "ws"])
+    assert again.exit_code == 0, again.output
+    assert WS.blank_pdf.read_bytes() == stored
+    # A copy into a new workspace cut short leaves no blank behind.
+    with pytest.raises(Killed):
+        runner.invoke(app, ["prepare", blank, "--workspace", "new"])
+    assert not Workspace(Path("new")).blank_pdf.exists()
+
+
+def test_a_stored_blank_cut_short_is_called_damaged_not_another_blank(
+    class_folder: Path,
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    data = WS.blank_pdf.read_bytes()
+    WS.blank_pdf.write_bytes(data[:2048])  # as a full disk left it (probe e13)
+    blank = str(FIXTURES / "blank.pdf")
+
+    for command in (["prepare", blank], ["report"]):
+        result = runner.invoke(app, [*command, "--workspace", "ws"])
+        assert_one_line(result, BLANK_DAMAGED)
+    WS.blank_pdf.unlink()  # as the line says
+    assert runner.invoke(app, ["prepare", blank, "--workspace", "ws"]).exit_code == 0
+    assert WS.blank_pdf.read_bytes() == data
+
+
+def test_a_page_image_of_the_blank_cut_short_stays_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    render_blank(workspace)
+    before = workspace.key_page(1).read_bytes()
+    save = Image.Image.save
+
+    def killed_halfway(self: Image.Image, fp: Path, *args: Any, **kwargs: Any) -> None:
+        save(self, fp, *args, **kwargs)
+        fp.write_bytes(fp.read_bytes()[:3000])  # as a full disk leaves it (probe e15)
+        raise Killed
+
+    monkeypatch.setattr(Image.Image, "save", killed_halfway)
+    with pytest.raises(Killed):
+        render_blank(workspace)
+    monkeypatch.undo()
+
+    assert workspace.key_page(1).read_bytes() == before
+    render_blank(workspace)  # the next render takes the `.partial` left behind
+    assert workspace.key_page(1).read_bytes() == before

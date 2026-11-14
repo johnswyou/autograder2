@@ -323,9 +323,13 @@ def prepare(
             config = config.model_copy(update={"profile": profile})
         api_key = openrouter_api_key()
         if ws.blank_pdf.exists() and ws.blank_pdf.read_bytes() != data:
+            _damaged(ws)  # a blank cut short is not another blank
             _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
-        ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
-        ws.blank_pdf.write_bytes(data)
+        if not ws.blank_pdf.exists():  # whole or not at all, as write_model writes
+            ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
+            partial = ws.blank_pdf.with_name(ws.blank_pdf.name + ".partial")
+            partial.write_bytes(data)
+            partial.replace(ws.blank_pdf)
         keep_out_of_git(ws)
         if ws.config_lock_toml.exists():
             try:
@@ -604,11 +608,22 @@ def _fail(message: str) -> NoReturn:
 
 
 def _damaged(ws: Workspace) -> None:
-    """Exit naming, a line each, the lock and every stored JSON file of `ws` that does
-    not load (cut short or emptied, by a full disk or by hand) and how to have it
-    made again, if there is one. Those of students are only counted, since a
-    student's key holds the student's name: the run log names them."""
+    """Exit naming, a line each, the stored blank, the lock and every stored JSON file
+    of `ws` that does not load (cut short or emptied, by a full disk or by hand) and
+    how to have it made again, if there is one. Those of students are only counted,
+    since a student's key holds the student's name: the run log names them."""
     lock, damaged = ws.config_lock_toml, False
+    if ws.blank_pdf.exists():
+        try:
+            with render.open_pdf(ws.blank_pdf):
+                pass
+        except Exception:  # pdfium reports a file it cannot open as PdfiumError
+            damaged = True
+            typer.echo(
+                f"{ws.blank_pdf} is damaged (not a PDF). Delete it and run `redpen"
+                " prepare` again with the same BLANK.pdf to have it copied again.",
+                err=True,
+            )
     if lock.exists():
         try:
             read_lock(lock)
