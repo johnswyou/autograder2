@@ -197,10 +197,23 @@ def test_a_blank_that_cannot_be_opened_stops_the_command_in_one_line(
 
     result = runner.invoke(app, [*args, "--workspace", "new"])
 
-    [line] = said(result)
-    assert result.exit_code == 1
-    assert line.startswith(f"{blank} ") and line.endswith(GIVE_BLANK), line
+    assert_one_line(
+        result, f"{blank} cannot be opened as a PDF: it {WHY[kind]}. {GIVE_BLANK}"
+    )
     assert not Path("new").exists() or not Workspace(Path("new")).blank_pdf.exists()
+
+
+# pdfium opens no PDF of no pages: one saved with none fails as a damaged file.
+DAMAGED = "is not a PDF, or is damaged or cut short"
+WHY = {
+    "missing": "does not exist",
+    "folder": "is a folder",
+    "text": DAMAGED,
+    "encrypted": "is encrypted",
+    "corrupt": DAMAGED,
+    "truncated": DAMAGED,
+    "no pages": DAMAGED,
+}
 
 
 GIVE_SUBMISSIONS = "Give SUBMISSIONS as a folder or ZIP of the students' PDFs."

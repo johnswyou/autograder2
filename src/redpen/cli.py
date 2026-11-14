@@ -538,10 +538,10 @@ def _no_blank(blank: Path, error: Exception | None) -> NoReturn:
     with no page), cannot be the blank assignment."""
     if error is None:
         why = "has no pages"
-    elif isinstance(error, FileNotFoundError):
-        why = "does not exist"
-    elif isinstance(error, IsADirectoryError):
+    elif blank.is_dir():
         why = "is a folder"
+    elif not blank.exists():
+        why = "does not exist"
     elif getattr(error, "err_code", None) == FPDF_ERR_PASSWORD:
         why = "is encrypted"
     else:
