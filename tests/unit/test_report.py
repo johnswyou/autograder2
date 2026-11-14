@@ -3165,6 +3165,28 @@ def test_a_session_stores_each_action_as_it_is_taken_and_rebuilds_out(
     assert again.stdout.splitlines()[-1] == counts(0, 0, 0, 2)
 
 
+def test_points_at_a_prompt_are_a_plain_decimal_number_and_zero_is_one(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+    refused = ["1e-1", "nan", "inf", "-0", "+1", "0,5"]
+
+    # Q4.b.c1: each refused, then zero; Q4.b.c2 kept; no note.
+    result = session(workspace, "correct", *refused, " 0 ", "", "")
+
+    assert result.exit_code == 0, result.output
+    again = "Type a number from 0 to 2, or press return to keep the award."
+    assert result.stdout.splitlines().count(again) == len(refused)
+    assert [
+        (o["criterion"], str(o["points"]))
+        for o in yaml_reader().load(workspace.overrides_yaml)
+    ] == [("Q4.b.c1", "0")]
+    assert detail_of(workspace, "Q4.b.c1") == ("0", CORRECTED)
+    assert result.stderr == ""
+
+
 def test_the_terminal_shows_the_entry_its_criteria_and_where_each_file_is(
     built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

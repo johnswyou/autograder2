@@ -1570,6 +1570,11 @@ def ungraded_class(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
         (["{first}", "Q4.b.c1", "-1"], "POINTS is a number from 0 to 2,"),
         (["{first}", "Q4.b.c1", "2.25"], "POINTS is a number from 0 to 2,"),
         (["{first}", "Q4.b.c1", "two"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "1e-1"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "nan"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "inf"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "+1"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "0,5"], "POINTS is a number from 0 to 2,"),
         (["{first}", "Q4.b.c1"], "POINTS is a number from 0 to 2,"),
         (["{first}", "Q4.b.c1", "--remove"], "No correction is recorded for that"),
         (["{first}", "Q4.b.c1", "1", "--remove"], "--remove takes no POINTS"),
@@ -1580,6 +1585,11 @@ def ungraded_class(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
         "below zero",
         "above full points",
         "not a number",
+        "an exponent",
+        "nan",
+        "inf",
+        "a sign",
+        "a comma",
         "no points",
         "nothing to remove",
         "points to remove",
@@ -1752,6 +1762,20 @@ def test_an_empty_note_is_no_note(
     assert "note" not in WS.overrides_yaml.read_text()
     feedback = WS.feedback_md(first).read_text().splitlines()
     assert "- Marked by your instructor: 1 / 1." in feedback
+
+
+def test_zero_points_are_a_correction(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ungraded_class(router, monkeypatch)
+
+    result = override(students()[0], "Q4.a.c1", "0")
+
+    assert result.exit_code == 0, result.output
+    assert [
+        (o["criterion"], str(o["points"]))
+        for o in yaml_reader().load(WS.overrides_yaml)
+    ] == [("Q4.a.c1", "0")]
 
 
 def test_a_correction_that_would_not_read_back_is_refused_and_writes_nothing(

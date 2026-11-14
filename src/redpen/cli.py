@@ -8,6 +8,7 @@ workspace holds the tracebacks."""
 import asyncio
 import contextlib
 import logging
+import re
 import tempfile
 import zipfile
 from collections import Counter
@@ -1142,12 +1143,13 @@ def _answer(prompt: str) -> str:
 
 
 def _award(text: str, full: Decimal) -> Decimal | None:
-    """`text` as points from 0 to `full`, or None."""
-    try:
-        value = Decimal(text.strip())
-    except InvalidOperation:
+    """`text` as points from 0 to `full`, or None: digits with an optional
+    fraction, never an exponent, a sign, a comma, nan or inf."""
+    text = text.strip()
+    if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", text):
         return None
-    return value if value.is_finite() and 0 <= value <= full else None
+    value = Decimal(text)
+    return value if value <= full else None
 
 
 def _correction(
