@@ -626,7 +626,9 @@ def blank_slide(printed: Image.Image) -> Image.Image:
     return slide
 
 
-def write_classkick(path: Path, slides: list[Image.Image], student: str | None) -> None:
+def write_classkick(
+    path: Path, slides: list[Image.Image], student: str | None, title: str = TITLE
+) -> None:
     c = Canvas(str(path), pagesize=(PAGE_W, PAGE_H), invariant=1, pageCompression=1)
     c.setProducer("PDFKit")
     c.setCreator("PDFKit")
@@ -634,11 +636,11 @@ def write_classkick(path: Path, slides: list[Image.Image], student: str | None) 
     for k, slide in enumerate(slides, 1):
         c.drawImage(ImageReader(slide), *SLIDE_BOX, mask="auto")
         if student is None:
-            lines = [(753.26, f"Assignment: {TITLE}"), (730.14, f"Page {k} / {n}")]
+            lines = [(753.26, f"Assignment: {title}"), (730.14, f"Page {k} / {n}")]
         else:
             lines = [
                 (764.82, f"Student: {student}"),
-                (741.70, f"Assignment: {TITLE}"),
+                (741.70, f"Assignment: {title}"),
                 (718.58, f"Page {k} / {n}"),
                 (695.46, f"Class Code: {CLASS_CODE}"),
             ]
@@ -1367,7 +1369,9 @@ def fraction(box: tuple[int, int, int, int], size: tuple[int, int]) -> list[floa
     return [round(v, 4) for v in (*edges, min(bottom + 3, h) / h)]
 
 
-def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> dict:
+def truth(
+    student: Student, pages: list[tuple[Image.Image, list[Placed]]], key: Key = KEY
+) -> dict:
     classkick = student.layout != "not-classkick"
     size = (SLIDE_W, SLIDE_H) if classkick else (1700, 2200)
     unreadable = student.layout == "low-resolution"
@@ -1376,6 +1380,8 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
         for part, role, basis, box in placed:
             if part == "name":
                 reason = "The student's name on the name line."
+                if role == "corner":
+                    reason = "The student's name in a corner of the page."
                 set_aside.append(
                     SetAside(page=k, box=fraction(box, size), reason=reason)
                 )
@@ -1392,9 +1398,9 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
                     confidence="low" if unreadable else "high",
                 )
                 entries.append(entry)
-    unanswered = [p.id for p in KEY.parts if p.id not in student.works]
+    unanswered = [p.id for p in key.parts if p.id not in student.works]
     readings, grades = [], []
-    for part in KEY.parts:
+    for part in key.parts:
         work = student.works.get(part.id)
         nothing = {"choices": [], "value": None, "unit": None, "expression": None}
         reading = {
@@ -1497,6 +1503,193 @@ def truth(student: Student, pages: list[tuple[Image.Image, list[Placed]]]) -> di
     }
 
 
+# --- A second, small class: where students put their names ------------------------
+
+QUIZ_OUT = OUT.parent / "masking"
+QUIZ = "Quiz 7 - Rates"
+QUIZ_MC = (
+    "A train covers 150 km in 2.5 hours at a steady speed. What is its speed?",
+    ["40 km/h", "50 km/h", "60 km/h", "75 km/h", "375 km/h"],
+)
+QUIZ_FR = (
+    "A recipe uses 3 cups of flour for 12 muffins. How many cups of flour does it "
+    "need for 30 muffins? Show your work."
+)
+QUIZ_ROWS = 160  # top of question 1's option (A); rows 17 pt apart
+QUIZ_STEM = QUIZ_ROWS - 6 - 14.5 - 4  # top of its one-line stem
+QUIZ_WORK = (72, 110)  # where question 2 is answered on page 2, in points
+CORNER = (400, 8)  # the top-right corner of page 2, where one student signs
+
+
+def quiz_key() -> Key:
+    stem, options = QUIZ_MC
+    listed = " ".join(f"({x}) {o}" for x, o in zip("ABCDE", options, strict=True))
+    return Key(
+        policies=Policies(),
+        parts=[
+            KeyPart(
+                id="Q1",
+                label="1",
+                home_page=1,
+                response_type="multiple_choice",
+                depends_on=[],
+                state="verified",
+                prompt=f"{stem} {listed}",
+                answer=answer(choices=["C"]),
+                solution="150 km / 2.5 h = 60 km/h.",
+                criteria=[criterion("Q1.c1", "1", "final_answer", "Chooses C.")],
+                common_errors=["Multiplies and gets 375 km/h (E)."],
+            ),
+            KeyPart(
+                id="Q2",
+                label="2",
+                home_page=2,
+                response_type="numeric",
+                depends_on=[],
+                state="verified",
+                prompt=QUIZ_FR,
+                answer=answer(value=7.5, unit="cups"),
+                solution="3 cups for 12 muffins is 0.25 cup a muffin, so 30 muffins "
+                "need 7.5 cups.",
+                criteria=[
+                    criterion(
+                        "Q2.c1",
+                        "1",
+                        "method",
+                        "Scales the 3 cups by 30/12, or uses the flour per muffin.",
+                    ),
+                    criterion("Q2.c2", "1", "final_answer", "7.5 cups."),
+                ],
+                common_errors=["Adds 3 cups for each extra 12 muffins: 9 cups."],
+            ),
+        ],
+    )
+
+
+QUIZ_KEY = quiz_key()
+
+
+def draw_quiz(path: Path) -> None:
+    c = Canvas(str(path), pagesize=(PAGE_W, PAGE_H), invariant=1, pageCompression=1)
+    c.setTitle(QUIZ)
+    for page in (1, 2):
+        c.setFont("Helvetica", 8)
+        c.setFillGray(0.35)
+        c.drawString(72, PAGE_H - 40, "QUIZ 7  ·  RATES")
+        c.setFillGray(0)
+        c.setFont("Times-Roman", 10)
+        c.drawCentredString(PAGE_W / 2, PAGE_H - PAGE_NUMBER, str(page))
+        if page == 1:
+            c.setFont("Times-Bold", 16)
+            c.drawString(72, PAGE_H - 76, "Quiz 7: Rates")
+            c.setFont("Times-Roman", 11)
+            c.drawString(72, PAGE_H - 106, "Name:")
+            c.line(104, PAGE_H - 108, 300, PAGE_H - 108)
+            stem, options = QUIZ_MC
+            para(c, 72, QUIZ_STEM, stem, bold="1.")
+            for row, (letter, option) in enumerate(zip("ABCDE", options, strict=True)):
+                para(c, OPTION_X, QUIZ_ROWS + 17 * row, f"({letter})  {option}")
+        else:
+            para(c, 72, 62, QUIZ_FR, bold="2.")
+        c.showPage()
+    c.save()
+
+
+def quiz_spec() -> Spec:
+    tops = {"Q1": QUIZ_STEM, "Q2": 62}
+    return Spec(
+        parts=[
+            Part(
+                id=part.id,
+                label=part.label,
+                prompt=part.prompt,
+                response_type=part.response_type,
+                home_page=part.home_page,
+                band=[tops[part.id] / PAGE_H, PAGE_NUMBER / PAGE_H],
+                figures=[],
+                depends_on=[],
+                options=list("ABCDE") if part.id == "Q1" else [],
+            )
+            for part in QUIZ_KEY.parts
+        ]
+    )
+
+
+def quiz_students() -> list[Student]:
+    def q1(letter: str) -> Work:
+        if letter == "C":
+            return Work([], {"choices": [letter]}, ["1"], "Chooses C, the answer.")
+        return Work([], {"choices": [letter]}, ["0"], f"Chooses {letter}; it is C.")
+
+    right = Work(
+        ["3 cups for 12 muffins", "3 × 30/12 = 7.5", "7.5 cups"],
+        {"value": 7.5, "unit": "cups"},
+        ["1", "1"],
+        "Scales by 30/12 and gets 7.5 cups.",
+    )
+    per_muffin = Work(
+        ["3/12 = 0.25 cup each", "0.25 × 30 = 7.5 cups"],
+        {"value": 7.5, "unit": "cups"},
+        ["1", "1"],
+        "Works out the flour per muffin and gets 7.5 cups.",
+    )
+    added = Work(
+        ["24 muffins: 6 cups", "30 muffins: 9 cups"],
+        {"value": 9.0, "unit": "cups"},
+        ["0", "0"],
+        "Adds 3 cups for each 12 muffins and rounds up: 9 cups is wrong.",
+    )
+    return [
+        Student("name-on-name-line", "Quinn Fakeson", {"Q1": q1("C"), "Q2": right}, {}),
+        Student(
+            "name-in-corner", "Rowan Mockley", {"Q1": q1("B"), "Q2": per_muffin}, {}
+        ),
+        Student("no-name", "Sage Examplar", {"Q1": q1("C"), "Q2": added}, {}),
+    ]
+
+
+def build_quiz(student: Student, printed) -> list[tuple[Image.Image, list[Placed]]]:
+    """Each slide of the submission, with where each block of work landed on it."""
+    rng = random.Random(student.name)
+    sheets = {
+        k: Sheet(blank_slide(p), SLIDE_SCALE, PRINTED_AT)
+        for k, p in enumerate(printed, 1)
+    }
+    if student.layout == "name-on-name-line":
+        sign(sheets[1], student.name, STYLUS, rng)
+    elif student.layout == "name-in-corner":
+        mask = sheets[2].mask()
+        write(sheets[2], mask, *CORNER, student.name, STYLUS, rng)
+        sheets[2].put("name", mask, STYLUS.color, role="corner")
+    letter = student.works["Q1"].final["choices"][0]
+    mask = sheets[1].mask()
+    row = QUIZ_ROWS + 17 * "ABCDE".index(letter)
+    loop(sheets[1], mask, OPTION_X + 8, row + 7.5, 13, 9, STYLUS, rng)
+    sheets[1].put("Q1", mask, STYLUS.color)
+    mask = sheets[2].mask()
+    x, y = QUIZ_WORK
+    write_lines(sheets[2], mask, x + 8, y + 6, student.works["Q2"].lines, STYLUS, rng)
+    sheets[2].put("Q2", mask, STYLUS.color)
+    return [(s.image, s.placed()) for s in sheets.values()]
+
+
+def write_quiz() -> None:
+    shutil.rmtree(QUIZ_OUT, ignore_errors=True)
+    QUIZ_OUT.mkdir(parents=True)
+    (QUIZ_OUT / "key.json").write_text(QUIZ_KEY.model_dump_json(indent=2) + "\n")
+    draw_quiz(QUIZ_OUT / "blank.pdf")
+    (QUIZ_OUT / "spec.json").write_text(quiz_spec().model_dump_json(indent=2) + "\n")
+    printed = render_pages(QUIZ_OUT / "blank.pdf", PRINTED_SIZE)
+    for student in quiz_students():
+        pages = build_quiz(student, printed)
+        pdf = QUIZ_OUT / f"{QUIZ} - {student.name}.pdf"
+        write_classkick(pdf, [image for image, _ in pages], student.name, QUIZ)
+        found = truth(student, pages, QUIZ_KEY)
+        pdf.with_suffix(".json").write_text(
+            json.dumps(found, indent=2, ensure_ascii=False) + "\n"
+        )
+
+
 def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
@@ -1518,6 +1711,7 @@ def main() -> None:
         pdf.with_suffix(".json").write_text(
             json.dumps(truth(student, pages), indent=2, ensure_ascii=False) + "\n"
         )
+    write_quiz()
 
 
 if __name__ == "__main__":

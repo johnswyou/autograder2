@@ -1,0 +1,90 @@
+{
+  "policies": {
+    "carry_forward": true,
+    "alternative_methods": true,
+    "rel_tol": 0.02,
+    "require_units": true,
+    "penalise_sig_figs": false,
+    "penalise_contradictory_answers": true,
+    "point_step": "0.25"
+  },
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "home_page": 1,
+      "response_type": "multiple_choice",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A train covers 150 km in 2.5 hours at a steady speed. What is its speed? (A) 40 km/h (B) 50 km/h (C) 60 km/h (D) 75 km/h (E) 375 km/h",
+      "answer": {
+        "choices": [
+          "C"
+        ],
+        "value": null,
+        "unit": null,
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "150 km / 2.5 h = 60 km/h.",
+      "criteria": [
+        {
+          "id": "Q1.c1",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "Chooses C.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Multiplies and gets 375 km/h (E)."
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "home_page": 2,
+      "response_type": "numeric",
+      "depends_on": [],
+      "state": "verified",
+      "prompt": "A recipe uses 3 cups of flour for 12 muffins. How many cups of flour does it need for 30 muffins? Show your work.",
+      "answer": {
+        "choices": [],
+        "value": 7.5,
+        "unit": "cups",
+        "rel_tol": null,
+        "accept_also": [],
+        "expression": null,
+        "elements": [],
+        "must_include": []
+      },
+      "solution": "3 cups for 12 muffins is 0.25 cup a muffin, so 30 muffins need 7.5 cups.",
+      "criteria": [
+        {
+          "id": "Q2.c1",
+          "points": "1",
+          "kind": "method",
+          "requirement": "Scales the 3 cups by 30/12, or uses the flour per muffin.",
+          "partial": [],
+          "carry_forward": false
+        },
+        {
+          "id": "Q2.c2",
+          "points": "1",
+          "kind": "final_answer",
+          "requirement": "7.5 cups.",
+          "partial": [],
+          "carry_forward": false
+        }
+      ],
+      "common_errors": [
+        "Adds 3 cups for each extra 12 muffins: 9 cups."
+      ]
+    }
+  ],
+  "points": null
+}

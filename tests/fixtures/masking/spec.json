@@ -1,0 +1,38 @@
+{
+  "parts": [
+    {
+      "id": "Q1",
+      "label": "1",
+      "prompt": "A train covers 150 km in 2.5 hours at a steady speed. What is its speed? (A) 40 km/h (B) 50 km/h (C) 60 km/h (D) 75 km/h (E) 375 km/h",
+      "response_type": "multiple_choice",
+      "home_page": 1,
+      "band": [
+        0.1710858585858586,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "2",
+      "prompt": "A recipe uses 3 cups of flour for 12 muffins. How many cups of flour does it need for 30 muffins? Show your work.",
+      "response_type": "numeric",
+      "home_page": 2,
+      "band": [
+        0.07828282828282829,
+        0.9545454545454546
+      ],
+      "figures": [],
+      "depends_on": [],
+      "options": []
+    }
+  ]
+}

@@ -13,10 +13,17 @@ from redpen.prepare.parse import check
 from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
-from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
+from tests.fixture_truth import (
+    FIXTURES,
+    QUIZ,
+    QUIZ_SUBMISSIONS,
+    SUBMISSIONS,
+    truth_of,
+)
 from tests.real_data import submission_folders
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
+QUIZ_KEY = Key.model_validate_json((QUIZ / "key.json").read_text())
 
 
 def source_kind(pdf: Path) -> str:
@@ -104,10 +111,55 @@ def test_blank_submission_slides_equal_the_blank_export() -> None:
     assert slides(blank) == slides(FIXTURES / "blank_classkick.pdf")
 
 
-@pytest.mark.parametrize("path", SUBMISSIONS, ids=lambda p: p.stem)
+@pytest.mark.parametrize("path", QUIZ_SUBMISSIONS, ids=lambda p: p.stem)
+def test_the_quiz_s_pages_copy_the_measured_layout_with_its_own_title(
+    path: Path,
+) -> None:
+    pdf = pdfium.PdfDocument(path)
+    assert len(pdf) == 2
+    for k, page in enumerate(pdf, 1):
+        images, lines = structure(page)
+        assert images == [((1004, 2008), SLIDE_BOX, True, (0, 0, 0))]
+        assert lines == SIDEBAR
+        text = page.get_textpage().get_text_range()
+        assert f"Page {k} / 2" in text and "Assignment: Quiz 7 - Rates" in text
+    assert (
+        f"Student: {truth_of(path).student_name}"
+        in pdf[0].get_textpage().get_text_range()
+    )
+
+
+def test_the_quiz_spec_agrees_with_its_key_and_passes_the_spec_checks() -> None:
+    spec = Spec.model_validate_json((QUIZ / "spec.json").read_text())
+    fields = {"id", "label", "prompt", "response_type", "home_page", "depends_on"}
+
+    assert [p.model_dump(include=fields) for p in spec.parts] == [
+        p.model_dump(include=fields) for p in QUIZ_KEY.parts
+    ]
+    assert check(spec, 2) == []
+
+
+def test_one_quiz_student_signs_the_name_line_one_a_corner_of_page_2_one_nowhere() -> (
+    None
+):
+    names = {
+        truth_of(p).layout_class: truth_of(p).map.set_aside for p in QUIZ_SUBMISSIONS
+    }
+
+    assert names.keys() == {"name-on-name-line", "name-in-corner", "no-name"}
+    [line], [corner] = names["name-on-name-line"], names["name-in-corner"]
+    assert line.page == 1 and line.box[1] < 0.15
+    assert corner.page == 2 and corner.box[0] > 0.5 and corner.box[3] < 0.1
+    assert names["no-name"] == []
+
+
+@pytest.mark.parametrize(
+    "path", [*SUBMISSIONS, *QUIZ_SUBMISSIONS], ids=lambda p: p.stem
+)
 def test_truth_names_key_ids_and_awards_within_points(path: Path) -> None:
     truth = truth_of(path)
-    parts = {p.id: p for p in KEY.parts}
+    key = QUIZ_KEY if path.parent == QUIZ else KEY
+    parts = {p.id: p for p in key.parts}
     assert [r.part_id for r in truth.readings] == list(parts)
     named = [e.part_id for e in truth.map.entries] + truth.map.unanswered
     assert set(named) <= set(parts)

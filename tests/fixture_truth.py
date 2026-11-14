@@ -18,6 +18,10 @@ from redpen.workspace import Workspace, read_model, write_model
 FIXTURES = Path(__file__).parent / "fixtures" / "synthetic"
 SUBMISSIONS = sorted(FIXTURES.glob("* - *.pdf"))
 SPEC = read_model(FIXTURES / "spec.json", Spec)
+# A second, small assignment of two pages, whose students put their names in
+# different places: each name is a set-aside block of the truth's map.
+QUIZ = Path(__file__).parent / "fixtures" / "masking"
+QUIZ_SUBMISSIONS = sorted(QUIZ.glob("* - *.pdf"))
 NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
 
 
@@ -37,6 +41,10 @@ class SubmissionTruth(Schema):
         "small-writing",
         "low-resolution",
         "not-classkick",
+        # The quiz's (fixtures/masking): where a student writes their name.
+        "name-on-name-line",
+        "name-in-corner",
+        "no-name",
     ]
     student_name: str
     source_kind: Literal["classkick", "other"]
