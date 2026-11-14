@@ -34,7 +34,7 @@ from redpen.schemas.grade import (
 from redpen.schemas.key import Key
 from redpen.schemas.reading import FinalAnswer, Reading
 from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model
+from redpen.workspace import Workspace, read_model, write_model
 from tests.unit.test_grade import (
     ASKED,
     MODEL,
@@ -242,6 +242,32 @@ def test_no_problem_is_graded_again_where_its_first_grade_failed(
     # earlier first grades of Q4.b and Q4.c still stand.
     assert (path.read_bytes() if path.exists() else None) == compared
     assert [r.part_id for r in found] == (["Q4.a", "Q4.b", "Q4.c"] if kept else [])
+
+
+@pytest.mark.parametrize(
+    "stamp",
+    [{"prompt_version": "000000000000"}, {"model_slug": "vendor/another"}],
+    ids=["another prompt version", "another model"],
+)
+def test_a_first_grade_made_by_another_prompt_or_model_is_not_graded_again(
+    tmp_path: Path, stamp: dict[str, str]
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    stored(workspace)
+    grader = Grader()
+    first_grade(workspace, grader)
+    # An earlier file, as the grade stage leaves one where its new grade fails.
+    path = workspace.grade_json(STUDENT, "Q4")
+    records = [
+        r.model_copy(update={"provenance": r.provenance.model_copy(update=stamp)})
+        for r in read_model(path, ProblemGrades).records
+    ]
+    write_model(path, ProblemGrades(records=records))
+
+    found = second_grade(workspace, grader)
+
+    assert len(grader.sent) == 1
+    assert found == []
 
 
 # --- a failure ---------------------------------------------------------------------

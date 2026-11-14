@@ -12,12 +12,11 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from redpen.grade.grade import ask_grader, by_problem, graded_from, request
+from redpen.grade.grade import ask_grader, by_problem, request, stamps
 from redpen.grade.read import digest
 from redpen.llm.client import Gateway, finish_all
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import part_hash
-from redpen.schemas.common import Provenance
 from redpen.schemas.grade import (
     Grade,
     GradeRecord,
@@ -61,20 +60,9 @@ async def grade_again(
         file = workspace.grade_json(student, problem)
         stored = read_model(file, ProblemGrades).records if file.exists() else []
         first = {r.grade.part_id: r for r in stored}
-        # Each part's record as the grade stage would store it now, but for the
-        # grade: none is asked again where that stage failed and left an earlier
-        # file.
-        made = {
-            p.id: (
-                Provenance(
-                    key_part_hash=part_hash(p, key.policies),
-                    prompt_version=found.version,
-                    model_slug=model.slug,
-                ),
-                graded_from(p, found.shown),
-            )
-            for p in found.asked
-        }
+        # Each part's stamps as the grade stage would store them now: none is
+        # asked again where that stage failed and left an earlier file.
+        made = {p.id: stamps(found, p, key, model) for p in found.asked}
         if any(
             (r := first.get(i)) is None or (r.provenance, r.reading_digest) != m
             for i, m in made.items()

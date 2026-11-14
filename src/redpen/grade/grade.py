@@ -247,17 +247,27 @@ async def ask_grader(
                 "code_overruled": g.code_overruled if overruled else None,
             }
         )
+        provenance, graded = stamps(found, by_id[g.part_id], key, model)
         records[g.part_id] = GradeRecord(
-            provenance=Provenance(
-                key_part_hash=part_hash(by_id[g.part_id], key.policies),
-                prompt_version=found.version,
-                model_slug=model.slug,
-            ),
+            provenance=provenance,
             grade=kept,
             check=AnswerCheck(**verdict._asdict()) if verdict else None,
-            reading_digest=graded_from(by_id[g.part_id], found.shown),
+            reading_digest=graded,
         )
     return records
+
+
+def stamps(
+    found: Request, part: KeyPart, key: Key, model: ModelInfo
+) -> tuple[Provenance, str]:
+    """The provenance and the reading digest (`graded_from`) of the record of
+    `part` made from `model`'s answer to `found`."""
+    provenance = Provenance(
+        key_part_hash=part_hash(part, key.policies),
+        prompt_version=found.version,
+        model_slug=model.slug,
+    )
+    return provenance, graded_from(part, found.shown)
 
 
 def graded_from(part: KeyPart, readings: Mapping[str, ReadingRecord]) -> str:
