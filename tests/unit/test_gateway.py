@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -17,6 +18,7 @@ import pytest
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from redpen.llm import client
 from redpen.llm.cache import CallCache, cache_key
 from redpen.llm.client import (
     BACKOFF_SECONDS,
@@ -1020,3 +1022,83 @@ def test_a_stop_sends_only_the_requests_already_in_flight(
         run(tmp_path / "cache.sqlite", handler, scenario, max_concurrency=8)
 
     assert sent == [False] * 8  # the 8 in flight, and nothing after the stop
+
+
+class Clock:
+    """Time for the gateway that passes only as the test's event loop turns, a
+    millisecond a turn while `run` waits; a sleep lasts until its time has passed."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.now = 0.0
+        monkeypatch.setattr(client, "time", SimpleNamespace(monotonic=self.time))
+
+    def time(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        until = self.now + seconds
+        while self.now < until:
+            await asyncio.sleep(0)
+
+    def run[T](
+        self,
+        db: Path,
+        handler: Callable[[httpx.Request], Any],
+        scenario: Callable[[Gateway], Awaitable[T]],
+        **options: Any,
+    ) -> T:
+        async def main() -> T:
+            transport = httpx.MockTransport(handler)
+            async with Gateway(
+                db, "test-key", transport=transport, sleep=self.sleep, **options
+            ) as gateway:
+                work = asyncio.ensure_future(scenario(gateway))
+                while not work.done():
+                    self.now += 0.001
+                    await asyncio.sleep(0)
+                return work.result()
+
+        return asyncio.run(main())
+
+
+def concurrently(
+    *calls: Callable[[Gateway], Awaitable[Result[BaseModel]]],
+) -> Callable[[Gateway], Awaitable[list[Result[BaseModel]]]]:
+    async def scenario(gateway: Gateway) -> list[Result[BaseModel]]:
+        return await asyncio.gather(*(call(gateway) for call in calls))
+
+    return scenario
+
+
+def test_one_model_told_to_wait_holds_no_request_to_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock(monkeypatch)
+    posted: list[tuple[str, str, float, int]] = []  # model, item, when, status
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        model, item = body["model"], body["messages"][1]["content"][1]["text"]
+        when = clock.now
+        await clock.sleep(0.5)  # in flight
+        if model == MODEL.slug and when < 5:  # the model's limit, until 5 s
+            posted.append((model, item, when, 429))
+            return limited(429, str(math.ceil(5 - when)))
+        posted.append((model, item, when, 200))
+        return completion('{"letter": "B"}', model)
+
+    calls = [ask(items=(f"item {n}",)) for n in range(30)]
+    clock.run(
+        tmp_path / "cache.sqlite",
+        handler,
+        concurrently(*calls, ask(items=("other",), model=OTHER)),
+        max_concurrency=8,
+        requests_per_second=4,
+    )
+
+    [other] = [when for model, _, when, _ in posted if model == OTHER.slug]
+    assert other < 1  # not held behind the waiting model's requests
+    answered = [item for _, item, _, code in posted if code == 200]
+    assert len(answered) == len(set(answered)) == 31
+    hits = sum(code == 429 for *_, code in posted)
+    assert hits - 1 <= 7  # after the first, at most those in flight, once each

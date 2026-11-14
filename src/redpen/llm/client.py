@@ -170,6 +170,7 @@ class Gateway:
         self._slots = asyncio.Semaphore(max_concurrency)
         self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}
+        self._held: dict[str, float] = {}  # by model: until when a Retry-After holds it
         self._sleep = sleep
         self._asking: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.stopped: StopError | None = None
@@ -321,20 +322,26 @@ class Gateway:
                     until = time.monotonic() + max(error.wait, backoff)
                     slug = model.slug
                     self._next_start[slug] = max(self._next_start.get(slug, 0), until)
+                    self._held[slug] = max(self._held.get(slug, 0), until)
         return await self._attempt(role, model, body)
 
     async def _attempt(
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
-        self._go_on()
-        async with self._slots:
-            # Waiting inside the slot stops queued requests bursting past the rate.
-            await self._wait_turn(model.slug)
-            self._go_on()  # only what is in flight is sent
-            try:
-                reply = await self._http.post("/chat/completions", json=body)
-            except httpx.TransportError as error:
-                raise RetryableError(f"{model.slug}: {error!r}") from error
+        while True:
+            self._go_on()
+            # Its turn is waited for outside a slot, so that one model's wait holds
+            # no request to another model.
+            start = await self._wait_turn(model.slug)
+            async with self._slots:
+                self._go_on()  # only what is in flight is sent
+                if self._held.get(model.slug, 0) > start:  # told to wait since
+                    continue
+                try:
+                    reply = await self._http.post("/chat/completions", json=body)
+                except httpx.TransportError as error:
+                    raise RetryableError(f"{model.slug}: {error!r}") from error
+            break
         try:
             response: dict[str, Any] = reply.json()
         except ValueError as error:
@@ -367,13 +374,15 @@ class Gateway:
         if self.stopped is not None:
             raise StopError(*self.stopped.args)
 
-    async def _wait_turn(self, slug: str) -> None:
-        """Start requests to `slug` at most `requests_per_second` a second."""
+    async def _wait_turn(self, slug: str) -> float:
+        """Start requests to `slug` at most `requests_per_second` a second; the start
+        taken."""
         now = time.monotonic()
         start = max(now, self._next_start.get(slug, now))
         self._next_start[slug] = start + self._interval
         if start > now:
             await self._sleep(start - now)
+        return start
 
 
 # The calls made while `ask_checked` waits for an answer, as (gateway, cache key). A
