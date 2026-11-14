@@ -1,0 +1,458 @@
+"""Work that no part claims (design 7.3 and 13), found in code with no fingerprint
+and no model call. On a slide export every student's page k is the same slide, so
+the class itself gives each page's background, and a student's ink is where their
+page is darker than it. Ink that no region of the student's map claims (an entry, a
+set-aside block or a name, each grown by the read stage's margin) raises
+`unclaimed_work` on the student, naming the page, where it is dense; so does a
+block the mapper set aside while a part has no response. Nothing here changes a
+score, a map or a reading, or sends a request.
+
+`check_class` runs in `grade` and `run` once the class is mapped. Beside each
+student's map it stores `coverage.json`, tied to the map by its digest, and the
+images the review list links: each patch of leftover ink and each set-aside block,
+cut from the page. `unclaimed_flags`, `unclaimed_lines` and `set_aside_section`
+give the report what those files hold, in fixed words."""
+
+import contextlib
+from collections import Counter
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal
+
+from PIL import Image, ImageChops
+from pydantic import ValidationError
+
+from redpen.grade.read import MARGIN, WHITE_LEVEL, digest
+from redpen.imaging import prep
+from redpen.schemas.flags import Flag, FlagCode
+from redpen.schemas.submission import (
+    Coverage,
+    CoveragePage,
+    IngestRecord,
+    MapRecord,
+    SetAside,
+)
+from redpen.workspace import Workspace, log_failure, read_model, write_model
+
+# The thresholds, measured on the fixture classes (task 4.3 report). A channel
+# darker than the background's by more than INK is ink.
+INK = 40
+# A page with ink on more than NEARLY of its background's paper (WHITE_LEVEL or more
+# in every channel) is another rendering, not comparable: a photo pasted on a
+# fixture slide covers 0.29 to 0.54 of it, the most ink a student added 0.008.
+NEARLY = 0.1
+# Leftover ink is judged in square cells of CELL pixels; a cell with DENSE of it ink
+# raises the flag. A stroke w pixels wide fills at most 1.41 w / CELL of a cell, so
+# no lone stroke up to 3 px wide does.
+CELL = 40
+DENSE = 0.125
+FEWEST = 3  # comparable students a page needs
+
+type Reason = Literal["few comparable", "not classkick", "other rendering"]
+
+# The flags' details and the report's lines, in fixed words.
+LEFTOVER = (
+    "Ink on page {page} lies outside every region the map gives a part, a set-aside"
+    " block or a name: {patches}."
+)
+ASIDE = (
+    "The mapper set a block on page {page} aside while a part has no response, so the"
+    " block may be that response. It is listed under Blocks set aside."
+)
+ASIDE_INTRO = (
+    "Each block of work the mapper set aside as no part's response, with the"
+    " mapper's reason."
+)
+NO_IMAGE = "(no image: the check has not run on this map)"
+COMPARED = (
+    "Student pages compared with their class's own background: {compared} of"
+    " {pages}. Students with dense ink that no region of their map claims"
+    " (`unclaimed_work`): {flagged}."
+)
+NOT_COMPARED = (
+    "Student pages not compared: {count}. On a page with fewer than three comparable"
+    " students, {few}; not a Classkick page, {other}; another rendering than the"
+    " class's, {rendering}; not checked, with no map or a map changed since the"
+    " check, {unchecked}."
+)
+BLOCKS = (
+    "Blocks the mapper set aside, each listed in {review}: {blocks}. Students with"
+    " one while a part has no response (`unclaimed_work`): {asking}."
+)
+
+
+def check_class(workspace: Workspace, students: Sequence[IngestRecord]) -> None:
+    """Compare each page of the class with its background, one page image held at a
+    time, and store each mapped student's coverage file and images, the earlier
+    ones removed first. A student with no map gets none but counts for the
+    background. When a page cannot be read the failure goes to the run log and
+    nothing is stored, so the run report says the pages were not checked."""
+    maps: dict[str, MapRecord] = {}
+    for student in students:
+        _clear(workspace, student.student_key)
+        with contextlib.suppress(OSError, ValidationError):  # the map stage failed
+            maps[student.student_key] = read_model(
+                workspace.map_json(student.student_key), MapRecord
+            )
+    try:
+        found = _compare(workspace, students, maps)
+        for key, mapped in maps.items():
+            for n, block in _blocks(mapped):
+                with Image.open(workspace.student_page(key, block.page)) as page:
+                    _cut(
+                        page,
+                        block.box,
+                        _turns(mapped, block.page),
+                        workspace.aside_png(key, n),
+                    )
+    except Exception as error:  # one unreadable page: nothing stored for anyone
+        log_failure(workspace, "coverage", error)
+        for student in students:
+            _clear(workspace, student.student_key)
+        return
+    for key, mapped in maps.items():
+        record = Coverage(map_digest=digest(mapped), pages=found[key])
+        write_model(workspace.coverage_json(key), record)
+
+
+def _clear(workspace: Workspace, student: str) -> None:
+    workspace.coverage_json(student).unlink(missing_ok=True)
+    for old in workspace.aside_png(student, 1).parent.glob("*.png"):
+        old.unlink()
+
+
+def _compare(
+    workspace: Workspace,
+    students: Sequence[IngestRecord],
+    maps: Mapping[str, MapRecord],
+) -> dict[str, list[CoveragePage]]:
+    """Each mapped student's pages, page number by page number: why each was not
+    compared, or the patches of ink its map leaves, each patch's image saved."""
+    found: dict[str, list[CoveragePage]] = {key: [] for key in maps}
+    for number in sorted({p.number for s in students for p in s.pages}):
+        here = [(s, p) for s in students for p in s.pages if p.number == number]
+        slides = [
+            (s.student_key, (p.width_px, p.height_px))
+            for s, p in here
+            if s.source_kind == "classkick"
+        ]
+        # The size most of the class's slides have; another is another rendering.
+        common = (
+            Counter(size for _, size in slides).most_common(1)[0][0] if slides else None
+        )
+        reasons: dict[str, Reason] = {
+            s.student_key: "not classkick"
+            for s, _ in here
+            if s.source_kind != "classkick"
+        }
+        reasons |= {k: "other rendering" for k, size in slides if size != common}
+        paths = {
+            k: workspace.student_page(k, number) for k, _ in slides if k not in reasons
+        }
+        background, why = _background(paths)
+        reasons |= why
+        for student, _ in here:
+            key = student.student_key
+            if (mapped := maps.get(key)) is None:
+                continue
+            patches: list[list[float]] = []
+            if background is not None and key not in reasons:
+                with Image.open(paths[key]) as page:
+                    patches = _leftover(page, background, mapped, number)
+                    for n, patch in enumerate(patches, 1):
+                        _cut(
+                            page,
+                            patch,
+                            _turns(mapped, number),
+                            workspace.patch_png(key, number, n),
+                        )
+            found[key].append(
+                CoveragePage(
+                    number=number, not_compared=reasons.get(key), patches=patches
+                )
+            )
+    return found
+
+
+def _background(
+    paths: Mapping[str, Path],
+) -> tuple[Image.Image | None, dict[str, Reason]]:
+    """The background of one page from the students' images of it at `paths`, all
+    of one size, and why each student not compared was not. Each image is read
+    twice, one at a time: for a first background of them all, and to keep those with
+    little ink on its paper, whose background is the one returned. Another
+    rendering (a photo, a scan) is darker than the slide's paper nearly everywhere.
+    None when fewer than FEWEST are comparable."""
+    few: Reason = "few comparable"
+    if len(paths) < FEWEST:
+        return None, dict.fromkeys(paths, few)
+    first = _lightest(_load(p) for p in paths.values())
+    assert first is not None
+    paper = _paper(first)
+    kept: list[str] = []
+
+    def comparable() -> Iterator[Image.Image]:
+        for key, path in paths.items():
+            page = _load(path)
+            if _share(_ink(page, first), paper) <= NEARLY:
+                kept.append(key)
+                yield page
+
+    background = _lightest(comparable())
+    why: dict[str, Reason] = {k: "other rendering" for k in paths if k not in kept}
+    if background is None:
+        why |= dict.fromkeys(kept, few)
+    return background, why
+
+
+def _lightest(pages: Iterable[Image.Image]) -> Image.Image | None:
+    """Per pixel and channel, the k-th lightest value of the n `pages`, k = min(3,
+    n - 2): ink darkens a page, so any number of students writing at a pixel leave
+    it while two do not, and from five students on, two whose pages are lighter
+    there (white over the print) cannot move it either. Three images are kept
+    besides the page read. None for fewer than FEWEST pages."""
+    top: list[Image.Image] = []
+    count = 0
+    for page in pages:
+        count += 1
+        for i in range(len(top)):  # no name keeps a page alive past its turn
+            top[i], page = (
+                ImageChops.lighter(top[i], page),
+                ImageChops.darker(top[i], page),
+            )
+        if len(top) < 3:
+            top.append(page)
+    return top[min(3, count - 2) - 1] if count >= FEWEST else None
+
+
+def _ink(page: Image.Image, background: Image.Image) -> Image.Image:
+    """Where a channel of `page` is darker than `background`'s by more than INK."""
+    r, g, b = ImageChops.subtract(background, page).split()
+    most = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    return _over(most, INK)
+
+
+def _paper(background: Image.Image) -> Image.Image:
+    """Where `background` is blank paper or canvas."""
+    r, g, b = background.split()
+    least = ImageChops.darker(ImageChops.darker(r, g), b)
+    return _over(least, WHITE_LEVEL - 1)
+
+
+def _over(band: Image.Image, level: int) -> Image.Image:
+    """255 where `band` is over `level`, else 0."""
+    table = [255 if v > level else 0 for v in range(256)]
+    return band.point(table)  # pyright: ignore[reportUnknownMemberType] (numpy's half)
+
+
+def _share(ink: Image.Image, paper: Image.Image) -> float:
+    """The share of `paper` under `ink`; all of it when there is no paper."""
+    total = paper.histogram()[255]
+    return ImageChops.multiply(ink, paper).histogram()[255] / total if total else 1.0
+
+
+def _leftover(
+    page: Image.Image, background: Image.Image, mapped: MapRecord, number: int
+) -> list[list[float]]:
+    """The patches of `page`'s ink, page `number`, outside every region `mapped`
+    gives it, each region grown by the read stage's margin as the reader's crop is."""
+    ink = _ink(page, background)
+    regions = [e.box for e in mapped.map.entries if e.page == number]
+    regions += [a.box for a in mapped.map.set_aside if a.page == number]
+    for facts in mapped.pages:
+        if facts.number == number:
+            regions += [*facts.names, *facts.names_on_responses]
+    for box in regions:
+        ink.paste(0, prep.pixels(ink.size, box, MARGIN))
+    return _dense(ink)
+
+
+def _dense(ink: Image.Image) -> list[list[float]]:
+    """The box of each group of dense cells of `ink`, the topmost first: cells a
+    gap of one cell apart are one group, as the lines and words of a response are,
+    and the cells touching it that hold any ink, where its sparse edges fall, are
+    in its box."""
+    cells = ink.reduce(CELL)
+    columns = cells.width
+    values = {(i % columns, i // columns): v for i, v in enumerate(cells.tobytes())}
+    dense = {cell for cell, value in values.items() if value >= DENSE * 255}
+    width, height = ink.size
+    boxes: list[list[float]] = []
+    while dense:
+        group = [min(dense, key=lambda cell: (cell[1], cell[0]))]
+        dense.discard(group[0])
+        for cell in group:  # grows as it goes
+            near = _around(cell, 2) & dense
+            dense -= near
+            group += sorted(near)
+        inky = {c for cell in group for c in _around(cell, 1) if values.get(c)}
+        xs, ys = [x for x, _ in inky], [y for _, y in inky]
+        boxes.append(
+            [
+                min(xs) * CELL / width,
+                min(ys) * CELL / height,
+                min((max(xs) + 1) * CELL, width) / width,
+                min((max(ys) + 1) * CELL, height) / height,
+            ]
+        )
+    return boxes
+
+
+def _around(cell: tuple[int, int], reach: int) -> set[tuple[int, int]]:
+    """The cells no more than `reach` cells from `cell` across or down."""
+    x, y = cell
+    steps = range(-reach, reach + 1)
+    return {(x + dx, y + dy) for dx in steps for dy in steps}
+
+
+def _cut(page: Image.Image, box: Sequence[float], turns: int, path: Path) -> None:
+    """Save the part of `page` in `box`, grown by the read margin, turned upright."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prep.rotate(prep.crop(page, box, MARGIN)[0], turns).save(path)
+
+
+def _turns(mapped: MapRecord, number: int) -> int:
+    return next((p.rotation // 90 for p in mapped.pages if p.number == number), 0)
+
+
+def _load(path: Path) -> Image.Image:
+    with Image.open(path) as image:
+        image.load()
+    return image
+
+
+def _blocks(mapped: MapRecord) -> list[tuple[int, SetAside]]:
+    """Each block the map set aside, numbered from 1, but one that lies mostly in a
+    name region of its page (names masked): that is not listed again."""
+    names = {p.number: [*p.names, *p.names_on_responses] for p in mapped.pages}
+    return [
+        (n, block)
+        for n, block in enumerate(mapped.map.set_aside, 1)
+        if not any(
+            _inside(block.box, name) >= 0.5 for name in names.get(block.page, [])
+        )
+    ]
+
+
+def _inside(box: Sequence[float], frame: Sequence[float]) -> float:
+    """The share of `box`'s area inside `frame`."""
+    width = min(box[2], frame[2]) - max(box[0], frame[0])
+    height = min(box[3], frame[3]) - max(box[1], frame[1])
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    return max(width, 0) * max(height, 0) / area
+
+
+# --- what the report shows ------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Stored:
+    student: IngestRecord
+    mapped: MapRecord | None
+    coverage: Coverage | None  # only one made from `mapped`
+
+
+def _stored(workspace: Workspace, students: Sequence[IngestRecord]) -> list[_Stored]:
+    found: list[_Stored] = []
+    for student in students:
+        mapped = coverage = None
+        with contextlib.suppress(OSError, ValidationError):
+            mapped = read_model(workspace.map_json(student.student_key), MapRecord)
+            kept = read_model(workspace.coverage_json(student.student_key), Coverage)
+            coverage = kept if kept.map_digest == digest(mapped) else None
+        found.append(_Stored(student, mapped, coverage))
+    return found
+
+
+def _link(workspace: Workspace, path: Path) -> str:
+    return path.relative_to(workspace.review_md.parent, walk_up=True).as_posix()
+
+
+def unclaimed_flags(
+    workspace: Workspace, students: Sequence[IngestRecord]
+) -> list[Flag]:
+    """`unclaimed_work` on each student, for each page whose stored check found
+    leftover ink, each patch linked from `out/`; then, while a part has no
+    response, for each page of a block set aside."""
+    raised: list[Flag] = []
+    for found in _stored(workspace, students):
+        key = found.student.student_key
+        details: list[str] = []
+        for page in found.coverage.pages if found.coverage else []:
+            images = [
+                workspace.patch_png(key, page.number, n)
+                for n in range(1, len(page.patches) + 1)
+            ]
+            links = [
+                f"[patch {n}]({_link(workspace, p)})" for n, p in enumerate(images, 1)
+            ]
+            if links:
+                details.append(
+                    LEFTOVER.format(page=page.number, patches=", ".join(links))
+                )
+        if found.mapped and found.mapped.map.unanswered:
+            pages = sorted({b.page for _, b in _blocks(found.mapped)})
+            details += [ASIDE.format(page=n) for n in pages]
+        raised += [
+            Flag(code=FlagCode.UNCLAIMED_WORK, part_id=None, student_key=key, detail=d)
+            for d in details
+        ]
+    return raised
+
+
+def unclaimed_lines(
+    workspace: Workspace, students: Sequence[IngestRecord]
+) -> list[str]:
+    """The run report's section: the pages compared and the students with leftover
+    ink, the pages not compared and why, and the blocks set aside."""
+    found = _stored(workspace, students)
+    pages = sum(len(s.pages) for s in students)
+    why = Counter(p.not_compared for f in found if f.coverage for p in f.coverage.pages)
+    flagged = [
+        f for f in found if f.coverage and any(p.patches for p in f.coverage.pages)
+    ]
+    blocks = [(f, len(_blocks(f.mapped))) for f in found if f.mapped]
+    asking = [f for f, n in blocks if n and f.mapped and f.mapped.map.unanswered]
+    review = workspace.review_md.relative_to(workspace.root).as_posix()
+    return [
+        "",
+        "## Work no part claims",
+        "",
+        COMPARED.format(compared=why[None], pages=pages, flagged=len(flagged)),
+        "",
+        NOT_COMPARED.format(
+            count=pages - why[None],
+            few=why["few comparable"],
+            other=why["not classkick"],
+            rendering=why["other rendering"],
+            unchecked=pages - why.total(),
+        ),
+        "",
+        BLOCKS.format(
+            review=review, blocks=sum(n for _, n in blocks), asking=len(asking)
+        ),
+    ]
+
+
+def set_aside_section(workspace: Workspace, students: Sequence[IngestRecord]) -> str:
+    """The review list's last section: each block set aside, but a name region, one
+    line each with its student, page, the mapper's reason and its image; or nothing
+    when there is none. The name and the reason are untrusted, in code spans."""
+    from redpen.report.report import code_span  # report.report imports this module
+
+    lines: list[str] = []
+    for found in _stored(workspace, students):
+        if found.mapped is None:
+            continue
+        key = found.student.student_key
+        name = f"{code_span(found.student.student_name)} (`{key}`)"
+        for n, block in _blocks(found.mapped):
+            link = f"[image]({_link(workspace, workspace.aside_png(key, n))})"
+            shown = link if found.coverage else NO_IMAGE
+            lines.append(
+                f"- {name}, page {block.page}: {code_span(block.reason)} {shown}."
+            )
+    if not lines:
+        return ""
+    return "\n".join(["", "## Blocks set aside", "", ASIDE_INTRO, "", *lines]) + "\n"

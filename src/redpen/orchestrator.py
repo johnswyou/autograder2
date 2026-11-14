@@ -31,6 +31,7 @@ from rich.progress import MofNCompleteColumn, Progress
 
 from redpen.config import Config, Lock, Profile
 from redpen.grade.audit import audit_class
+from redpen.grade.coverage import check_class
 from redpen.grade.grade import grade_student
 from redpen.grade.map import map_student
 from redpen.grade.read import problem_of, read_student
@@ -143,6 +144,8 @@ async def grade_class(
 
             for stage in stages:
                 await asyncio.gather(*(one(stage, s) for s in keys))
+                if stage == "map":  # the class mapped: check it, in code
+                    check_class(workspace, students)
             # On the same gateway: a reading is student work, sent only past the gate.
             await audit_class(workspace, key, students, gw, models["grader"])
     return failed
