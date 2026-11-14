@@ -130,12 +130,15 @@ async def grade_class(
             at_once = asyncio.Semaphore(gw.max_concurrency)
 
             async def one(stage: str, student: str) -> None:
+                if gw.stopped:  # a failure no retry cures: the run ends, and says so
+                    return
                 try:
                     async with at_once:
                         await runs[stage](gw, student)
                 except Exception as error:  # one student never stops the class
-                    failed.append((stage, student))
-                    log_failure(workspace, f"{stage} {student}", error)
+                    if not gw.stopped:
+                        failed.append((stage, student))
+                        log_failure(workspace, f"{stage} {student}", error)
                 # The second grade's calls are booked under its own name; its
                 # model is the grader's, which the gate checks for "grade".
                 role = STAGES.get(stage, stage)
@@ -150,7 +153,8 @@ async def grade_class(
                     check = progress.add_task("check", total=len(pages), cost="")
                     check_class(workspace, students, partial(progress.advance, check))
             # On the same gateway: a reading is student work, sent only past the gate.
-            await audit_class(workspace, key, students, gw, models["grader"])
+            if not gw.stopped:
+                await audit_class(workspace, key, students, gw, models["grader"])
     return failed
 
 

@@ -7,6 +7,7 @@ workspace holds the tracebacks."""
 
 import asyncio
 import contextlib
+import json
 import logging
 import re
 import tempfile
@@ -19,6 +20,9 @@ from typing import Annotated, NoReturn
 
 import typer
 from pydantic import ValidationError
+from pypdfium2.raw import (  # pyright: ignore[reportMissingTypeStubs]
+    FPDF_ERR_PASSWORD,  # pyright: ignore[reportUnknownVariableType]
+)
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -49,6 +53,7 @@ from redpen.llm.client import (
     ResponseValidationError,
     RetryableError,
     StageError,
+    StopError,
 )
 from redpen.llm.models import (
     ModelError,
@@ -82,6 +87,7 @@ from redpen.prepare.key import (
     save_key,
     spec_point_problems,
     write_markdown,
+    yaml_reader,
 )
 from redpen.prepare.parse import SpecError, missing_numbers, parse
 from redpen.prepare.parse import check as check_spec
@@ -275,9 +281,9 @@ def prepare(
         with render.open_pdf(data) as pdf:
             pages = len(pdf)
     except Exception as error:  # pdfium reports a file it cannot open as PdfiumError
-        _fail(f"{blank} cannot be opened as a PDF: {error}")
+        _no_blank(blank, error)
     if not pages:
-        _fail(f"{blank} has no pages")
+        _no_blank(blank, None)
     try:
         config = load_config()
         if profile is not None:
@@ -506,14 +512,78 @@ def _points(key: Key) -> None:
 
 
 def _does_not_load(path: Path) -> NoReturn:
-    """A key file that does not load, in one line: its problems quote the file,
-    and `redpen key check` lists them for whoever edits it."""
-    _fail(f"{path} does not load. `redpen key check` lists its problems.")
+    """A key file that does not load, in one line, with the line of a YAML error:
+    its problems quote the file, and `redpen key check` lists them for whoever
+    edits it."""
+    try:
+        yaml_reader().load(path)  # pyright: ignore[reportUnknownMemberType]
+        where = "load"
+    except YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        where = "parse as YAML" + (f" at line {mark.line + 1}" if mark else "")
+    except OSError:
+        where = "load"
+    _fail(f"{path} does not {where}. `redpen key check` lists its problems.")
+
+
+GIVE_BLANK = "Give BLANK.pdf as a PDF file that opens without a password."
+GIVE_SUBMISSIONS = "Give SUBMISSIONS as a folder or ZIP of the students' PDFs."
+
+
+def _no_blank(blank: Path, error: Exception | None) -> NoReturn:
+    """Exit with one line: `blank`, which opening raised `error` (None: it opened
+    with no page), cannot be the blank assignment."""
+    if error is None:
+        why = "has no pages"
+    elif isinstance(error, FileNotFoundError):
+        why = "does not exist"
+    elif isinstance(error, IsADirectoryError):
+        why = "is a folder"
+    elif getattr(error, "err_code", None) == FPDF_ERR_PASSWORD:
+        why = "is encrypted"
+    else:
+        why = "is not a PDF, or is damaged or cut short"
+    _fail(f"{blank} cannot be opened as a PDF: it {why}. {GIVE_BLANK}")
+
+
+def _no_key(ws: Workspace) -> NoReturn:
+    _fail(
+        f"{ws.root} holds no prepared key. Run `redpen prepare BLANK.pdf --workspace"
+        f" {ws.root}` first."
+    )
+
+
+def _no_class(ws: Workspace) -> NoReturn:
+    _fail(
+        f"{ws.root} holds no ingest of a class. Run `redpen grade SUBMISSIONS"
+        f" --workspace {ws.root}` first."
+    )
 
 
 def _fail(message: str) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(code=1)
+
+
+def _damaged(ws: Workspace) -> None:
+    """Exit naming, a line each, every stored JSON file of `ws` that is not JSON (cut
+    short or emptied, by a full disk or by hand) and how to have it made again, if
+    there is one."""
+    found: list[Path] = []
+    for path in sorted(ws.root.rglob("*.json")):
+        try:
+            json.loads(path.read_bytes())
+        except ValueError:
+            found.append(path)
+    for path in found:
+        again = "prepare" if path.is_relative_to(ws.root / "key") else "grade"
+        typer.echo(
+            f"{path} is damaged (not JSON). Delete it and run `redpen {again}` again"
+            " to have it made again.",
+            err=True,
+        )
+    if found:
+        raise typer.Exit(code=1)
 
 
 @key_app.command("check")
@@ -585,8 +655,8 @@ def key_verify(workspace: KeyWorkspace) -> None:
     try:
         spec = read_model(ws.spec_json, Spec)
         lock = read_lock(ws.config_lock_toml)
-    except (OSError, ValueError) as error:  # missing, or a TOML or schema error
-        _fail(f"{ws.root} holds no prepared key ({type(error).__name__}).")
+    except (OSError, ValueError):  # missing, or a TOML or schema error
+        _no_key(ws)
     key, problems = examine(ws.key_yaml, spec)
     if key is None:
         _does_not_load(ws.key_yaml)
@@ -620,7 +690,10 @@ def key_verify(workspace: KeyWorkspace) -> None:
             # No rewrite: only `state` changes, so no part hash moves.
             return await self_test(ws, gw, lock.models[GRADER], key, found)
 
-    verified, found = asyncio.run(run())
+    try:
+        verified, found = asyncio.run(run())
+    except StopError as error:
+        _fail(str(error))
     record = verification(found, verified, lock.models[CHECKER].slug, True)
     try:
         save_key(ws.key_yaml, verified)
@@ -681,7 +754,14 @@ def _grade(
             " them.",
             err=True,
         )
-    if failed or summary.failed:
+    if summary.duplicates:
+        typer.echo(
+            f"Students with more than one PDF: {len(summary.duplicates)}. The newest"
+            f" of each was graded, and {ws.ingest_summary_json} names the others;"
+            " remove those not meant to be graded.",
+            err=True,
+        )
+    if failed or summary.failed or summary.duplicates:
         raise typer.Exit(code=1)
 
 
@@ -697,8 +777,11 @@ def _graded(ws: Workspace, dry_run: bool) -> tuple[Config, str, Spec, Lock, Key]
     try:
         spec = read_model(ws.spec_json, Spec)
         lock = read_lock(ws.config_lock_toml)
-    except (OSError, ValueError) as error:  # missing, or a TOML or schema error
-        _fail(f"{ws.root} holds no prepared key ({type(error).__name__}).")
+    except (OSError, ValueError):  # missing, or a TOML or schema error
+        _damaged(ws)
+        _no_key(ws)
+    if not ws.key_yaml.exists():  # prepare stopped before the key
+        _no_key(ws)
     key, problems = examine(ws.key_yaml, spec)
     if key is None:
         _does_not_load(ws.key_yaml)
@@ -754,8 +837,11 @@ def _run(
     run = grade_class(ws, spec, key, lock.models, config, api_key, students, stages)
     try:
         failed = asyncio.run(run)
+    except StopError as error:  # its own line: what to do
+        _fail(str(error))
     except Exception as error:  # outside any one student: the cache or the ledger
         log_failure(ws, "grade", error)
+        _damaged(ws)
         _fail(f"The class could not be graded. The traceback is in {ws.run_log}.")
     # Named before the report is tried, so that a report that fails hides none.
     for stage in stages:
@@ -797,6 +883,7 @@ def _rebuilt(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
         _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
+        _damaged(ws)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
 
 
@@ -808,7 +895,7 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
     except (OSError, ValueError, zipfile.BadZipFile) as error:
         _fail(
             f"{submissions} cannot be read as a folder or ZIP of PDFs, or the roster"
-            f" cannot be read ({type(error).__name__})."
+            f" cannot be read ({type(error).__name__}). {GIVE_SUBMISSIONS}"
         )
     write_model(ws.ingest_summary_json, summary)
     if not summary.students:
@@ -817,7 +904,7 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
             f"No student PDF could be ingested from {submissions}: {failed} could"
             " not be read."
             if failed
-            else f"No student PDF was found in {submissions}."
+            else f"No student PDF was found in {submissions}. {GIVE_SUBMISSIONS}"
         )
     return summary
 
@@ -861,9 +948,9 @@ def _estimate(
     try:
         sizes = blank_sizes(blank)
     except Exception as error:  # pdfium reports a file it cannot open as PdfiumError
-        _fail(f"{blank} cannot be opened as a PDF: {error}")
+        _no_blank(blank, error)
     if not sizes:
-        _fail(f"{blank} has no pages")
+        _no_blank(blank, None)
     keyed = ws.key_yaml.exists()
     if pinned and not keyed:  # the estimate prices a solve and its verification
         _can_verify(ws, models)
@@ -956,8 +1043,9 @@ def regrade(
     config, api_key, spec, lock, key = _graded(ws, dry_run)
     try:
         summary = read_model(ws.ingest_summary_json, IngestSummary)
-    except (OSError, ValueError) as error:
-        _fail(f"{ws.root} holds no ingest to grade again ({type(error).__name__}).")
+    except (OSError, ValueError):
+        _damaged(ws)
+        _no_class(ws)
     students = summary.students
     _corrections(ws, key, students)
     if dry_run:
@@ -1002,12 +1090,15 @@ def _stored(ws: Workspace) -> tuple[Key, IngestSummary]:
     """The key and the latest ingest, or exit with one line."""
     try:
         key = load_key(ws.key_yaml)
+    except OSError:
+        _no_key(ws)
+    except (YAMLError, ValidationError):
+        _does_not_load(ws.key_yaml)
+    try:
         summary = read_model(ws.ingest_summary_json, IngestSummary)
-    except (OSError, YAMLError, ValidationError) as error:
-        _fail(
-            f"{ws.root} holds no key or no ingest to report on"
-            f" ({type(error).__name__})."
-        )
+    except (OSError, ValidationError):
+        _damaged(ws)
+        _no_class(ws)
     if found := _point_problems(ws, key):
         _fail("\n".join(found))
     return key, summary
@@ -1073,6 +1164,7 @@ def _entries(ws: Workspace, key: Key, summary: IngestSummary) -> list[Entry]:
         return review_entries(ws, key, summary.students)
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "review", error)
+        _damaged(ws)
         _fail(f"The review list could not be made. The traceback is in {ws.run_log}.")
 
 
@@ -1257,6 +1349,7 @@ def eval_(
         _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "eval", error)
+        _damaged(ws)
         _fail(f"The comparison could not be made. The traceback is in {ws.run_log}.")
     for line in table(result):
         typer.echo(line)

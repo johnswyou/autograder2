@@ -521,7 +521,10 @@ def test_no_pdf_gives_exit_code_1_with_one_line(router: OpenRouter) -> None:
     result = grade()
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == ["No student PDF was found in subs."]
+    assert result.stderr.splitlines() == [
+        "No student PDF was found in subs. Give SUBMISSIONS as a folder or ZIP of"
+        " the students' PDFs."
+    ]
     assert not (WS.root / "out").exists() and router.requests == []
 
 
