@@ -430,6 +430,8 @@ def no_prepared_key(root: str) -> str:
         ["regrade", "--dry-run", "--workspace", "other"],
         ["report", "--workspace", "other"],
         ["review", "--workspace", "other"],
+        ["key", "check", "--workspace", "other"],
+        ["key", "render", "--workspace", "other"],
     ],
     ids=lambda c: " ".join(c[:-2]),
 )

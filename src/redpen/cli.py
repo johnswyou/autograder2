@@ -718,8 +718,12 @@ def key_check(workspace: KeyWorkspace) -> None:
     ws = Workspace(workspace)
     try:
         spec = read_model(ws.spec_json, Spec)
+    except FileNotFoundError:
+        _no_key(ws)
     except (OSError, ValidationError) as error:
         _fail(f"{ws.spec_json} cannot be read: {error}")
+    if not ws.key_yaml.exists():  # prepare stopped before the key
+        _no_key(ws)
     key, problems = examine(ws.key_yaml, spec)
     if key is not None:
         problems += _point_problems(ws, key)
@@ -754,6 +758,8 @@ def key_render(workspace: KeyWorkspace) -> None:
     ws = Workspace(workspace)
     try:
         key = load_key(ws.key_yaml)
+    except FileNotFoundError:
+        _no_key(ws)
     except (OSError, YAMLError, ValidationError):
         _fail(f"{ws.key_yaml} does not load. `redpen key check` lists its problems.")
     if found := _point_problems(ws, key):
