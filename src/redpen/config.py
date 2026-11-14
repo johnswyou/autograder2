@@ -59,6 +59,11 @@ def load_config(path: Path = Path("redpen.toml")) -> Config:
             data = tomllib.load(file)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:  # a folder, or not UTF-8
+        raise ConfigError(
+            f"{path}: cannot be read as UTF-8 text ({type(exc).__name__}). Save it as"
+            " UTF-8 text, or move it away to use the defaults."
+        ) from exc
     try:
         return Config.model_validate(data)
     except ValidationError as exc:

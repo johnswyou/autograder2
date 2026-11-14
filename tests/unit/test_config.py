@@ -83,6 +83,28 @@ def test_invalid_file_is_rejected_with_a_clear_message(
         load_config(path)
 
 
+@pytest.mark.parametrize(
+    ("kind", "error"),
+    [("latin-1", "UnicodeDecodeError"), ("a folder", "IsADirectoryError")],
+)
+def test_a_file_that_is_not_utf_8_text_is_rejected_in_one_line(
+    tmp_path: Path, kind: str, error: str
+) -> None:
+    path = tmp_path / "redpen.toml"
+    if kind == "a folder":
+        path.mkdir()
+    else:  # an accent in a comment, saved as latin-1
+        path.write_bytes('# caf\u00e9\nprofile = "balanced"\n'.encode("latin-1"))
+
+    with pytest.raises(ConfigError) as raised:
+        load_config(path)
+
+    assert str(raised.value) == (
+        f"{path}: cannot be read as UTF-8 text ({error}). Save it as UTF-8 text, or"
+        " move it away to use the defaults."
+    )
+
+
 def test_example_file_shows_every_setting_with_its_default() -> None:
     example = Path(__file__).parents[2] / "redpen.toml.example"
 
