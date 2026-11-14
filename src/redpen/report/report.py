@@ -15,7 +15,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ValidationError
 
@@ -33,10 +33,11 @@ from redpen.prepare.key import (
     scoring,
 )
 from redpen.schemas.audit import PartAudit
-from redpen.schemas.flags import SEVERITY, Flag, FlagCode
+from redpen.schemas.flags import SEVERITY, Flag, FlagCode, Severity
 from redpen.schemas.grade import CriterionGrade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import (
+    FinalAnswer,
     ProblemReadings,
     ReadingRecord,
     SecondReading,
@@ -85,7 +86,7 @@ DETAIL = {
 
 # The whole review list when no flag is open, after its title.
 NOTHING_TO_REVIEW = "Nothing needs review: no flag is open."
-SEVERITIES = ("high", "medium", "low")
+SEVERITIES: tuple[Severity, ...] = get_args(Severity)
 
 # A spreadsheet runs a cell that begins with one of these as a formula.
 FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
@@ -677,31 +678,48 @@ def review(
     raised: Sequence[Flag],
 ) -> str:
     """`out/review.md` (design 8.4): an entry for each key part flagged, with its
-    points and the number of students scored on it; then one for each student and
-    part, or whole submission, flagged, with every flag on it, the proposed score,
-    the transcript and links to the crops and the stored files. Students' entries
-    come by their highest severity, the points at stake, the student key and the
-    key's part order. Text a student wrote is only ever in a code span."""
+    points, the number of students scored on it and what is stored behind its
+    flags; then one for each student and part, or whole submission, flagged, with
+    every flag on it and its stored cause, the proposed score, the transcript and
+    links to the crops and the stored files. Students' entries come by their
+    highest severity, the points at stake, the student key and the key's part
+    order. Text a student or a model wrote is only ever in a code span."""
     lines = ["# Review list", ""]
     if not raised:
         return "\n".join([*lines, NOTHING_TO_REVIEW]) + "\n"
     entries: dict[tuple[str | None, str | None], list[Flag]] = {}
     for f in raised:
         entries.setdefault((f.student_key, f.part_id), []).append(f)
+    out = workspace.review_md.parent
+    # The class audit, the same for every student.
+    class_audit: Mapping[str, PartAudit] = scored[0][0].audits if scored else {}
     on_key = [p for p in key.parts if (None, p.id) in entries]
     if on_key:
         lines += ["## The key", ""]
     for part in on_key:
+        found = entries[None, part.id]
         count = sum(
             x.part.id == part.id and x.awarded is not None
             for _, xs in scored
             for x in xs
         )
+        causes: dict[FlagCode, list[str]] = {}
+        files: list[tuple[str, Path]] = []
+        unverified = FlagCode.KEY_UNVERIFIED in {f.code for f in found}
+        if unverified and workspace.verification_md.exists():
+            files.append(("verification", workspace.verification_md))
+        if (audit := class_audit.get(part.id)) and (suspect := audit.key_suspect):
+            causes[FlagCode.KEY_SUSPECT] = [
+                f"  - Students who answered: {suspect.answered}. Sharing one answer"
+                f" that is not the key's: {suspect.shared}."
+            ]
+            files.append(("audit", workspace.audit_json(part.id)))
         lines += [
             f"### {part.id}, worth {number(points_of(key, [part]))}",
             "",
-            *_flagged(entries[None, part.id]),
+            *_flagged(found, causes),
             f"- Students scored on it: {count}.",
+            _files(out, files),
             "",
         ]
     order = [p.id for p in key.parts]
@@ -723,15 +741,17 @@ def review(
         found = entries[who, part_id]
         name = f"{code_span(stored.student.student_name)} (`{who}`)"
         if part_id is None:
-            lines += [f"### {name}, the whole submission", "", *_flagged(found), ""]
+            lines += [f"### {name}, the whole submission", "", *_flagged(found, {}), ""]
             continue
         [s] = [x for x in scores if x.part.id == part_id]
+        record = stored.grades.get(part_id)
         worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
-        lines += [f"### {name}, {part_id}", "", *_flagged(found)]
+        lines += [f"### {name}, {part_id}", "", *_flagged(found, _causes(s, record))]
         lines.append(
             f"- Proposed score: {worth}." + (f" {s.withheld}" if s.withheld else "")
         )
-        files: list[tuple[str, Path]] = []
+        codes = {f.code for f in found}
+        files = []
         if first := stored.readings.get(part_id):
             lines += _transcript("First reading", first)
             files += [
@@ -740,36 +760,105 @@ def review(
             ]
             files.append(("reading", workspace.reading_json(who, problem_of(part_id))))
         second = stored.seconds.get(part_id)
-        if (
-            second
-            and second.second
-            and FlagCode.READERS_DISAGREE in {f.code for f in found}
-        ):
+        if second and second.second and FlagCode.READERS_DISAGREE in codes:
             lines += _transcript(
                 "Second reading, by another vendor's model", second.second
             )
-        if part_id in stored.grades:
+        if record:
             files.append(("grade", workspace.grade_json(who, problem_of(part_id))))
-        out = workspace.review_md.parent
-        links = [
-            f"[{t}]({p.relative_to(out, walk_up=True).as_posix()})" for t, p in files
-        ]
-        lines += [f"- Files: {', '.join(links) or 'none'}.", ""]
+        # The grade file holds the awards before the audit; its file, the change.
+        if FlagCode.AUDIT_CHANGED in codes:
+            files.append(("audit", workspace.audit_json(part_id)))
+        lines += [_files(out, files), ""]
     return "\n".join(lines)
 
 
-def _flagged(found: Sequence[Flag]) -> list[str]:
-    return [f"- `{f.code}`, {f.severity}: {f.detail}" for f in found]
+def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> list[str]:
+    """Each flag, high severity first and then as raised, each with the lines of
+    what is stored behind it."""
+    ranked = sorted(found, key=lambda f: SEVERITIES.index(f.severity))
+    return [
+        line
+        for f in ranked
+        for line in [f"- `{f.code}`, {f.severity}: {f.detail}", *causes.get(f.code, [])]
+    ]
+
+
+def _causes(s: Score, record: GradeRecord | None) -> dict[FlagCode, list[str]]:
+    """What a part's stored grade holds behind the flags it raises: the grader's
+    own sentences, the answer check it overruled, and each award the class audit
+    changed. The changes are the audited record's awards against the stored
+    record's, so a change that no longer holds is never shown."""
+    if record is None or s.record is None:
+        return {}
+    grade, check = record.grade, record.check
+    before = {c.id: c.awarded for c in grade.criteria}
+    # Null for a part graded before the checks existed.
+    checked = (
+        [f"  - The answer check: {check.verdict}, {code_span(check.reason)}"]
+        if check
+        else []
+    )
+    return {
+        FlagCode.TRANSCRIPT_DISPUTE: _wrote(grade.transcript_dispute),
+        FlagCode.CODE_OVERRULED: checked + _wrote(grade.code_overruled),
+        FlagCode.AUDIT_CHANGED: [
+            f"  - {c.id}: {number(before[c.id])} before the audit,"
+            f" {number(c.awarded)} after."
+            for c in s.record.grade.criteria
+            if c.awarded != before[c.id]
+        ],
+    }
+
+
+def _wrote(sentence: str | None) -> list[str]:
+    return [f"  - The grader wrote: {code_span(sentence)}"] if sentence else []
+
+
+def _files(out: Path, files: Sequence[tuple[str, Path]]) -> str:
+    """Each file as a link from `out/`, labelled."""
+    links = [f"[{t}]({p.relative_to(out, walk_up=True).as_posix()})" for t, p in files]
+    return f"- Files: {', '.join(links) or 'none'}."
 
 
 def _transcript(title: str, record: ReadingRecord) -> list[str]:
-    """`record`'s lines and final answer, as stored, each in a code span."""
+    """`record`'s reading as stored: poor legibility, each line with the reader's
+    marks, each element of a drawing, and the final answer. Each piece the reader
+    transcribed is in a code span; the marks are fixed words."""
     reading = record.reading
-    return [
-        f"- {title}:",
-        *(
-            f"  - Line {n}: {code_span(text)}"
-            for n, text in enumerate(reading.lines, 1)
-        ),
-        f"  - Final answer: {code_span(reading.final_answer.model_dump_json())}",
-    ]
+    lines = [f"- {title}:"]
+    if reading.legibility == "poor":
+        lines.append("  - The reader marked the legibility as poor.")
+    for n, text in enumerate(reading.lines, 1):
+        marks = [
+            mark
+            for mark, on in [
+                ("the reader was unsure of this line", n in reading.uncertain),
+                ("addressed to the grader", n in reading.addressed_to_grader),
+            ]
+            if on
+        ]
+        lines.append(
+            f"  - Line {n}: {code_span(text)}{''.join(f' ({m})' for m in marks)}"
+        )
+    for n, e in enumerate(reading.elements, 1):
+        fields = [("label", e.label), ("kind", e.kind)]
+        fields += [("direction", e.direction), ("position", e.position)]
+        said = [f"{name} {code_span(value)}" for name, value in fields if value]
+        lines.append(f"  - Element {n}: {', '.join(said) or 'nothing stated'}.")
+    lines.append(f"  - Final answer: {_answer(reading.final_answer)}.")
+    return lines
+
+
+def _answer(answer: FinalAnswer) -> str:
+    """What the final answer states: the chosen options, the value with its unit,
+    the expression; each in a code span."""
+    said: list[str] = []
+    if answer.choices:
+        said.append(f"options {', '.join(map(code_span, answer.choices))}")
+    stated = None if answer.value is None else str(answer.value)
+    if value := " ".join(text for text in (stated, answer.unit) if text):
+        said.append(f"value {code_span(value)}")
+    if answer.expression:
+        said.append(f"expression {code_span(answer.expression)}")
+    return "; ".join(said) or "none stated"
