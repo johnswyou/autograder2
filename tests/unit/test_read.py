@@ -6,8 +6,8 @@ import io
 import json
 import shutil
 from collections.abc import Callable, Sequence
-from math import ceil, floor
 from decimal import Decimal
+from math import ceil, floor
 from pathlib import Path
 from typing import Any
 
