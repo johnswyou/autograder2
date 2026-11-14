@@ -1,11 +1,11 @@
 """The grader's decisions on a part (design 7.5), and the instructor's corrections
-(design 11).
+(design 11) and reviews (design 12).
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
 with the provenance, including the key part hash, and the reading it was produced
 from. `ProblemGrades` is one stored file, a top-level problem's records.
 `SecondGrades` is one student's second grades. `Override` is one entry of
-`overrides.yaml`.
+`overrides.yaml`, `Review` one of `reviews.yaml`.
 """
 
 from typing import Any, Literal, cast
@@ -115,3 +115,21 @@ class Override(Schema):
     points: Points
     part_hash: str
     note: str | None = None
+
+
+# One of the instructor's reviews (`redpen review`): the review list's entry of
+# `student` and `part` was looked at, and closes its flags while the key part still
+# has `part_hash` and the entry still shows what has `digest`
+# (`redpen.report.report.shown`). A key part's entry has no student; a whole
+# submission's has no part and no part hash.
+class Review(Schema):
+    # A hand-written entry may leave out what its entry does not have.
+    model_config = ConfigDict(
+        json_schema_mode_override="serialization",
+        json_schema_serialization_defaults_required=True,
+    )
+
+    student: StudentKey | None = None
+    part: PartId | None = None
+    part_hash: str | None = None
+    digest: str

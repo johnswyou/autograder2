@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from redpen.grade.audit import Decisions
 from redpen.schemas.audit import PartAudit
 from redpen.schemas.flags import Flag
-from redpen.schemas.grade import Grade, GradeRecord, Override, SecondGrades
+from redpen.schemas.grade import Grade, GradeRecord, Override, Review, SecondGrades
 from redpen.schemas.key import Key
 from redpen.schemas.reading import Reading, ReadingRecord, SecondReadings
 from redpen.schemas.spec import Spec
@@ -28,6 +28,7 @@ MODELS: list[type[BaseModel]] = [
     GradeRecord,
     SecondGrades,
     Override,
+    Review,
     Flag,
     PartAudit,
     Decisions,

@@ -155,6 +155,10 @@ class Workspace:
         return self.root / "overrides.yaml"
 
     @property
+    def reviews_yaml(self) -> Path:
+        return self.root / "reviews.yaml"
+
+    @property
     def cache_sqlite(self) -> Path:
         return self.root / "cache.sqlite"
 
