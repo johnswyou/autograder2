@@ -268,3 +268,13 @@ def test_marks_inside_a_form_xobject_count_where_the_page_shows_them(
     page = pdfium.PdfDocument(tmp_path / "form.pdf")[0]
 
     assert render.render_region(page, "other", box, BUDGET).scale is None
+
+
+def test_the_scan_s_own_frame_and_page_number_leave_its_whole_page_the_ceiling() -> (
+    None
+):
+    page = pdfium.PdfDocument(INK / "scan-with-frame.pdf")[0]
+
+    region = render.render_region(page, "other", [0, 0, 1, 1], BUDGET)
+
+    assert region.scale == pytest.approx(BUDGET / 792 * 72 / LOW_PPI)
