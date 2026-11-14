@@ -11,7 +11,13 @@ from redpen.schemas.key import Key
 from redpen.schemas.reading import Reading, ReadingRecord, SecondReadings
 from redpen.schemas.spec import Spec
 from redpen.schemas.strict import strict_problems
-from redpen.schemas.submission import Fingerprint, IngestRecord, Map, MapRecord
+from redpen.schemas.submission import (
+    Coverage,
+    Fingerprint,
+    IngestRecord,
+    Map,
+    MapRecord,
+)
 
 # Each schema carries its nested models under $defs, so these cover every model.
 MODELS: list[type[BaseModel]] = [
@@ -21,6 +27,7 @@ MODELS: list[type[BaseModel]] = [
     Fingerprint,
     Map,
     MapRecord,
+    Coverage,
     Reading,
     ReadingRecord,
     SecondReadings,

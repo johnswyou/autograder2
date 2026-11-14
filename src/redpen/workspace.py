@@ -123,6 +123,18 @@ class Workspace:
     def map_json(self, student: str) -> Path:
         return self.student_dir(student) / "map.json"
 
+    def coverage_json(self, student: str) -> Path:
+        """Where the student's ink lies that no region of the map claims."""
+        return self.student_dir(student) / "coverage.json"
+
+    def patch_png(self, student: str, page: int, index: int) -> Path:
+        """Patch `index` of ink on page `page` that no region of the map claims."""
+        return self.student_dir(student) / "unclaimed" / f"p{page:02d}-{index}.png"
+
+    def aside_png(self, student: str, index: int) -> Path:
+        """Block `index` of those the map set aside, counting from 1."""
+        return self.student_dir(student) / "unclaimed" / f"aside-{index}.png"
+
     def crop_png(self, student: str, part: str, index: int) -> Path:
         """Zoomed region `index` of `part`, as sent to a model."""
         return self.student_dir(student) / "crops" / f"{part}-{index}.png"

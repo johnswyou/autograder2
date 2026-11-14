@@ -97,3 +97,19 @@ class MapRecord(Schema):
     provenance: Provenance
     pages: list[MapPage]
     map: Map
+
+
+# One page of a submission against its class's background (design 7.3).
+class CoveragePage(Schema):
+    number: PositiveInt
+    # Why the page was not compared with the background; null when it was.
+    not_compared: Literal["few comparable", "not classkick", "other rendering"] | None
+    # Each patch of dense ink that no region of the map claims.
+    patches: list[Box]
+
+
+# Where a student's ink lies outside every region of the map, for the map record
+# whose digest it holds.
+class Coverage(Schema):
+    map_digest: str
+    pages: list[CoveragePage]
