@@ -22,6 +22,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ValidationError
 
 from redpen.config import Profile, read_lock
+from redpen.grade.coverage import set_aside_section, unclaimed_flags, unclaimed_lines
 from redpen.grade.grade import graded_from, levels, part_points
 from redpen.grade.map import name_counts
 from redpen.grade.read import digest, problem_of, unsure
@@ -226,7 +227,7 @@ def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> 
         )
         for s in students
     ]
-    raised = flags(key, stored)
+    raised = flags(key, stored) + unclaimed_flags(workspace, students)
     scored = [(s, score(key, s)) for s in stored]
     current = {
         place: _shown(workspace, key, scored, place, found)
@@ -347,6 +348,7 @@ def write_report(
     review_md = review(
         workspace, key, scored, raised, found.stale, found.closed, found.outdated
     )
+    review_md += set_aside_section(workspace, students)
     # Everything is rendered before any old file is removed.
     workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
     for old in workspace.feedback_dir.glob("*.md"):
@@ -904,6 +906,7 @@ def _run_report(
         for why in dict.fromkeys(w for _, w in withheld):
             parts = ", ".join(x.part.id for x, w in withheld if w == why)
             lines.append(f"- `{s.student.student_key}`: {parts}. {why}")
+    lines += unclaimed_lines(workspace, [s.student for s, _ in scored])
     if not_ingested:
         lines += ["", "## Files not ingested", ""]
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")

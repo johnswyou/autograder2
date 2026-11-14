@@ -5,9 +5,12 @@ No model is called. Most classes here are small drawn slides: a printed page of 
 rules over white, a student's response a dense zigzag of 3 px strokes."""
 
 import asyncio
+import csv
+import re
 import shutil
 import weakref
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +29,13 @@ from redpen.grade.coverage import (
     unclaimed_lines,
 )
 from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import MARGIN, digest
+from redpen.grade.read import MARGIN, digest, problem_of
 from redpen.imaging import prep
-from redpen.report.report import code_span
+from redpen.prepare.key import part_hash
+from redpen.report.report import code_span, write_report
+from redpen.schemas.common import Provenance
 from redpen.schemas.flags import Flag, FlagCode
+from redpen.schemas.grade import Grade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import (
@@ -48,6 +54,7 @@ from tests.fixture_truth import (
     NOBODY,
     SUBMISSIONS,
     map_of,
+    store_truth_readings,
     truth_of,
 )
 from tests.pinned import GRADE_MODELS
@@ -155,6 +162,17 @@ def make_class(
         write_model(workspace.map_json(key), (maps or {}).get(key, EMPTY))
         students.append(record)
     return workspace, students
+
+
+def graded(key: Key, grade: Grade) -> GradeRecord:
+    """`grade` as the grade stage stores it, under `key`'s version of its part."""
+    [part] = [p for p in key.parts if p.id == grade.part_id]
+    stamp = Provenance(
+        key_part_hash=part_hash(part, key.policies),
+        prompt_version=None,
+        model_slug=None,
+    )
+    return GradeRecord(provenance=stamp, grade=grade, check=None, reading_digest=None)
 
 
 def stored(workspace: Workspace, key: str) -> Coverage:
@@ -768,3 +786,105 @@ def test_the_check_runs_after_the_map_stage_for_the_class_and_before_the_read(
 
     assert failed == [] and calls == ["map"] * 3 + ["read"] * 3
     assert not workspace.run_log.exists()
+
+
+REASON = "work for `Q4`\nb"
+
+
+def test_the_report_shows_the_flags_the_blocks_and_the_counts_and_scores_nothing(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    shared, summary = fixture_workspace
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    key = Key.model_validate_json((FIXTURES / "key.json").read_text())
+    names = {s.student_name: s for s in summary.students}
+    students: list[IngestRecord] = []
+    keys: dict[str, str] = {}
+    for pdf in SUBMISSIONS:
+        truth = truth_of(pdf)
+        if truth.layout_class not in (
+            "ink-in-place",
+            "typed-in-place",
+            "partly-blank",
+            "blank",
+        ):
+            continue
+        student = names[truth.student_name]
+        keys[truth.layout_class] = who = student.student_key
+        shutil.copytree(shared.student_dir(who), workspace.student_dir(who))
+        store_truth_readings(workspace, who, truth)
+        for problem in dict.fromkeys(problem_of(p.id) for p in key.parts):
+            records = [
+                graded(key, g) for g in truth.grades if problem_of(g.part_id) == problem
+            ]
+            write_model(
+                workspace.grade_json(who, problem), ProblemGrades(records=records)
+            )
+        found = map_of(truth)
+        entries = found.map.entries
+        aside = list(found.map.set_aside)
+        if truth.layout_class == "ink-in-place":  # its Q5.a missing from the map
+            entries = [e for e in entries if e.part_id != "Q5.a"]
+        if truth.layout_class == "typed-in-place":  # its Q4.b set aside
+            [q4b] = [e for e in entries if e.part_id == "Q4.b"]
+            entries = [e for e in entries if e is not q4b]
+            aside.append(SetAside(page=q4b.page, box=q4b.box, reason=REASON))
+        if truth.layout_class == "partly-blank":  # parts unanswered, a block aside
+            aside.append(SetAside(page=4, box=[0.1, 0.7, 0.3, 0.8], reason="a doodle"))
+        changed = found.map.model_copy(update={"entries": entries, "set_aside": aside})
+        write_model(workspace.map_json(who), found.model_copy(update={"map": changed}))
+        students.append(student)
+    check_class(workspace, students)
+
+    raised = write_report(workspace, key, students)
+
+    review = workspace.review_md.read_text()
+    ink, typed, partly = (
+        keys["ink-in-place"],
+        keys["typed-in-place"],
+        keys["partly-blank"],
+    )
+    # Its Q5.a is in two places on page 3: the work, and its continuation below.
+    patch = ", ".join(
+        f"[patch {n}](../students/{ink}/unclaimed/p03-{n}.png)" for n in (1, 2)
+    )
+    assert f"### `Blake Sample` (`{ink}`), the whole submission" in review
+    assert (
+        f"- `unclaimed_work`, medium: {LEFTOVER.format(page=3, patches=patch)}"
+        in review.splitlines()
+    )
+    assert f"- `unclaimed_work`, medium: {ASIDE.format(page=4)}" in review.splitlines()
+    section = review[review.index("\n## Blocks set aside\n") :]
+    assert [line for line in section.splitlines() if line.startswith("- ")] == [
+        f"- `Avery Example` (`{typed}`), page 1: `The student's name on the name line.`"
+        f" [image](../students/{typed}/unclaimed/aside-1.png).",
+        f"- `Avery Example` (`{typed}`), page 2: {code_span(REASON)}"
+        f" [image](../students/{typed}/unclaimed/aside-2.png).",
+        f"- `Blake Sample` (`{ink}`), page 1: `The student's name on the name line.`"
+        f" [image](../students/{ink}/unclaimed/aside-1.png).",
+        f"- `Finley Fakename` (`{partly}`), page 4: `a doodle`"
+        f" [image](../students/{partly}/unclaimed/aside-1.png).",
+    ]
+    out = workspace.review_md.parent
+    links = [link for link in re.findall(r"\]\(([^)]*)\)", review)]
+    assert links and all((out / link).is_file() for link in links)
+    with workspace.scores_by_problem_csv.open(encoding="utf-8-sig") as file:
+        rows = {r["student"]: r for r in csv.DictReader(file)}
+    assert (rows["Blake Sample"]["status"], rows["Blake Sample"]["open_flags"]) == (
+        "provisional",
+        str(sum(f.student_key in (None, ink) for f in raised)),
+    )
+    assert rows["Avery Example"]["status"] == "final"  # set aside, all answered
+    assert rows["Finley Fakename"]["status"] == "provisional"
+    # The truth's scores stand: the check changes no score.
+    for name, row in rows.items():
+        truth = next(
+            truth_of(p) for p in SUBMISSIONS if truth_of(p).student_name == name
+        )
+        total = sum((c.awarded for g in truth.grades for c in g.criteria), Decimal(0))
+        assert Decimal(row["total"]) == total
+    report = workspace.run_report_md.read_text().splitlines()
+    start = report.index("## Work no part claims")
+    assert report[start - 1 : start + 7] == unclaimed_lines(workspace, students)
