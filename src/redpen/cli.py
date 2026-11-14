@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from importlib import metadata
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
 from pydantic import ValidationError
@@ -28,6 +28,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 from ruamel.yaml.error import YAMLError
+from typer.core import TyperGroup
 
 from redpen import prompts
 from redpen.config import (
@@ -143,9 +144,31 @@ from redpen.workspace import (
     write_model,
 )
 
+# Where `--workspace` records the workspace a command works in, for `Commands`.
+WORKSPACE = "redpen.workspace"
+
+
+class Commands(TyperGroup):
+    """The command group: a workspace that cannot be written to is said in one line
+    that names the workspace only, since a path below it may hold a student key,
+    which holds the student's name."""
+
+    def invoke(self, ctx: Any) -> Any:
+        try:
+            return super().invoke(ctx)
+        except PermissionError as error:
+            root = ctx.meta.get(WORKSPACE)
+            if root is None or not Path(str(error.filename)).is_relative_to(root):
+                raise
+            _fail(
+                f"{root} cannot be written to (permission denied). Make it and the"
+                " files in it writable, and run the same command again."
+            )
+
+
 # An unhandled exception prints no local variable: locals hold the API key and
 # student work.
-app = typer.Typer(pretty_exceptions_show_locals=False)
+app = typer.Typer(cls=Commands, pretty_exceptions_show_locals=False)
 key_app = typer.Typer(help="Check or render the key.")
 models_app = typer.Typer(help="Inspect the configured models.")
 app.add_typer(key_app, name="key")
@@ -209,8 +232,10 @@ WorkspaceDir = Annotated[
 
 
 def _found(ctx: typer.Context, workspace: Path | None) -> Path | None:
-    """A workspace option's value, the workspace first kept out of git."""
+    """A workspace option's value, the workspace first kept out of git and recorded
+    for `Commands`."""
     if workspace is not None and not ctx.resilient_parsing:
+        ctx.meta[WORKSPACE] = workspace
         keep_out_of_git(Workspace(workspace))
     return workspace
 
@@ -268,7 +293,7 @@ def run(
     """Everything, start to finish: prepare, grade and report. Safe to run again:
     what was answered before is not paid for twice."""
     _constraint(total, page_points)  # a dry run leaves the key as it is
-    ws = Workspace.for_blank(blank, workspace)
+    ws = _workspace(blank, workspace)
     keep_out_of_git(ws)
     if dry_run:
         _estimate(ws, blank, _dry_ingest(submissions, roster), profile)
@@ -297,7 +322,7 @@ def prepare(
     """Build the key only. On a workspace that has one, --total or --page-points
     sets its points and changes nothing else, with no model call."""
     points = _constraint(total, page_points)
-    ws = Workspace.for_blank(blank, workspace)
+    ws = _workspace(blank, workspace)
     keep_out_of_git(ws)  # a workspace that exists; a new one once the blank is in
     # Refused rather than ignored: ignoring --dry-run would spend money.
     if dry_run:
@@ -605,6 +630,14 @@ def _no_blank(blank: Path, error: Exception | None) -> NoReturn:
     else:
         why = "is not a PDF, or is damaged or cut short"
     _fail(f"{blank} cannot be opened as a PDF: it {why}. {GIVE_BLANK}")
+
+
+def _workspace(blank: Path, workspace: Path | None) -> Workspace:
+    """`Workspace.for_blank`, or exit with one line for a blank with no name, such
+    as `.`: a folder, which names no workspace beside it."""
+    if not blank.name:
+        _fail(f"{blank} cannot be opened as a PDF: it is a folder. {GIVE_BLANK}")
+    return Workspace.for_blank(blank, workspace)
 
 
 def _no_key(ws: Workspace) -> NoReturn:

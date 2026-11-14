@@ -270,6 +270,21 @@ WHY = {
 }
 
 
+@pytest.mark.parametrize(
+    "command",
+    [["prepare", "."], ["run", ".", "subs"], ["run", ".", "subs", "--dry-run"]],
+    ids=" ".join,
+)
+def test_the_current_folder_as_the_blank_is_said_in_one_line(
+    class_folder: Path, command: list[str]
+) -> None:
+    result = runner.invoke(app, command)
+
+    assert_one_line(
+        result, f". cannot be opened as a PDF: it is a folder. {GIVE_BLANK}"
+    )
+
+
 GIVE_SUBMISSIONS = "Give SUBMISSIONS as a folder or ZIP of the students' PDFs."
 
 
@@ -465,6 +480,34 @@ def test_two_submissions_of_one_student_are_said_in_one_line(
         f" {WS.ingest_summary_json} names the others; remove those not meant to be"
         " graded."
     )
+
+
+READ_ONLY = (
+    "ws cannot be written to (permission denied). Make it and the files in it"
+    " writable, and run the same command again."
+)
+
+
+def test_a_workspace_that_cannot_be_written_to_is_said_in_one_line(
+    class_folder: Path,
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    [student, *_] = sorted(p.name for p in WS.students_dir.iterdir())
+    stored = [WS.root, *WS.root.rglob("*")]
+    for path in stored:  # as `chmod -R a-w` leaves it
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    try:
+        for command in (
+            ["report"],
+            ["key", "render"],
+            ["override", student, "Q1.c1", "1"],
+            ["grade", "subs"],
+        ):
+            result = runner.invoke(app, [*command, "--workspace", "ws"])
+            assert_one_line(result, READ_ONLY)
+    finally:
+        for path in stored:
+            path.chmod(0o755 if path.is_dir() else 0o644)
 
 
 # --- files edited into something that does not parse --------------------------------
