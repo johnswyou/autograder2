@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import json
+import traceback
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
@@ -32,7 +33,12 @@ from redpen.grade.map import (
     to_map,
 )
 from redpen.imaging.prep import rotate
-from redpen.llm.client import FatalError, Gateway, StageError
+from redpen.llm.client import (
+    FatalError,
+    Gateway,
+    ResponseValidationError,
+    StageError,
+)
 from redpen.llm.models import ModelInfo
 from redpen.schemas.common import Provenance
 from redpen.schemas.spec import Part, Spec
@@ -421,6 +427,31 @@ def test_with_names_masked_the_mapper_is_asked_where_names_are_and_the_map_keeps
         mapped.provenance.prompt_version
         == hashlib.sha256(versions.encode()).hexdigest()[:12]
     )
+
+
+def test_no_name_region_a_model_returned_reaches_an_error_or_the_terminal(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marks = ("0.123456789", "0.987654321")  # x0 past x1: not a box
+
+    def wrong(image: Image.Image) -> NamedInventory:
+        return NamedInventory.model_construct(
+            rotation=0,
+            photo=False,
+            blocks=[],
+            names=[[0.987654321, 0.1, 0.123456789, 0.2]],
+        )
+
+    workspace = workspace_with(tmp_path, [page(100)])
+
+    with pytest.raises(ResponseValidationError) as caught:
+        run(workspace, Mapper([], wrong), mask_names=True)
+
+    logged = "".join(traceback.format_exception(caught.value))  # what run.log gets
+    printed = capsys.readouterr()
+    assert "names" in logged  # the error says where, never what
+    for mark in marks:
+        assert mark not in logged + printed.out + printed.err
 
 
 def test_a_map_stored_before_names_were_masked_loads_with_no_name_regions() -> None:
