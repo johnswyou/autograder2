@@ -167,7 +167,7 @@ A student's `status`:
 - `provisional`: every part is scored, and a flag of high or medium severity is open.
 - `incomplete`: a part has no score. Its cell is empty, never zero.
 
-Some failures raise no flag and are only counted in the run report: a second grade that failed, a leftover-work check that failed, an audit group that could not be decided. Read those counts. A stored file that is JSON but not what the tool expects stops the report with a one-line message that points to `run.log`, which names the file.
+Some failures raise no flag and are only counted in the run report: a second grade that failed, a leftover-work check that failed, an audit group that could not be decided. Read those counts. A stored file that is JSON but not what the tool expects stops the report with a one-line message that points to `run.log`; the log says what kind of file it was and what is wrong in it, but not its path.
 
 To compare the tool's scores with your own, write your scores in the form of `scores_by_problem.csv` or `scores_by_page.csv` (a `student` column and one per problem or page) and run `redpen eval --gold FILE.csv --workspace practice-set-3.redpen`. It calls no model and writes `out/eval.md` and `out/eval.json`. It compares the tool's own scores, before your corrections. Your scores are not converted from another point scale: write them in the key's points (a score above the key's maximum is refused).
 
