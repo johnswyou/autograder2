@@ -10,8 +10,8 @@ score, a map or a reading, or sends a request.
 `check_class` runs in `grade` and `run` once the class is mapped. Beside each
 student's map it stores `coverage.json`, tied to the map by its digest, and the
 images the review list links: each patch of leftover ink and each set-aside block,
-cut from the page. `unclaimed_flags`, `unclaimed_lines` and `set_aside_section`
-give the report what those files hold, in fixed words."""
+cut from the page. `unclaimed_flags`, `unclaimed_lines`, `set_aside_section` and
+`unclaimed_shown` give the report what those files hold, in fixed words."""
 
 import contextlib
 from collections import Counter
@@ -239,7 +239,8 @@ def _background(
     top = _lightest(readable())
     read = [k for k in paths if k not in why]
     if len(read) < FEWEST:
-        return None, why | dict.fromkeys(read, few)
+        why |= dict.fromkeys(read, few)
+        return None, why
     first = _kth(top, len(read))
     paper = _paper(first)
     kept: list[str] = []
@@ -266,7 +267,8 @@ def _background(
             kept = [k for k in kept if k not in lighter]
             top = _lightest(_load(paths[k]) for k in kept)
     if len(kept) < FEWEST:
-        return None, why | dict.fromkeys(kept, few)
+        why |= dict.fromkeys(kept, few)
+        return None, why
     return _kth(top, len(kept)), why
 
 
