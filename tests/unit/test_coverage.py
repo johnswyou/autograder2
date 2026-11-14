@@ -294,13 +294,13 @@ def test_a_page_of_another_rendering_is_left_out_and_marked_not_comparable(
         assert holds(patch, spot)
 
 
-@pytest.mark.parametrize("share", [1.5, 0.5])
-def test_a_page_shaded_over_more_than_nearly_all_its_paper_may_allow_is_not_compared(
+@pytest.mark.parametrize("share", [0.15, 0.05])
+def test_a_page_shaded_over_more_than_a_tenth_of_its_paper_is_not_compared(
     tmp_path: Path, share: float
 ) -> None:
     paper = W * H - 12 * 341 * 9  # all but the printed rules
     width = 250
-    height = round(share * coverage.NEARLY * paper / width)
+    height = round(share * paper / width)
     shaded = slide()
     ImageDraw.Draw(shaded).rectangle(
         (60, 420, 60 + width - 1, 420 + height - 1), fill=(150, 150, 220)
@@ -311,7 +311,7 @@ def test_a_page_shaded_over_more_than_nearly_all_its_paper_may_allow_is_not_comp
     check_class(workspace, students)
 
     [page] = stored(workspace, "s1").pages
-    if share > 1:  # counted, under words true for it
+    if share > 0.1:  # counted, under words true for it
         assert (page.not_compared, page.patches) == ("other rendering", [])
         assert unclaimed_lines(workspace, students)[5].startswith(
             "Student pages not compared: 1. On a page with fewer than three comparable"
