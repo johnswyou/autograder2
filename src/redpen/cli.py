@@ -781,18 +781,22 @@ def _corrections(ws: Workspace, key: Key, students: Sequence[IngestRecord]) -> N
 def _report(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
     """Rebuild `out/` for the ingest's students, and say where and how long the
     review list is; the open flags."""
+    raised = _rebuilt(ws, key, summary)
+    typer.echo(f"Wrote {ws.root / 'out'}")
+    typer.echo(review_line(ws, raised))
+    return raised
+
+
+def _rebuilt(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
+    """Rebuild `out/` for the ingest's students, saying nothing, or exit with one
+    line; the open flags."""
     try:
-        raised = write_report(
-            ws, key, summary.students, [f.file for f in summary.failed]
-        )
+        return write_report(ws, key, summary.students, [f.file for f in summary.failed])
     except OverrideError as error:  # a corrected student the new ingest lacks
         _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
-    typer.echo(f"Wrote {ws.root / 'out'}")
-    typer.echo(review_line(ws, raised))
-    return raised
 
 
 def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSummary:
@@ -1033,6 +1037,8 @@ def review(
     _corrections(ws, key, summary.students)
     found = [e for e in _entries(ws, key, summary) if not e.closed]
     if not found:
+        if not listing:  # out/ current, even after a session killed before it
+            _rebuilt(ws, key, summary)
         typer.echo(NOTHING_TO_REVIEW)
         return
     if listing:

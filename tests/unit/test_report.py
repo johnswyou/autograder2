@@ -3267,21 +3267,31 @@ def test_the_list_asks_nothing_and_changes_no_file(
     assert files_of(workspace) == before
 
 
-def test_with_no_open_entry_both_forms_say_so_in_one_line(
+def test_with_no_open_entry_both_forms_say_so_in_one_line_and_review_rebuilds_out(
     built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     offline(monkeypatch)
     workspace = new_workspace(tmp_path)
     student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
     ready(workspace, [student])
+    write_report(workspace, KEY, [student])
+    # Reviewed by a session killed before its rebuild: out/ still lists the entry.
+    review_of(workspace, [student], ("s1", "Q4.b"))
     before = files_of(workspace)
 
-    for listing in (False, True):
-        result = session(workspace, listing=listing)
+    listing = session(workspace, listing=True)
 
-        assert result.exit_code == 0, result.output
-        assert result.stdout == f"{NOTHING_TO_REVIEW}\n"
-        assert files_of(workspace) == before
+    assert listing.exit_code == 0, listing.output
+    assert listing.stdout == f"{NOTHING_TO_REVIEW}\n"
+    assert files_of(workspace) == before
+
+    result = session(workspace)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{NOTHING_TO_REVIEW}\n"
+    assert open_entries(workspace) == []
+    assert row_of(workspace.scores_by_problem_csv, student)["status"] == "final"
 
 
 def test_an_interrupted_session_keeps_what_was_stored_and_rebuilds_out(
