@@ -55,21 +55,6 @@ def test_help_lists_every_command(group: list[str], commands: set[str]) -> None:
     assert commands <= first_column(result.output)
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ["review"],
-    ],
-)
-def test_stub_accepts_its_arguments_and_reports_not_implemented(
-    args: list[str],
-) -> None:
-    result = runner.invoke(app, args)
-
-    assert result.exit_code == 1
-    assert result.stderr.strip() == "not implemented yet"
-
-
 # --total and --page-points are supported since task 4.5a (tests/unit/test_points.py).
 @pytest.mark.parametrize(("args", "flag"), [(["prepare", "--dry-run"], "--dry-run")])
 def test_prepare_and_run_refuse_what_they_do_not_support_yet(

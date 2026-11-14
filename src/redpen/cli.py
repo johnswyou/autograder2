@@ -1,7 +1,8 @@
-"""The `redpen` command line (design section 12). Some commands are stubs for now.
+"""The `redpen` command line (design section 12).
 
 Nothing printed to the terminal names a student or repeats what a student or a
-model wrote: counts and the workspace's own paths only. The run log in the
+model wrote: counts and the workspace's own paths only. The one exception is
+`redpen review`, whose purpose is to show it, on stdout alone. The run log in the
 workspace holds the tracebacks."""
 
 import asyncio
@@ -101,10 +102,24 @@ from redpen.prepare.verify import (
     verification_md,
     verify,
 )
-from redpen.report.overrides import OverrideError, load_overrides, record_override
-from redpen.report.report import review_line, write_report
+from redpen.report.overrides import (
+    OverrideError,
+    load_overrides,
+    load_reviews,
+    record_override,
+    record_review,
+)
+from redpen.report.report import (
+    NOTHING_TO_REVIEW,
+    Entry,
+    Score,
+    review_entries,
+    review_line,
+    write_report,
+)
+from redpen.schemas.flags import Flag
 from redpen.schemas.grade import Override
-from redpen.schemas.key import Key, PointConstraint, Policies
+from redpen.schemas.key import Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import (
@@ -196,11 +211,6 @@ KeyWorkspace = Annotated[
         callback=_found,
     ),
 ]
-
-
-def _not_implemented() -> NoReturn:
-    typer.echo("not implemented yet", err=True)
-    raise typer.Exit(code=1)
 
 
 @app.callback()
@@ -645,7 +655,8 @@ def _grade(
     grade and, under the lock's profile, grade a second time, and the report. Exit
     code 0 only when nothing failed; with `dry_run`, an estimate."""
     config, api_key, spec, lock, key = _graded(ws, dry_run)
-    if ws.overrides_yaml.exists():  # against the class they were recorded for
+    # Against the class they were recorded for.
+    if ws.overrides_yaml.exists() or ws.reviews_yaml.exists():
         try:
             earlier = read_model(ws.ingest_summary_json, IngestSummary).students
         except (OSError, ValueError):
@@ -754,17 +765,19 @@ def _run(
 
 
 def _corrections(ws: Workspace, key: Key, students: Sequence[IngestRecord]) -> None:
-    """Exit with one line naming the entry unless overrides.yaml loads against the
-    key and `students`."""
+    """Exit with one line naming the entry unless overrides.yaml and reviews.yaml
+    load against the key and `students`."""
+    keys = [s.student_key for s in students]
     try:
-        load_overrides(ws.overrides_yaml, key, [s.student_key for s in students])
+        load_overrides(ws.overrides_yaml, key, keys)
+        load_reviews(ws.reviews_yaml, key, keys)
     except OverrideError as error:
         _fail(str(error))
 
 
-def _report(ws: Workspace, key: Key, summary: IngestSummary) -> None:
+def _report(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
     """Rebuild `out/` for the ingest's students, and say where and how long the
-    review list is."""
+    review list is; the open flags."""
     try:
         raised = write_report(
             ws, key, summary.students, [f.file for f in summary.failed]
@@ -776,6 +789,7 @@ def _report(ws: Workspace, key: Key, summary: IngestSummary) -> None:
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
     typer.echo(f"Wrote {ws.root / 'out'}")
     typer.echo(review_line(ws, raised))
+    return raised
 
 
 def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSummary:
@@ -989,10 +1003,150 @@ def _stored(ws: Workspace) -> tuple[Key, IngestSummary]:
     return key, summary
 
 
+# `redpen review`'s actions, and its last line.
+ACTIONS = ("accept", "correct", "skip", "quit")
+REVIEWED = (
+    "Reviewed: {reviewed}, {corrected} of them with corrections. Skipped: {skipped}."
+    " Still open: {left}."
+)
+
+
 @app.command()
-def review() -> None:
-    """Step through open flags and accept or override each."""
-    _not_implemented()
+def review(
+    workspace: KeyWorkspace,
+    listing: Annotated[
+        bool,
+        typer.Option("--list", help="Print each open entry in one line; ask nothing."),
+    ] = False,
+) -> None:
+    """Step through the open entries of the review list, in its order, and accept,
+    correct or skip each. Each action is stored as it is taken, and out/ is rebuilt
+    at the end. The one command that shows what a student or a model wrote, on
+    stdout. No model call."""
+    ws = Workspace(workspace)
+    key, summary = _stored(ws)
+    _corrections(ws, key, summary.students)
+    found = [e for e in _entries(ws, key, summary) if not e.closed]
+    if not found:
+        typer.echo(NOTHING_TO_REVIEW)
+        return
+    if listing:
+        for entry in found:
+            typer.echo(entry.line)
+        return
+    done = Counter[str]()
+    try:
+        for entry in found:
+            if (action := _take(ws, key, summary, entry)) == "quit":
+                break
+            done[action] += 1
+    except typer.Abort:  # the end of input, or an interrupt: what is stored stays
+        typer.echo()
+    except OverrideError as error:
+        _fail(str(error))
+    left = len({(f.student_key, f.part_id) for f in _report(ws, key, summary)})
+    reviewed, corrected = done["accept"] + done["correct"], done["correct"]
+    typer.echo(
+        REVIEWED.format(
+            reviewed=reviewed, corrected=corrected, skipped=done["skip"], left=left
+        )
+    )
+
+
+def _entries(ws: Workspace, key: Key, summary: IngestSummary) -> list[Entry]:
+    """The review list's entries for the ingest's students, or exit with one line."""
+    try:
+        return review_entries(ws, key, summary.students)
+    except Exception as error:  # written to the log: it may quote stored work
+        log_failure(ws, "review", error)
+        _fail(f"The review list could not be made. The traceback is in {ws.run_log}.")
+
+
+def _take(ws: Workspace, key: Key, summary: IngestSummary, entry: Entry) -> str:
+    """Show `entry` and take one action on it, stored at once: the action taken,
+    "accept" for a correction that changed nothing."""
+    typer.echo()
+    for line in entry.shown:
+        typer.echo(line)
+    offered = ACTIONS if entry.score else tuple(a for a in ACTIONS if a != "correct")
+    asked = f"{', '.join(offered[:-1])} or {offered[-1]}"
+    while (action := _answer(asked.capitalize())) not in offered:
+        typer.echo(f"Type {asked}.")
+    keys = [s.student_key for s in summary.students]
+    if action == "correct" and entry.score:
+        if _correct(ws, key, keys, entry.score, entry.review.student or ""):
+            place = (entry.review.student, entry.review.part)
+            [entry] = [  # as it stands with the corrections
+                e
+                for e in _entries(ws, key, summary)
+                if (e.review.student, e.review.part) == place
+            ]
+        else:
+            action = "accept"
+    if action in ("accept", "correct"):
+        record_review(ws.reviews_yaml, key, keys, entry.review)
+    return action
+
+
+def _correct(
+    ws: Workspace, key: Key, keys: Sequence[str], score: Score, student: str
+) -> bool:
+    """Ask the points of each criterion of `score`'s part, return keeping the award
+    shown, and a note; record each typed as `redpen override` does, the note on the
+    first. Whether any was typed. A part withheld shows no award to keep."""
+    shown = (
+        {c.id: c.awarded for c in score.record.grade.criteria}
+        if score.record
+        else {c: o.points for c, o in score.overrides.items()}
+    )
+    typed: dict[str, Decimal] = {}
+    for c in score.part.criteria:
+        full, award = number(c.points), shown.get(c.id)
+        keeps = "" if award is None else f", return keeps {number(award)}"
+        while True:
+            text = _answer(f"{c.id}, from 0 to {full}{keeps}")
+            if not text and award is not None:
+                break
+            if (value := _award(text, c.points)) is not None:
+                typed[c.id] = value
+                break
+            keep = "" if award is None else ", or press return to keep the award"
+            typer.echo(f"Type a number from 0 to {full}{keep}.")
+    if not typed:
+        return False
+    note = _answer("A note for the student, or return for none")
+    for n, (criterion, value) in enumerate(typed.items()):
+        first = note if n == 0 else ""
+        new = _correction(key, score.part, student, criterion, value, first)
+        record_override(ws.overrides_yaml, key, keys, student, criterion, new)
+    return True
+
+
+def _answer(prompt: str) -> str:
+    return typer.prompt(prompt, default="", show_default=False).strip()
+
+
+def _award(text: str, full: Decimal) -> Decimal | None:
+    """`text` as points from 0 to `full`, or None."""
+    try:
+        value = Decimal(text.strip())
+    except InvalidOperation:
+        return None
+    return value if value.is_finite() and 0 <= value <= full else None
+
+
+def _correction(
+    key: Key, part: KeyPart, student: str, criterion: str, points: Decimal, note: str
+) -> Override:
+    """The correction `redpen override` records: under the part's hash now, and
+    an empty note none."""
+    return Override(
+        student=student,
+        criterion=criterion,
+        points=points,
+        part_hash=part_hash(part, key.policies),
+        note=note or None,
+    )
 
 
 # Unknown options are taken as arguments, so that POINTS below zero reaches the
@@ -1041,22 +1195,12 @@ def override(
     if criterion not in parts:
         _fail("The key has no criterion with that id.")
     part, found = parts[criterion]
-    try:
-        value = Decimal((points or "").strip())
-    except InvalidOperation:
-        value = Decimal("NaN")
-    if not value.is_finite() or not 0 <= value <= found.points:
+    if (value := _award(points or "", found.points)) is None:
         _fail(
             f"POINTS is a number from 0 to {number(found.points)}, the full"
             f" points of {criterion}."
         )
-    new = Override(
-        student=student,
-        criterion=criterion,
-        points=value,
-        part_hash=part_hash(part, key.policies),
-        note=note or None,
-    )
+    new = _correction(key, part, student, criterion, value, note or "")
     try:
         record_override(ws.overrides_yaml, key, keys, student, criterion, new)
     except OverrideError as error:

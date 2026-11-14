@@ -37,7 +37,12 @@ from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
 from redpen.prepare.key import load_key, part_hash, save_key, yaml_reader
-from redpen.report.report import OTHER_READING, STRICT_OFF_RUN, UNGRADED
+from redpen.report.report import (
+    NOTHING_TO_REVIEW,
+    OTHER_READING,
+    STRICT_OFF_RUN,
+    UNGRADED,
+)
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key
@@ -2176,3 +2181,138 @@ def test_nothing_is_graded_a_second_time_under_a_dry_run_or_past_a_failed_gate(
     assert result.exit_code == (0 if how == "dry run" else 1), result.output
     assert router.chats == []
     assert {p: p.read_bytes() for p in stored} == stored
+
+
+# --- redpen review -------------------------------------------------------------------
+
+
+def review(*options: str, answers: str = "") -> Any:
+    return runner.invoke(app, ["review", "--workspace", "ws", *options], input=answers)
+
+
+def disputing(body: dict[str, Any]) -> Grades:
+    """Every criterion earned in full, the grader disputing each reading of
+    Q4.b."""
+    found = grades(body)
+    return Grades(
+        grades=[
+            g.model_copy(update={"transcript_dispute": "d"})
+            if g.part_id == "Q4.b"
+            else g
+            for g in found.grades
+        ]
+    )
+
+
+def statuses() -> set[str]:
+    return {r["status"] for r in by_problem(WS)}
+
+
+def test_a_review_holds_through_a_regrade_and_a_grade_that_change_nothing(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own_pages()
+    router.reads, router.grades = True, disputing
+    fast(router, monkeypatch)
+    assert grade().exit_code == 0
+    assert statuses() == {"provisional"}
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    sent = len(router.requests)
+
+    reviewed = review(answers="accept\n" * len(NAMES))
+
+    assert reviewed.exit_code == 0, reviewed.output
+    assert len(router.requests) == sent  # no model call, and no key
+    assert statuses() == {"final"}
+    kept = WS.reviews_yaml.read_bytes()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    for again in (regrade(), grade()):
+        assert again.exit_code == 0, again.output
+        assert review("--list").stdout == f"{NOTHING_TO_REVIEW}\n"
+        assert statuses() == {"final"}
+    assert WS.reviews_yaml.read_bytes() == kept
+    # A re-grade that gives another award: the grader asked again, and Q4.b.c2 lost.
+    with closing(sqlite3.connect(WS.cache_sqlite, autocommit=True)) as db:
+        db.execute("DELETE FROM calls WHERE response LIKE '%grades%'")
+
+    def losing(body: dict[str, Any]) -> Grades:
+        found = disputing(body)
+        lost = grades(
+            body, lambda reading, c: "Lost." if c["id"] == "Q4.b.c2" else None
+        )
+        return Grades(
+            grades=[
+                g.model_copy(update={"criteria": h.criteria})
+                if g.part_id == "Q4.b"
+                else g
+                for g, h in zip(found.grades, lost.grades, strict=True)
+            ]
+        )
+
+    router.grades = losing
+
+    assert regrade().exit_code == 0
+    assert statuses() == {"provisional"}
+    assert len(review("--list").stdout.splitlines()) == len(NAMES)
+    lines = WS.review_md.read_text().splitlines()
+    at = lines.index("## Reviews out of date")
+    assert lines[at + 4 :] == [f"- `{s}`, Q4.b." for s in sorted(students())]
+
+
+BAD_REVIEWS = {
+    "not YAML": ("- [unclosed\n", "does not parse as YAML"),
+    "not a review": ("- student: x\n", ", entry 1 is not a review"),
+    "unknown student": (
+        "- {student: nobody-000000, part: Q4.b, part_hash: h, digest: d}\n",
+        ", entry 1: no student of the latest ingest has its key.",
+    ),
+    "unknown part": (
+        "- {student: STUDENT, part: Q9, part_hash: h, digest: d}\n",
+        ", entry 1: the key has no part Q9.",
+    ),
+    "naming nothing": (
+        "- {digest: d}\n",
+        ", entry 1: it names no student and no part.",
+    ),
+    "a duplicate": (
+        "- {part: Q4.b, part_hash: h, digest: d}\n"
+        "- {part: Q4.b, part_hash: h, digest: e}\n",
+        ", entry 2: entry 1 reviews the same entry.",
+    ),
+}
+REVIEWED_BY = ("report", "regrade", "grade", "review", "override")
+
+
+@pytest.mark.parametrize(
+    ("command", "bad"),
+    [
+        *((c, "unknown student") for c in REVIEWED_BY),
+        *((c, "not YAML") for c in REVIEWED_BY),
+        *(("review", b) for b in ("not a review", "unknown part", "naming nothing")),
+        ("review", "a duplicate"),
+    ],
+)
+def test_a_reviews_file_that_cannot_be_used_stops_each_command_with_one_line(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str, bad: str
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    text, line = BAD_REVIEWS[bad]
+    WS.reviews_yaml.write_text(text.replace("STUDENT", first))
+    before = {p: p.read_bytes() for p in WS.root.rglob("*") if p.is_file()}
+    args = {
+        "report": ["report", "--workspace", "ws"],
+        "regrade": ["regrade", "--workspace", "ws"],
+        "grade": ["grade", "subs", "--workspace", "ws"],
+        "review": ["review", "--workspace", "ws"],
+        "override": ["override", first, "Q4.a.c1", "1", "--workspace", "ws"],
+    }[command]
+
+    result = runner.invoke(app, args, input="accept\n")
+
+    quiet(result)
+    [said] = result.stderr.splitlines()
+    assert said.startswith(str(WS.reviews_yaml)) and line in said
+    assert result.stdout == ""
+    assert router.requests == []
+    assert {p: p.read_bytes() for p in WS.root.rglob("*") if p.is_file()} == before

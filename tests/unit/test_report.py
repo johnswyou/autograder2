@@ -23,7 +23,7 @@ from typing import Literal
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from redpen.cli import app
 from redpen.grade import grade as stage
@@ -37,6 +37,7 @@ from redpen.prepare.key import (
     page_points,
     part_hash,
     save_key,
+    yaml_reader,
     yaml_writer,
 )
 from redpen.report import report as reporting
@@ -90,7 +91,7 @@ from redpen.schemas.reading import (
     SecondReadings,
 )
 from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from redpen.workspace import Workspace, keep_out_of_git, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
     NOBODY,
@@ -2963,3 +2964,457 @@ def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
     }
     for path in (workspace.review_md, workspace.run_report_md):
         assert section(path, "## Reviews out of date") == [OUTDATED, "- The key, Q4.b."]
+
+
+def ready(
+    workspace: Workspace, students: Sequence[IngestRecord], key: Key = KEY
+) -> None:
+    """`workspace` as a command takes it: the key saved, `students` the latest
+    ingest, and the workspace kept out of git."""
+    save_key(workspace.key_yaml, key)
+    summary = IngestSummary(
+        students=list(students),
+        duplicates=[],
+        not_on_roster=[],
+        missing_from_roster=[],
+        ignored_files=0,
+        unsafe_members=[],
+        failed=[],
+    )
+    write_model(workspace.ingest_summary_json, summary)
+    keep_out_of_git(workspace)
+
+
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No API key and no network."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise OSError("network disabled for this test")
+
+    for name in ("create_connection", "getaddrinfo"):
+        monkeypatch.setattr(socket, name, refuse)
+    for name in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, name, refuse)
+
+
+def session(workspace: Workspace, *answers: str, listing: bool = False) -> Result:
+    """`redpen review` on `workspace`, given `answers` one line each and then the
+    end of input."""
+    args = ["review", "--workspace", str(workspace.root)]
+    return CliRunner().invoke(
+        app,
+        [*args, "--list"] if listing else args,
+        input="".join(f"{a}\n" for a in answers),
+    )
+
+
+def files_of(workspace: Workspace) -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in workspace.root.rglob("*") if p.is_file()}
+
+
+def counts(reviewed: int, corrected: int, skipped: int, left: int) -> str:
+    return (
+        f"Reviewed: {reviewed}, {corrected} of them with corrections. Skipped:"
+        f" {skipped}. Still open: {left}."
+    )
+
+
+def four_entries(built: Built, workspace: Workspace) -> IngestRecord:
+    """One student, `s1`, with four medium entries, in this order: Q4.b disputed
+    (3 points), then Q4.a and Q5.a (2 each, in key order) and Q1 (1), each poorly
+    read."""
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    for part in ("Q4.a", "Q5.a", "Q1"):
+        poorly_read(workspace, student, part)
+    ready(workspace, [student])
+    return student
+
+
+ASK = "Accept, correct, skip or quit: "
+AGAIN = "Type accept, correct, skip or quit."
+POINTS_AGAIN = "Type a number from 0 to 1, or press return to keep the award."
+
+
+def test_a_session_stores_each_action_as_it_is_taken_and_rebuilds_out(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+    # What `redpen override` writes, from a copy of the workspace as it is now.
+    shutil.copytree(workspace.root, tmp_path / "copy")
+    by_hand = CliRunner().invoke(
+        app,
+        ["override", "s1", "Q4.a.c2", "0.5", "--note", "See the arrow."]
+        + ["--workspace", str(tmp_path / "copy")],
+    )
+    assert by_hand.exit_code == 0, by_hand.output
+
+    result = session(
+        workspace,
+        *("maybe", "accept"),  # Q4.b: asked again, then accepted
+        *("correct", "", "two", "-1", "1.5", "0.5", "See the arrow."),  # Q4.a
+        "skip",  # Q5.a
+        "quit",  # Q1
+    )
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout.splitlines()
+    assert [line for line in out if line.startswith("### ")] == [
+        "### `A Student` (`s1`), Q4.b",
+        "### `A Student` (`s1`), Q4.a",
+        "### `A Student` (`s1`), Q5.a",
+        "### `A Student` (`s1`), Q1",
+    ]
+    # Each bad answer asked again in one fixed line, and nothing stored for it.
+    assert out.count(AGAIN) == 1
+    assert out.count(POINTS_AGAIN) == 3
+    assert out[-1] == counts(2, 1, 1, 2)
+    assert f"Wrote {workspace.root / 'out'}" in out
+    assert result.stderr == ""
+    # Exactly the two actions stored, the correction as `redpen override` writes it.
+    reviews = yaml_reader().load(workspace.reviews_yaml)
+    assert [(r["student"], r["part"]) for r in reviews] == [
+        ("s1", "Q4.b"),
+        ("s1", "Q4.a"),
+    ]
+    copied = Workspace(tmp_path / "copy")
+    assert workspace.overrides_yaml.read_text() == copied.overrides_yaml.read_text()
+    # out/ rebuilt: the two reviewed are closed, Q4.a with the instructor's award.
+    assert open_entries(workspace) == [
+        "`A Student` (`s1`), Q5.a",
+        "`A Student` (`s1`), Q1",
+    ]
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- `s1`, Q4.b: `transcript_dispute`. Proposed score: 3 / 3.",
+        "- `s1`, Q4.a: `hard_to_read`. Proposed score: 1.5 / 2.",
+    ]
+    assert detail_of(workspace, "Q4.a.c2") == ("0.5", CORRECTED)
+    assert not workspace.run_log.exists()
+
+    again = session(workspace, "quit")
+
+    assert again.exit_code == 0, again.output
+    [first, *_] = [
+        line for line in again.stdout.splitlines() if line.startswith("### ")
+    ]
+    assert first == "### `A Student` (`s1`), Q5.a"
+    assert again.stdout.splitlines()[-1] == counts(0, 0, 0, 2)
+
+
+def test_the_terminal_shows_the_entry_its_criteria_and_where_each_file_is(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+    write_report(workspace, KEY, review_students(workspace))
+    [(_, entry), *_] = listed(workspace)
+
+    result = session(workspace, "quit")
+
+    out = result.stdout.splitlines()
+    at = out.index("### `A Student` (`s1`), Q4.b")
+    end = next(n for n in range(at, len(out)) if out[n].startswith(ASK))
+    shown = [line for line in out[at + 1 : end] if line]
+    criteria = shown.index("- Criteria:")
+    # What review.md shows, up to its files; then the criteria; then the files.
+    assert shown[:criteria] == entry[:-1]
+    c1, c2 = (
+        load(workspace, KEY, review_students(workspace)[0])
+        .grades["Q4.b"]
+        .grade.criteria
+    )
+    root = workspace.root.absolute() / "students" / "s1"
+    assert shown[criteria:] == [
+        "- Criteria:",
+        f"  - Q4.b.c1: 2 / 2. {code_span(c1.rationale)}",
+        f"  - Q4.b.c2: 1 / 1. {code_span(c2.rationale)}",
+        "- Files:",
+        f"  - crop 1: {root / 'crops' / 'Q4.b-1.png'}",
+        f"  - reading: {root / 'readings' / 'Q4.json'}",
+        f"  - grade: {root / 'grades' / 'Q4.json'}",
+    ]
+
+
+def review_students(workspace: Workspace) -> list[IngestRecord]:
+    return read_model(workspace.ingest_summary_json, IngestSummary).students
+
+
+def test_a_withheld_part_corrected_in_full_is_scored_and_reviewed(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    unread_q4b(built, workspace, student)
+    ready(workspace, [student])
+
+    # Q4.b.c1 left blank: no award is shown, so it is asked again.
+    result = session(workspace, "correct", "", "1.5", "1", "")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines().count("Type a number from 0 to 2.") == 1
+    assert detail_of(workspace, "Q4.b.c1") == ("1.5", CORRECTED)
+    assert detail_of(workspace, "Q4.b.c2") == ("1", CORRECTED)
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert row["status"] == "final" and row["Q4"] != ""
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- `s1`, Q4.b: `unreadable`. Proposed score: 2.5 / 3.",
+    ]
+    assert result.stdout.splitlines()[-1] == counts(1, 1, 0, 0)
+    for entry in yaml_reader().load(workspace.overrides_yaml):
+        assert "note" not in entry
+
+
+def test_a_key_part_offers_no_correction(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    key = KEY.model_copy(
+        update={
+            "parts": [
+                p.model_copy(update={"state": "unverified"}) if p.id == "Q2" else p
+                for p in KEY.parts
+            ]
+        }
+    )
+    ready(workspace, [student], key)
+
+    result = session(workspace, "correct", "accept")
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout.splitlines()
+    assert "### Q2, worth 1" in out
+    assert out.count("Type accept, skip or quit.") == 1
+    assert not workspace.overrides_yaml.exists()
+    assert [
+        (r.get("student"), r["part"])
+        for r in yaml_reader().load(workspace.reviews_yaml)
+    ] == [(None, "Q2")]
+    assert row_of(workspace.scores_by_problem_csv, student)["status"] == "final"
+
+
+def test_the_list_asks_nothing_and_changes_no_file(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+    before = files_of(workspace)
+
+    result = session(workspace, listing=True)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        "`s1`, Q4.b: `transcript_dispute`. Proposed score: 3 / 3.",
+        "`s1`, Q4.a: `hard_to_read`. Proposed score: 2 / 2.",
+        "`s1`, Q5.a: `hard_to_read`. Proposed score: 2 / 2.",
+        "`s1`, Q1: `hard_to_read`. Proposed score: 1 / 1.",
+    ]
+    assert result.stderr == ""
+    assert files_of(workspace) == before
+
+
+def test_with_no_open_entry_both_forms_say_so_in_one_line(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    ready(workspace, [student])
+    before = files_of(workspace)
+
+    for listing in (False, True):
+        result = session(workspace, listing=listing)
+
+        assert result.exit_code == 0, result.output
+        assert result.stdout == f"{NOTHING_TO_REVIEW}\n"
+        assert files_of(workspace) == before
+
+
+def test_an_interrupted_session_keeps_what_was_stored_and_rebuilds_out(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+
+    # The input ends at Q4.a.c2's prompt: its correction is not taken.
+    result = session(workspace, "accept", "correct", "")
+
+    assert result.exit_code == 0, result.output
+    reviews = yaml_reader().load(workspace.reviews_yaml)
+    assert [(r["student"], r["part"]) for r in reviews] == [("s1", "Q4.b")]
+    assert not workspace.overrides_yaml.exists()
+    assert open_entries(workspace) == [
+        "`A Student` (`s1`), Q4.a",
+        "`A Student` (`s1`), Q5.a",
+        "`A Student` (`s1`), Q1",
+    ]
+    assert result.stdout.splitlines()[-1] == counts(1, 0, 0, 3)
+
+
+def test_one_session_clears_a_list_of_every_kind_of_entry(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    s1, s2, s3, s4, s5, s6 = students = students_of(built, workspace, 6)
+    key = KEY.model_copy(  # a key part
+        update={
+            "parts": [
+                p.model_copy(update={"state": "unverified"}) if p.id == "Q2" else p
+                for p in KEY.parts
+            ]
+        }
+    )
+    # Two readers: the second reads s1's Q4.b otherwise.
+    first = load(workspace, KEY, s1).readings["Q4.b"]
+    stated = first.reading.final_answer.model_copy(update={"value": 25.0})
+    [q4b] = [p for p in KEY.parts if p.id == "Q4.b"]
+    write_model(
+        workspace.second_json("s1"),
+        SecondReadings(
+            records=[
+                SecondReading(
+                    part_id="Q4.b",
+                    part_hash=part_hash(q4b, KEY.policies),
+                    first=digest(first),
+                    doubted=False,
+                    result="differ",
+                    second=first.model_copy(
+                        update={
+                            "reading": first.reading.model_copy(
+                                update={"final_answer": stated}
+                            )
+                        }
+                    ),
+                )
+            ]
+        ),
+    )
+    graded_with(workspace, s2, "Q4.b", transcript_dispute="d")  # a disputed reading
+    graded_with(workspace, s3, "Q5.b", code_overruled="y")  # an overruled check
+    [q4c] = [p for p in KEY.parts if p.id == "Q4.c"]
+    write_model(  # an audit change
+        workspace.audit_json("Q4.c"),
+        PartAudit(
+            part_id="Q4.c",
+            part_hash=part_hash(q4c, KEY.policies),
+            groups=1,
+            changed=1,
+            undecided=0,
+            changes=[
+                AuditChange(
+                    student_key="s4",
+                    criterion="Q4.c.c1",
+                    part_hash=part_hash(q4c, KEY.policies),
+                    before=Decimal(1),
+                    after=Decimal(0),
+                    reason="r",
+                )
+            ],
+            key_suspect=None,
+        ),
+    )
+    unread_q4b(built, workspace, s5)  # a part withheld
+    write_model(  # graders that disagree
+        workspace.second_grade_json("s6"),
+        SecondGrades(records=[second_grade_of_q4b(load(workspace, KEY, s6), "differ")]),
+    )
+    ready(workspace, students, key)
+    listing = session(workspace, listing=True).stdout.splitlines()
+    assert [line.split(":")[0] for line in listing] == [
+        "The key, Q2",
+        "`s1`, Q4.b",
+        "`s5`, Q4.b",
+        "`s6`, Q4.b",
+        "`s2`, Q4.b",
+        "`s3`, Q5.b",
+        "`s4`, Q4.c",
+    ]
+    assert {code for line in listing for code in re.findall(r"`([a-z_]+)`", line)} == {
+        "key_unverified",
+        "readers_disagree",
+        "unreadable",
+        "graders_disagree",
+        "transcript_dispute",
+        "code_overruled",
+        "audit_changed",
+    }
+
+    result = session(
+        workspace,
+        *("accept", "accept", "accept", "accept"),  # the key's Q2, s1, s5, s6
+        *("correct", "1", "", "Check line 2."),  # s2's Q4.b: c1 to 1, c2 kept
+        *("accept", "accept"),  # s3, s4
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[-1] == counts(7, 1, 0, 0)
+    assert session(workspace, listing=True).stdout == f"{NOTHING_TO_REVIEW}\n"
+    states = {r["student"]: r["status"] for r in rows(workspace.scores_by_problem_csv)}
+    assert states == {
+        **{s.student_name: "final" for s in students},
+        s5.student_name: "incomplete",
+    }
+    assert section(workspace.review_md, "## Reviews out of date") == []
+    assert len(section(workspace.review_md, "## Closed by review")) == 1 + 7
+
+
+TERMINAL = "\x1b[2J\x1b[H\rgone\x08‮RTL\x00"  # clears, moves, hides, reorders
+
+
+def test_text_a_student_wrote_shows_stripped_on_stdout_in_review_alone(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", MARK + TERMINAL, "s1")
+    long = "x" * 100_000
+
+    def hostile(r: ReadingRecord) -> ReadingRecord:
+        lines = [f"{MARK} {TERMINAL}", long]
+        reading = r.reading.model_copy(update={"lines": lines})
+        return r.model_copy(update={"reading": reading})
+
+    def rationale(r: GradeRecord) -> GradeRecord:
+        if r.grade.part_id != "Q4.b":
+            return r
+        c1, c2 = r.grade.criteria
+        c1 = c1.model_copy(update={"rationale": f"{MARK}{TERMINAL}"})
+        grade = r.grade.model_copy(
+            update={"criteria": [c1, c2], "transcript_dispute": f"{MARK}{TERMINAL}"}
+        )
+        return r.model_copy(update={"grade": grade})
+
+    change_reading(workspace, student, "Q4.b", hostile)
+    change_grades(workspace, student, "Q4", rationale)
+    ready(workspace, [student])
+
+    listing = session(workspace, listing=True)
+    result = session(workspace, "accept")
+    report = CliRunner().invoke(app, ["report", "--workspace", str(workspace.root)])
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout.splitlines()
+    assert f"  - Line 1: `{MARK} ?[2J?[H?gone??RTL?`" in out
+    assert f"  - Line 2: `{long}`" in out
+    assert f"  - The grader wrote: `{MARK}?[2J?[H?gone??RTL?`" in out
+    assert f"  - Q4.b.c1: 2 / 2. `{MARK}?[2J?[H?gone??RTL?`" in out
+    assert not set("\x1b\r\x08‮\x00") & set(result.stdout)
+    assert result.stderr == ""
+    # The prompt took its answer.
+    assert out[-1] == counts(1, 0, 0, 0)
+    assert section(workspace.review_md, "## Closed by review") != []
+    for other in (listing, report):
+        assert other.exit_code == 0, other.output
+        assert "MARKER" not in other.stdout + other.stderr
+    assert not workspace.run_log.exists()
