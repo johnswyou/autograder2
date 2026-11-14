@@ -429,6 +429,16 @@ def edited(change: Callable[[dict[str, Any]], object]) -> Key:
             ),
             "Q5.d is in the key but not in the spec",
         ),
+        (
+            KEY.model_copy(
+                update={"policies": KEY.policies.model_copy(update={"rel_tol": -0.02})}
+            ),
+            "policies.rel_tol is -0.02, below zero",
+        ),
+        (
+            edited(lambda p: p["Q4.b"]["answer"].update(rel_tol=-0.5)),
+            "Q4.b: answer.rel_tol is -0.5, below zero",
+        ),
     ],
     ids=[
         "criterion of another part",
@@ -442,6 +452,8 @@ def edited(change: Callable[[dict[str, Any]], object]) -> Key:
         "key part not in the spec",
         "no criteria",
         "zero points",
+        "tolerance below zero",
+        "a part's tolerance below zero",
     ],
 )
 def test_key_check_reports_each_problem_with_exit_code_1(

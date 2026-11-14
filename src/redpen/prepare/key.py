@@ -267,6 +267,12 @@ def check(key: Key, spec: Spec) -> list[str]:
     ]
     if step <= 0:
         problems.append(f"the point step is {number(step)}, not above zero")
+    # Below zero the answer check takes it as zero: here only, not in the schema the
+    # solver answers to.
+    if key.policies.rel_tol < 0:
+        problems.append(
+            f"policies.rel_tol is {number(key.policies.rel_tol)}, below zero"
+        )
 
     def on_step(what: str, value: Decimal) -> None:
         if step <= 0:
@@ -291,6 +297,8 @@ def check(key: Key, spec: Spec) -> list[str]:
             for other in part.depends_on
             if other not in ids[:index]
         ]
+        if (tol := part.answer.rel_tol) is not None and tol < 0:
+            problems.append(f"{part.id}: answer.rel_tol is {number(tol)}, below zero")
         if not part.criteria:
             problems.append(f"{part.id} has no criteria")
         for c in part.criteria:
