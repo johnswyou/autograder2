@@ -514,6 +514,24 @@ def test_models_check_reverifies_the_lock_in_a_workspace(
     )
 
 
+def test_models_check_calls_a_lock_that_does_not_load_damaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(tmp_path, monkeypatch, "vendor/vision-1")
+    lock = Workspace(tmp_path / "ws").config_lock_toml
+    lock.parent.mkdir()
+    lock.write_text(LOCK[: len(LOCK) // 2])
+
+    result = runner.invoke(app, ["models", "check", "--workspace", str(lock.parent)])
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.output.splitlines()[-1] == (
+        f"{lock} is damaged (not a lock). Delete it and run `redpen prepare` again to"
+        " have the models pinned again from redpen.toml."
+    )
+
+
 # --- --total and --page-points (task 4.5a) -------------------------------------------
 
 

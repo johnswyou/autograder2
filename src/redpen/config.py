@@ -143,7 +143,9 @@ def write_lock(path: Path, lock: Lock) -> None:
         lines += ["", "[prompts]"]
         lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in lock.prompts.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
+    partial = path.with_name(path.name + ".partial")  # whole or not at all
+    partial.write_text("\n".join(lines) + "\n")
+    partial.replace(path)
 
 
 def read_lock(path: Path) -> Lock:

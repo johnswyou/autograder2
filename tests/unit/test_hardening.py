@@ -18,7 +18,7 @@ from reportlab.pdfgen.canvas import Canvas
 from typer.testing import CliRunner
 
 from redpen.cli import app
-from redpen.config import Lock, write_lock
+from redpen.config import Lock, read_lock, write_lock
 from redpen.llm.client import Gateway
 from redpen.llm.models import recheck_providers
 from redpen.prepare.key import save_key
@@ -322,7 +322,8 @@ def test_a_folder_with_no_key_stops_the_command_in_one_line(
         other.blank_pdf.parent.mkdir(parents=True)
         shutil.copyfile(FIXTURES / "blank.pdf", other.blank_pdf)
         shutil.copyfile(FIXTURES / "spec.json", other.spec_json)
-        write_lock(other.config_lock_toml, Lock(profile="balanced", models={}))
+        lock = Lock(profile="balanced", models=GRADE_MODELS)
+        write_lock(other.config_lock_toml, lock)
     else:
         Path("other").mkdir()
 
@@ -418,3 +419,72 @@ def test_a_damaged_coverage_file_is_named_and_stops_the_report(
     result = runner.invoke(app, ["report", "--workspace", "ws"])
 
     assert_one_line(result, damaged_line(coverage))
+
+
+# --- the lock (task 5.4a, fix round 1) -----------------------------------------------
+
+
+class Killed(BaseException):
+    """The process dies: no handler of the code under test runs."""
+
+
+def test_a_lock_whose_write_is_cut_short_stays_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "config.lock.toml"
+    old = Lock(profile="balanced", models=GRADE_MODELS)
+    new = old.model_copy(update={"prompts": {"read/read": "2"}})
+    write_lock(path, old)
+    write_text = Path.write_text
+
+    def killed_halfway(self: Path, text: str, *args: Any, **kwargs: Any) -> int:
+        write_text(self, text[: len(text) // 2], *args, **kwargs)
+        raise Killed
+
+    monkeypatch.setattr(Path, "write_text", killed_halfway)
+    with pytest.raises(Killed):
+        write_lock(path, new)
+    monkeypatch.undo()
+
+    assert read_lock(path) == old
+    write_lock(path, new)  # the next write takes the `.partial` left behind
+    assert read_lock(path) == new
+
+
+LOCK_DAMAGED = (
+    "ws/config.lock.toml is damaged (not a lock). Delete it and run `redpen prepare`"
+    " again to have the models pinned again from redpen.toml."
+)
+
+
+@pytest.mark.parametrize("text", ["", "profile = [\n"], ids=["empty", "garbage"])
+def test_a_lock_that_does_not_load_is_called_damaged_by_each_command(
+    class_folder: Path, text: str
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    [student, *_] = sorted(p.name for p in WS.students_dir.iterdir())
+    WS.config_lock_toml.write_text(text)
+    blank = str(FIXTURES / "blank.pdf")
+    commands = [
+        ["prepare", blank],
+        ["run", blank, "subs"],
+        ["run", blank, "subs", "--dry-run"],
+        ["grade", "subs"],
+        ["grade", "subs", "--dry-run"],
+        ["regrade"],
+        ["regrade", "--dry-run"],
+        ["key", "verify"],
+        ["report"],
+        ["review"],
+        ["override", student, "Q1.c1", "1"],
+    ]
+    for command in commands:
+        result = runner.invoke(app, [*command, "--workspace", "ws"], input="quit\n")
+        assert result.exit_code == 1, (command, result.output)
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert said(result)[-1] == LOCK_DAMAGED, command
+        # Before it, review shows its entries; override records the correction.
+        if command[0] not in ("review", "override"):
+            assert said(result) == [LOCK_DAMAGED], command
+    # A command that does not read the lock runs as before.
+    assert runner.invoke(app, ["review", "--list", "--workspace", "ws"]).exit_code == 0

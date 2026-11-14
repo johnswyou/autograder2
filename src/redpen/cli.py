@@ -300,8 +300,8 @@ def prepare(
         if ws.config_lock_toml.exists():
             try:
                 read_lock(ws.config_lock_toml)
-            except ValueError as error:  # not TOML or not a lock: its text stays out
-                _fail(f"{ws.config_lock_toml} cannot be read ({type(error).__name__}).")
+            except ValueError:  # not TOML or not a lock: its text stays out
+                _damaged(ws)
         lock = _with_prompts(ws, asyncio.run(pin(ws, config, api_key)))
         if profile is not None and profile != lock.profile:
             typer.echo(
@@ -569,9 +569,20 @@ def _fail(message: str) -> NoReturn:
 
 
 def _damaged(ws: Workspace) -> None:
-    """Exit naming, a line each, every stored JSON file of `ws` that is not JSON (cut
-    short or emptied, by a full disk or by hand) and how to have it made again, if
-    there is one."""
+    """Exit naming, a line each, the lock and every stored JSON file of `ws` that does
+    not load (cut short or emptied, by a full disk or by hand) and how to have it
+    made again, if there is one."""
+    lock, damaged = ws.config_lock_toml, False
+    if lock.exists():
+        try:
+            read_lock(lock)
+        except ValueError:  # not TOML, or not a lock
+            damaged = True
+            typer.echo(
+                f"{lock} is damaged (not a lock). Delete it and run `redpen prepare`"
+                " again to have the models pinned again from redpen.toml.",
+                err=True,
+            )
     found: list[Path] = []
     for path in sorted(ws.root.rglob("*.json")):
         try:
@@ -585,7 +596,7 @@ def _damaged(ws: Workspace) -> None:
             " to have it made again.",
             err=True,
         )
-    if found:
+    if damaged or found:
         raise typer.Exit(code=1)
 
 
@@ -659,6 +670,7 @@ def key_verify(workspace: KeyWorkspace) -> None:
         spec = read_model(ws.spec_json, Spec)
         lock = read_lock(ws.config_lock_toml)
     except (OSError, ValueError):  # missing, or a TOML or schema error
+        _damaged(ws)
         _no_key(ws)
     key, problems = examine(ws.key_yaml, spec)
     if key is None:
@@ -947,6 +959,7 @@ def _estimate(
     except (ConfigError, ModelError) as error:
         _fail(f"No estimate: {error}")
     except (OSError, ValueError) as error:  # its text may quote the stored file
+        _damaged(ws)
         _fail(f"No estimate: a stored file cannot be read ({type(error).__name__}).")
     try:
         sizes = blank_sizes(blank)
@@ -1398,7 +1411,11 @@ def models_check(
     found = [problem for each in problems.values() for problem in each]
     lock = Workspace(workspace).config_lock_toml if workspace else None
     if lock is not None and lock.exists():
-        pinned = read_lock(lock).models
+        try:
+            pinned = read_lock(lock).models
+        except ValueError:  # not TOML, or not a lock
+            _damaged(Workspace(lock.parent))
+            raise
         rechecked = recheck_providers(pinned, api_key, strict_privacy=strict)
         found += [
             f"{lock}: {p}" for each in asyncio.run(rechecked).values() for p in each
