@@ -549,7 +549,8 @@ def test_what_the_roster_found_and_ingest_left_out_is_counted_on_the_terminal(
     result = runner.invoke(app, ["grade", "subs", "--workspace", "ws", *roster])
 
     assert result.exit_code == 0, result.output
-    assert result.stderr.splitlines()[-1] == (
+    # The line before the last, which says what the command spent.
+    assert result.stderr.splitlines()[-2] == (
         "Students not on the roster: 2. Roster names with no submission: 1. Files"
         f" left out of ingest: 1. {WS.run_report_md} lists them."
     )
