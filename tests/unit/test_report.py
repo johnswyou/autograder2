@@ -2802,6 +2802,25 @@ HOSTILE_NOTE = (
 )
 
 
+def test_a_note_cannot_make_a_link_or_an_image_in_the_feedback_file(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    change_grades(workspace, student, "Q4", disputed)
+    note = "![x](http://evil.test/x.png) [link](http://evil.test) [r]: http://x"
+    corrections(workspace, correction(student, "Q4.b.c1", "1", note))
+
+    write_report(workspace, KEY, [student])
+
+    feedback = workspace.feedback_md(student.student_key).read_text()
+    assert (
+        "!\\[x](http://evil.test/x.png) \\[link](http://evil.test) \\[r]: http://x"
+        in feedback
+    )
+    assert "![" not in feedback and not re.search(r"(?<!\\)\[", feedback)
+
+
 def test_a_note_cannot_leave_its_place_in_the_feedback_file_or_the_review_list(
     built: Built, tmp_path: Path
 ) -> None:

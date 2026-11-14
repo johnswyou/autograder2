@@ -848,12 +848,15 @@ def one_line(note: str) -> str:
     """`note` as one line of plain text: each run of white space as one space, every
     other control or format character (a NUL, a bidi override, a zero-width space)
     left out, so that nothing can reorder or hide the text, and every backslash,
-    `<` and `#` escaped, so text a model or the instructor wrote cannot start a
-    heading, open an HTML comment or forge a score line. (The backslash is escaped
-    too, or a note holding `\\<!--` would undo the escape of its `<`.)"""
+    `<`, `#` and `[` escaped, so text a model or the instructor wrote cannot start a
+    heading, open an HTML comment, forge a score line or make a link or an image.
+    (The backslash is escaped too, or a note holding `\\<!--` would undo the escape
+    of its `<`.)"""
     plain = "".join(c for c in note if unicodedata.category(c)[0] != "C" or c.isspace())
     text = " ".join(plain.split())
-    return text.replace("\\", "\\\\").replace("<", "\\<").replace("#", "\\#")
+    for c in "\\<#[":  # the backslash first
+        text = text.replace(c, "\\" + c)
+    return text
 
 
 def code_span(text: str) -> str:
