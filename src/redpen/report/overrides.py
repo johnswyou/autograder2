@@ -2,14 +2,14 @@
 and `reviews.yaml` in the workspace root, lists of `Override` and `Review` entries
 that may be edited by hand. `load_overrides` and `load_reviews` refuse a file that
 does not parse or names what does not exist; `record_override` sets or removes one
-correction, and `record_review` sets one review, keeping the rest of the file as it
-is, every comment included."""
+correction, `record_overrides` sets several in one write, and `record_review` sets
+one review, keeping the rest of the file as it is, every comment included."""
 
 # ruamel.yaml leaves the parameters of many of its methods unannotated.
 # pyright: reportUnknownMemberType=false
 
 import io
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -140,9 +140,26 @@ def record_override(
     _record(
         path,
         lambda text: _checked(path, text, key, students),
-        lambda o: (o.student, o.criterion) == (student, criterion),
-        new,
+        _corrects,
+        [((student, criterion), new)],
     )
+
+
+def record_overrides(
+    path: Path, key: Key, students: Collection[str], new: Sequence[Override]
+) -> None:
+    """Make each of `new` the correction of its student and criterion in `path`, as
+    `record_override` does, in one write: all of them or none."""
+    _record(
+        path,
+        lambda text: _checked(path, text, key, students),
+        _corrects,
+        [(_corrects(o), o) for o in new],
+    )
+
+
+def _corrects(o: Override) -> tuple[str, str]:
+    return o.student, o.criterion
 
 
 def record_review(path: Path, key: Key, students: Collection[str], new: Review) -> None:
@@ -152,8 +169,8 @@ def record_review(path: Path, key: Key, students: Collection[str], new: Review) 
     _record(
         path,
         lambda text: _reviewed(path, text, key, students),
-        lambda r: (r.student, r.part) == (new.student, new.part),
-        new,
+        lambda r: (r.student, r.part),
+        [((new.student, new.part), new)],
     )
 
 
@@ -185,50 +202,56 @@ def _reviewed(
     return found
 
 
-def _record[E: Schema](
+def _record[E: Schema, I](
     path: Path,
     check: Callable[[str], list[E]],
-    same: Callable[[E], bool],
-    new: E | None,
+    ident: Callable[[E], I],
+    changes: Sequence[tuple[I, E | None]],
 ) -> None:
-    """Make `new` the entry of `path` that is the `same`, in place of an earlier
-    one, or remove that one when `new` is None, as `record_override` says; `check`
-    loads a text of the file."""
+    """For each change in turn, make its new entry the entry of `path` with its
+    `ident`, in place of an earlier one, or remove that one when the new entry is
+    None, as `record_override` says; then write `path` once. `check` loads a text
+    of the file."""
     text = _text(path)
-    before = check(text)
-    at = next((i for i, o in enumerate(before) if same(o)), None)
-    if new is None and at is None:
-        raise OverrideError("No correction is recorded for that student and criterion.")
-    yaml = yaml_writer()
-    entries: Any = yaml.load(text) if text.strip() else CommentedSeq()
-    if new is None and at is not None:
-        expected = before[:at] + before[at + 1 :]
-        written = [_without(text, entries, at)]
-        del entries[at]  # if lines cannot take it out, as YAML, losing its comments
-    elif at is not None and new is not None:
-        expected = [new if i == at else o for i, o in enumerate(before)]
-        written = []
-        for name, value in new.model_dump().items():
-            if value is not None or name in entries[at]:  # in place: comments stay
-                entries[at][name] = value
-    else:
-        assert new is not None
-        expected = [*before, new]
-        written = []
-        entries.fa.set_block_style()  # an empty `[]` would put entries on one line
-        entries.append(new.model_dump(exclude_none=True))
-    buffer = io.StringIO()
-    yaml.dump(entries, buffer)
-    for text in [*written, buffer.getvalue()]:
-        try:
-            if check(text) == expected:
-                break
-        except OverrideError:
-            pass
-    else:
-        raise OverrideError(
-            f"{path} would not read back as the corrections, so it is left as it is."
-        )
+    for at_ident, new in changes:
+        before = check(text)
+        at = next((i for i, o in enumerate(before) if ident(o) == at_ident), None)
+        if new is None and at is None:
+            raise OverrideError(
+                "No correction is recorded for that student and criterion."
+            )
+        yaml = yaml_writer()
+        entries: Any = yaml.load(text) if text.strip() else CommentedSeq()
+        if new is None and at is not None:
+            expected = before[:at] + before[at + 1 :]
+            written = [_without(text, entries, at)]
+            del entries[at]  # if lines cannot take it out, as YAML, losing comments
+        elif at is not None and new is not None:
+            expected = [new if i == at else o for i, o in enumerate(before)]
+            written = []
+            for name, value in new.model_dump().items():
+                if value is not None or name in entries[at]:  # in place: comments stay
+                    entries[at][name] = value
+        else:
+            assert new is not None
+            expected = [*before, new]
+            written = []
+            entries.fa.set_block_style()  # an empty `[]` would put entries on one line
+            entries.append(new.model_dump(exclude_none=True))
+        buffer = io.StringIO()
+        yaml.dump(entries, buffer)
+        # The text that reads back is what the next change, or the write, takes.
+        for text in [*written, buffer.getvalue()]:
+            try:
+                if check(text) == expected:
+                    break
+            except OverrideError:
+                pass
+        else:
+            raise OverrideError(
+                f"{path} would not read back as the corrections, so it is left as"
+                " it is."
+            )
     partial = path.with_name(path.name + ".partial")
     partial.write_text(text, encoding="utf-8")
     partial.replace(path)

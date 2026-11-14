@@ -18,13 +18,14 @@ from contextlib import closing
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner, Result
 
+from redpen import cli
 from redpen.cli import app
 from redpen.grade import grade as stage
 from redpen.grade.audit import groups
@@ -55,6 +56,7 @@ from redpen.report.report import (
     STALE,
     UNGRADED,
     UNREADABLE,
+    Entry,
     Stored,
     code_span,
     flags,
@@ -3302,6 +3304,64 @@ def test_an_interrupted_session_keeps_what_was_stored_and_rebuilds_out(
         "`A Student` (`s1`), Q1",
     ]
     assert result.stdout.splitlines()[-1] == counts(1, 0, 0, 3)
+
+
+def interrupted_once_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ctrl-C as soon as the first write of overrides.yaml lands."""
+    replace = Path.replace
+
+    def then_interrupted(self: Path, target: Path) -> Path:
+        done = replace(self, target)
+        if Path(target).name == "overrides.yaml":
+            raise KeyboardInterrupt
+        return done
+
+    monkeypatch.setattr(Path, "replace", then_interrupted)
+
+
+def interrupted_deriving_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ctrl-C while the class is derived again, after the corrections."""
+    entries = cli.review_entries
+    calls: list[object] = []
+
+    def second_interrupted(*args: Any) -> list[Entry]:
+        calls.append(args)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return entries(*args)
+
+    monkeypatch.setattr(cli, "review_entries", second_interrupted)
+
+
+@pytest.mark.parametrize(
+    "interrupt",
+    [interrupted_once_written, interrupted_deriving_again],
+    ids=["between two corrections", "while the class is derived again"],
+)
+def test_an_interrupt_outside_a_prompt_ends_the_session_as_quit_does(
+    built: Built,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interrupt: Callable[[pytest.MonkeyPatch], None],
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    four_entries(built, workspace)
+    interrupt(monkeypatch)
+
+    result = session(workspace, "correct", "1", "0.5", "A note.")
+
+    assert result.exit_code == 0, result.output
+    # The action's corrections whole, in one write; its review never taken.
+    assert [
+        (o["criterion"], str(o["points"]), o.get("note"))
+        for o in yaml_reader().load(workspace.overrides_yaml)
+    ] == [("Q4.b.c1", "1", "A note."), ("Q4.b.c2", "0.5", None)]
+    assert not workspace.reviews_yaml.exists()
+    # out/ rebuilt with them, and the counts printed.
+    assert detail_of(workspace, "Q4.b.c2") == ("0.5", CORRECTED)
+    assert open_entries(workspace)[0] == "`A Student` (`s1`), Q4.b"
+    assert result.stdout.splitlines()[-1] == counts(0, 0, 0, 4)
 
 
 def test_one_session_clears_a_list_of_every_kind_of_entry(

@@ -107,6 +107,7 @@ from redpen.report.overrides import (
     load_overrides,
     load_reviews,
     record_override,
+    record_overrides,
     record_review,
 )
 from redpen.report.report import (
@@ -1044,7 +1045,9 @@ def review(
             if (action := _take(ws, key, summary, entry)) == "quit":
                 break
             done[action] += 1
-    except typer.Abort:  # the end of input, or an interrupt: what is stored stays
+    # The end of input, or an interrupt at a prompt or anywhere else: what is
+    # stored stays, as on quit.
+    except (typer.Abort, KeyboardInterrupt):
         typer.echo()
     except OverrideError as error:
         _fail(str(error))
@@ -1096,8 +1099,9 @@ def _correct(
     ws: Workspace, key: Key, keys: Sequence[str], score: Score, student: str
 ) -> bool:
     """Ask the points of each criterion of `score`'s part, return keeping the award
-    shown, and a note; record each typed as `redpen override` does, the note on the
-    first. Whether any was typed. A part withheld shows no award to keep."""
+    shown, and a note; record those typed as `redpen override` does, the note on the
+    first, in one write. Whether any was typed. A part withheld shows no award to
+    keep."""
     shown = (
         {c.id: c.awarded for c in score.record.grade.criteria}
         if score.record
@@ -1119,10 +1123,11 @@ def _correct(
     if not typed:
         return False
     note = _answer("A note for the student, or return for none")
-    for n, (criterion, value) in enumerate(typed.items()):
-        first = note if n == 0 else ""
-        new = _correction(key, score.part, student, criterion, value, first)
-        record_override(ws.overrides_yaml, key, keys, student, criterion, new)
+    new = [
+        _correction(key, score.part, student, criterion, value, "" if n else note)
+        for n, (criterion, value) in enumerate(typed.items())
+    ]
+    record_overrides(ws.overrides_yaml, key, keys, new)
     return True
 
 
