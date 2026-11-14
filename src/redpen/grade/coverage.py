@@ -451,11 +451,16 @@ class _Stored:
 def _stored(workspace: Workspace, students: Sequence[IngestRecord]) -> list[_Stored]:
     found: list[_Stored] = []
     for student in students:
+        key = student.student_key
         mapped = coverage = None
         with contextlib.suppress(OSError, ValidationError):
-            mapped = read_model(workspace.map_json(student.student_key), MapRecord)
-            kept = read_model(workspace.coverage_json(student.student_key), Coverage)
-            coverage = kept if kept.map_digest == digest(mapped) else None
+            mapped = read_model(workspace.map_json(key), MapRecord)
+        # Not yet made, or of another map: none. A file that does not load stops the
+        # report, which names it.
+        with contextlib.suppress(FileNotFoundError):
+            if mapped is not None:
+                kept = read_model(workspace.coverage_json(key), Coverage)
+                coverage = kept if kept.map_digest == digest(mapped) else None
         found.append(_Stored(student, mapped, coverage))
     return found
 

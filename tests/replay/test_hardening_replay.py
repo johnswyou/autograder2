@@ -204,7 +204,7 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
 ) -> None:
     workspace, submissions = chained
     provider = Provider(CHAIN)
-    at = 6  # the sixth chat request, among the map's
+    at = 13  # the map stage's last: two students' maps are stored before it
     provider.fault = lambda _, n: (
         httpx.Response(code, json={"error": {"code": code}}) if n >= at else None
     )
@@ -222,6 +222,8 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
     for stage in ("read", "second", "grade", "second grade"):
         assert any(re.match(rf"{stage} +0/3 ", line) for line in lines(stopped.output))
     assert not list(workspace.students_dir.glob("*/readings"))
+    assert not list(workspace.students_dir.glob("*/coverage.json"))  # nor the check
+    assert not list(workspace.audit_dir.glob("*.json"))  # nor the class audit
     assert not workspace.run_log.exists()
 
     healthy = Provider(CHAIN)

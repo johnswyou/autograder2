@@ -395,3 +395,26 @@ def test_an_edited_file_that_does_not_parse_is_named_with_its_place(
         [found] = said(result)
         assert result.exit_code == 1
         assert found.startswith(line), found
+
+
+# --- stored files damaged (task 5.4a, fix round 1) -----------------------------------
+
+
+def damaged_line(path: Path, again: str = "grade") -> str:
+    return (
+        f"{path} is damaged (not JSON). Delete it and run `redpen {again}` again to"
+        " have it made again."
+    )
+
+
+def test_a_damaged_coverage_file_is_named_and_stops_the_report(
+    class_folder: Path,
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    [first, *_] = sorted(WS.students_dir.iterdir())
+    coverage = WS.coverage_json(first.name)
+    coverage.write_bytes(coverage.read_bytes()[:20])  # cut short, as by a full disk
+
+    result = runner.invoke(app, ["report", "--workspace", "ws"])
+
+    assert_one_line(result, damaged_line(coverage))

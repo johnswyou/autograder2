@@ -148,6 +148,8 @@ async def grade_class(
 
             for stage in stages:
                 await asyncio.gather(*(one(stage, s) for s in keys))
+                if gw.stopped:  # no later stage, the check included
+                    break
                 if stage == "map":  # the class mapped: check it, in code
                     pages = {p.number for s in students for p in s.pages}
                     check = progress.add_task("check", total=len(pages), cost="")

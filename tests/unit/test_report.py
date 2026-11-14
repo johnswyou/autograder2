@@ -2872,6 +2872,7 @@ def audit_reason(reason: str) -> Step:
             groups=1,
             changed=1,
             undecided=0,
+            split=0,
             changes=[change],
             key_suspect=None,
         )
