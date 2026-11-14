@@ -538,6 +538,28 @@ def test_a_file_that_cannot_be_ingested_fails_the_run_after_the_reports(
     assert "Dee" not in result.output + result.stderr
 
 
+def test_what_the_roster_found_and_ingest_left_out_is_counted_on_the_terminal(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    Path("roster.csv").write_text("Ann Example\nMissing Student\n")
+    Path("subs", "notes.txt").write_text("not a submission")
+    roster = ["--roster", "roster.csv"]
+
+    result = runner.invoke(app, ["grade", "subs", "--workspace", "ws", *roster])
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines()[-1] == (
+        "Students not on the roster: 2. Roster names with no submission: 1. Files"
+        f" left out of ingest: 1. {WS.run_report_md} lists them."
+    )
+    assert "Example" not in result.output + result.stderr
+    assert "Missing" not in result.output + result.stderr
+    report = WS.run_report_md.read_text().splitlines()
+    assert "- `Missing Student`" in report
+    assert "Files left out because they are not PDFs: 1." in report
+
+
 def test_no_pdf_gives_exit_code_1_with_one_line(router: OpenRouter) -> None:
     for pdf in Path("subs").iterdir():
         pdf.unlink()

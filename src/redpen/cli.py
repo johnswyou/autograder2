@@ -944,6 +944,15 @@ def _grade(
             " them.",
             err=True,
         )
+    outside, missing = len(summary.not_on_roster), len(summary.missing_from_roster)
+    left = summary.ignored_files + len(summary.unsafe_members)
+    if outside or missing or left:
+        typer.echo(
+            f"Students not on the roster: {outside}. Roster names with no"
+            f" submission: {missing}. Files left out of ingest: {left}."
+            f" {ws.run_report_md} lists them.",
+            err=True,
+        )
     if summary.duplicates:
         typer.echo(
             f"Students with more than one PDF: {len(summary.duplicates)}. The newest"
@@ -1076,7 +1085,8 @@ def _rebuilt(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
     """Rebuild `out/` for the ingest's students, saying nothing, or exit with one
     line; the open flags."""
     try:
-        return write_report(ws, key, summary.students, [f.file for f in summary.failed])
+        failed = [f.file for f in summary.failed]
+        return write_report(ws, key, summary.students, failed, summary)
     except OverrideError as error:  # a file changed since it was checked
         _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work

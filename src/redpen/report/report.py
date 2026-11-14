@@ -29,6 +29,7 @@ from redpen.grade.coverage import (
     unclaimed_shown,
 )
 from redpen.grade.grade import graded_from, levels, part_points
+from redpen.grade.ingest import IngestSummary
 from redpen.grade.map import name_counts
 from redpen.grade.read import digest, problem_of, unsure
 from redpen.grade.second_grade import PROFILES, differing
@@ -333,11 +334,13 @@ def write_report(
     key: Key,
     students: Sequence[IngestRecord],
     not_ingested: Sequence[str] = (),
+    ingested: IngestSummary | None = None,
 ) -> list[Flag]:
     """Write `out/` for `students`, in the order given: the three score files, one
     feedback file per student (any other is removed), the review list and the run
     report, which also lists the files of `not_ingested` (names inside the
-    submissions, never opened here). What is written is `derive`'s: a file of
+    submissions, never opened here) and what the roster found and ingest left out
+    in the summary `ingested`. What is written is `derive`'s: a file of
     corrections or reviews that cannot be loaded raises `OverrideError`. Returns
     the open flags."""
     problems, pages = columns(workspace, key)
@@ -378,7 +381,7 @@ def write_report(
                 detail.append(row)
         text = _feedback(key, title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
-    run_report = _run_report(workspace, key, pages, found, not_ingested)
+    run_report = _run_report(workspace, key, pages, found, not_ingested, ingested)
     review_md = review(
         workspace, key, scored, raised, found.stale, found.closed, found.outdated
     )
@@ -916,10 +919,12 @@ def _run_report(
     pages: Sequence[int],
     found: Derived,
     not_ingested: Sequence[str],
+    ingested: IngestSummary | None,
 ) -> str:
     """The state of every key part, the class audit, the second read's and the
     second grade's results, each page's maximum and the total, the students with
-    parts not scored and why, the files not ingested, the corrections not applied
+    parts not scored and why, the files not ingested, what the roster found and
+    ingest left out, the corrections not applied
     and the reviews out of date, the flags raised by code and how many a review
     closes, the pinned models, and the cost by role from the usage ledger."""
     scored, raised = found.scored, found.raised
@@ -980,6 +985,7 @@ def _run_report(
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
         lines.append("")
         lines += [f"- {code_span(file)}: {NOT_INGESTED}" for file in not_ingested]
+    lines += _left_out(ingested)
     keys = {s.student.student_key for s, _ in scored}
     lines += [*_stale(found.stale, keys), *_outdated(found.outdated, keys)]
     counts = Counter(f.code for f in raised)
@@ -1024,6 +1030,27 @@ def _run_report(
         cost = number(u.cost)
         lines.append(f"| {role} | {u.prompt_tokens} | {u.completion_tokens} | {cost} |")
     return "\n".join(lines) + "\n"
+
+
+def _left_out(ingested: IngestSummary | None) -> list[str]:
+    """The run report's section on the names the roster found and the files ingest
+    left out, each name in code, or nothing when there is none."""
+    if ingested is None:
+        return []
+    named = [
+        ("Names on the roster with no submission", ingested.missing_from_roster),
+        ("Students ingested whose names are not on the roster", ingested.not_on_roster),
+        ("ZIP members left out because of their names", ingested.unsafe_members),
+    ]
+    lines: list[str] = []
+    for what, names in named:
+        if names:
+            listed = [f"- {code_span(n)}" for n in names]
+            lines += ["", f"{what}: {len(names)}.", "", *listed]
+    if ingested.ignored_files:
+        files = ingested.ignored_files
+        lines += ["", f"Files left out because they are not PDFs: {files}."]
+    return ["", "## Roster and files left out", *lines] if lines else []
 
 
 def _second_grade_lines(

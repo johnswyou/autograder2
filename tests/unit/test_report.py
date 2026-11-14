@@ -1313,6 +1313,59 @@ def test_the_run_report_has_no_list_of_files_not_ingested_when_there_are_none(
     assert "Files not ingested" not in built.workspace.run_report_md.read_text()
 
 
+def test_what_the_roster_found_and_ingest_left_out_is_listed_in_the_run_report(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    summary = IngestSummary(
+        students=[student],
+        duplicates=[],
+        not_on_roster=["A Student"],
+        missing_from_roster=["Gone Away", "x\n# Total: 16 / 16"],
+        ignored_files=2,
+        unsafe_members=["../x.pdf"],
+        failed=[],
+    )
+    write_report(workspace, KEY, [student])
+    before = workspace.run_report_md.read_text()
+    nothing = summary.model_copy(
+        update={
+            "not_on_roster": [],
+            "missing_from_roster": [],
+            "ignored_files": 0,
+            "unsafe_members": [],
+        }
+    )
+
+    write_report(workspace, KEY, [student], ingested=nothing)
+    assert workspace.run_report_md.read_text() == before
+    write_report(workspace, KEY, [student], ingested=summary)
+
+    text = workspace.run_report_md.read_text()
+    start = text.index("\n## Roster and files left out\n")
+    end = text.index("\n## ", start + 1)
+    listed = text[start:end].split("\n", 3)[3]
+    assert listed.splitlines() == [
+        "Names on the roster with no submission: 2.",
+        "",
+        "- `Gone Away`",
+        "- `x?# Total: 16 / 16`",
+        "",
+        "Students ingested whose names are not on the roster: 1.",
+        "",
+        "- `A Student`",
+        "",
+        "ZIP members left out because of their names: 1.",
+        "",
+        "- `../x.pdf`",
+        "",
+        "Files left out because they are not PDFs: 2.",
+    ]
+    assert text[:start] + text[end:] == before
+    assert not any(line.startswith("# Total") for line in text.splitlines())
+
+
 def test_a_feedback_file_left_by_an_earlier_run_is_removed(
     built: Built, tmp_path: Path
 ) -> None:
