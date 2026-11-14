@@ -103,7 +103,10 @@ def check_answer(part: KeyPart, reading: Reading, policies: Policies) -> Check |
             return _number(part, reading.final_answer, policies)
         if part.answer.expression is not None:
             expression = reading.final_answer.expression
-            return _expression(part.answer.expression, expression)
+            rel_tol = (
+                policies.rel_tol if part.answer.rel_tol is None else part.answer.rel_tol
+            )
+            return _expression(part.answer.expression, expression, rel_tol)
     except Exception:  # a unit Pint chokes on, a value out of Decimal's range
         return Check(UNSURE, "The check could not be completed.")
     return None
@@ -253,7 +256,7 @@ def _figures(x: Decimal, k: int) -> Decimal:
 # --- expressions -------------------------------------------------------------------
 
 
-def _expression(key_text: str, said_text: str | None) -> Check:
+def _expression(key_text: str, said_text: str | None, rel_tol: float) -> Check:
     if not (said_text or "").strip():
         return Check(UNSURE, "No expression is stated.")
     try:
@@ -281,7 +284,9 @@ def _expression(key_text: str, said_text: str | None) -> Check:
     logs = [cmath.log10]
     if "log" in _names(key, "f") | _names(said, "f"):
         logs.append(cmath.log)
-    found = {_compare(key, said, log) for log in logs}
+    # A tolerance that is not a finite number would match anything.
+    tol = rel_tol if math.isfinite(rel_tol) else 0.0
+    found = {_compare(key, said, log, tol) for log in logs}
     if len(found) > 1:
         return Check(UNSURE, "Whether log is base 10 or natural decides it.")
     return found.pop()
@@ -472,11 +477,15 @@ def evaluate(text: str) -> float | None:
     return value.real
 
 
-def _compare(key: Node, said: Node, log: Callable[[complex], complex]) -> Check:
+def _compare(
+    key: Node, said: Node, log: Callable[[complex], complex], rel_tol: float
+) -> Check:
     """Both trees evaluated at `POINTS` fixed points of their names, between 0.5 and
-    3. A point where either fails, or is not real, is left out."""
+    3. A point where either fails, or is not real, is left out. Within `rel_tol` of
+    the key's value at every point is a match, as a number is (`_how`)."""
     names = sorted(_names(key, "v") | _names(said, "v"))
     agree: list[bool] = []
+    near: list[bool] = []
     for i in range(POINTS):
         # Irrational steps, so no two names share a value at any point.
         at = {
@@ -490,10 +499,16 @@ def _compare(key: Node, said: Node, log: Callable[[complex], complex]) -> Check:
         real = (abs(x.imag) <= 1e-9 * max(1, abs(x.real)) for x in (a, b))
         if cmath.isfinite(a) and cmath.isfinite(b) and all(real):
             agree.append(math.isclose(a.real, b.real, rel_tol=1e-9, abs_tol=1e-12))
+            near.append(abs(b.real - a.real) <= rel_tol * (abs(a.real) or 1))
     if len(agree) < 3:
         return Check(UNSURE, "The expressions could not be evaluated at enough points.")
     if all(agree):
         return Check(MATCH, "The expression equals the key's at every point tried.")
+    if all(near):
+        return Check(
+            MATCH,
+            "The expression is within tolerance of the key's at every point tried.",
+        )
     if not any(agree):
         return Check(NO_MATCH, "The expression differs from the key's at every point.")
     return Check(UNSURE, "The expression equals the key's at some points, not all.")

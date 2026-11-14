@@ -19,6 +19,8 @@ PARTS = {p.id: p for p in KEY.parts}
 ON = Policies()  # 2% relative, units required, significant figures not penalised
 OFF = Policies(require_units=False)
 FIGURES = Policies(penalise_sig_figs=True)
+# Within a tolerance, x + 1 matches x where x is large: "not plus one" holds with none.
+TIGHT = Policies(rel_tol=0)
 FAST = 0.25  # seconds: "well under a second", with room for a slow machine
 
 
@@ -226,6 +228,14 @@ EXPRESSIONS: list[tuple[str, str, str, str]] = [
     ("log against log", "log(x)", "log(x)", MATCH),
     ("a function not on the list", "x", "f(x)", UNSURE),
     ("a key it cannot read", "x!", "x", UNSURE),
+    # Within the policies' 2% at every point, as a number within tolerance is.
+    ("coefficients multiplied out and rounded", "0.5*9.81*t^2", "4.9 t^2", MATCH),
+    ("a coefficient rounded", "4.905*t^2", "4.9*t^2", MATCH),
+    ("pi rounded", "2*pi*r", "6.283 r", MATCH),
+    ("a root rounded", "2*sqrt(3)", "3.46", MATCH),
+    ("a fraction rounded", "1/3", "0.333", MATCH),
+    ("a root over two rounded", "sqrt(2)/2", "0.707", MATCH),
+    ("a coefficient 5% off", "2*pi*r", "6.6 r", NO_MATCH),
 ]
 
 
@@ -262,6 +272,43 @@ def test_a_stated_expression_is_checked_against_the_key(
     found = check_answer(symbolic(key), stated(expression=said), ON)
 
     assert found is not None and found.verdict == verdict
+
+
+EXACT = "The expression equals the key's at every point tried."
+NEAR = "The expression is within tolerance of the key's at every point tried."
+
+
+@pytest.mark.parametrize(
+    ("rel_tol", "policies", "said", "found"),
+    [
+        (None, ON, "2*pi*r", (MATCH, EXACT)),
+        (None, ON, "6.283 r", (MATCH, NEAR)),
+        (None, Policies(rel_tol=0), "6.283 r", (NO_MATCH, None)),
+        (0.1, ON, "6.6 r", (MATCH, NEAR)),
+        (0.0, ON, "6.283 r", (NO_MATCH, None)),
+        (INF, ON, "7 r", (NO_MATCH, None)),
+    ],
+    ids=[
+        "exact",
+        "the policies' tolerance",
+        "the policies' tolerance of zero",
+        "the part's own tolerance",
+        "the part's own tolerance of zero",
+        "a tolerance of infinity",
+    ],
+)
+def test_an_expression_is_held_to_its_part_s_tolerance_else_the_policies(
+    rel_tol: float | None, policies: Policies, said: str, found: tuple[str, str | None]
+) -> None:
+    part = PARTS["Q5.a"].model_copy(
+        update={"answer": answer(expression="2*pi*r", rel_tol=rel_tol)}
+    )
+
+    check_of = check_answer(part, stated(expression=said), policies)
+
+    verdict, reason = found
+    assert check_of is not None and check_of.verdict == verdict
+    assert reason is None or check_of.reason == reason
 
 
 def test_the_table_has_forty_pairs_or_more() -> None:
@@ -416,7 +463,7 @@ def test_an_expression_is_equivalent_to_itself_reordered_and_not_plus_one(
     key = symbolic(whole)
 
     def verdict(said: str) -> str:
-        found = check_answer(key, stated(expression=said), ON)
+        found = check_answer(key, stated(expression=said), TIGHT)
         assert found is not None
         return found.verdict
 
