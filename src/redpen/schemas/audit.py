@@ -34,6 +34,6 @@ class PartAudit(Schema):
     groups: int
     changed: int
     undecided: int
-    split: int = 0  # absent from an audit stored before the limit
+    split: int
     changes: list[Change]
     key_suspect: Suspect | None

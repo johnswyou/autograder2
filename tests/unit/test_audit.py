@@ -844,6 +844,7 @@ def test_a_change_applies_only_while_its_grade_stands(
             groups=1,
             changed=1,
             undecided=0,
+            split=0,
             changes=[change],
             key_suspect=None,
         ),
@@ -1062,3 +1063,22 @@ def test_the_parts_of_a_split_group_are_decided_each_on_its_own(tmp_path: Path) 
     first, second = ({c["case"] for c in asked(r)["cases"]} for r in model.requests)
     assert len(first) == len(second) == 30
     assert sorted(c.after for c in found.changes) == [0] * 15 + [1] * 15
+
+
+def test_an_audit_stored_before_split_is_taken_as_none_until_the_next_grade(
+    tmp_path: Path,
+) -> None:
+    workspace = new_workspace(tmp_path)
+    for who, c1 in ((ANN, "1"), (BEN, "0")):
+        grade = graded("Q4.c", {"Q4.c.c1": c1, "Q4.c.c2": "1"})
+        store(workspace, who, [reading("Q4.c")], [record(Q4C, grade)])
+    audit(workspace, Q4C, Grader())
+    path = workspace.audit_json("Q4.c")
+    earlier = json.loads(path.read_text())
+    del earlier["split"]
+    path.write_text(json.dumps(earlier))
+
+    write_report(workspace, Q4C, students(ANN, BEN))
+
+    report = workspace.run_report_md.read_text().splitlines()
+    assert "No class audit is stored for the key as it is." in report

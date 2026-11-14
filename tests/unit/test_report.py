@@ -1955,6 +1955,7 @@ def test_the_proposed_score_is_the_feedback_s_awarded_withheld_or_after_the_audi
         groups=1,
         changed=1,
         undecided=0,
+        split=0,
         changes=[change("s1", 1, 0), change("s3", 2, 1), change("s3", 0, 1, "c2")],
         key_suspect=None,
     )
@@ -2017,6 +2018,7 @@ def test_the_key_s_entry_links_its_verification_and_gives_the_audit_s_counts(
             groups=0,
             changed=0,
             undecided=0,
+            split=0,
             changes=[],
             key_suspect=Suspect(shared=8, answered=9),
         )
@@ -2397,6 +2399,7 @@ def test_a_correction_wins_over_the_class_audit_and_closes_no_flag(
             groups=1,
             changed=1,
             undecided=0,
+            split=0,
             changes=[change],
             key_suspect=None,
         ),
@@ -3137,6 +3140,7 @@ def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
             groups=0,
             changed=0,
             undecided=0,
+            split=0,
             changes=[],
             key_suspect=Suspect(shared=shared, answered=9),
         )
@@ -3714,6 +3718,7 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
             groups=1,
             changed=1,
             undecided=0,
+            split=0,
             changes=[
                 AuditChange(
                     student_key="s4",

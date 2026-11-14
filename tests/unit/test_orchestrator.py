@@ -872,8 +872,8 @@ def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> Non
     assert router.requests == []
     assert not (WS.root / "out").exists()
     lines = result.output.splitlines()
-    assert [line.split()[0] for line in lines[2:8]] == [
-        "prepare", "map", "read", "grade", "second", "total"
+    assert [line.split()[0] for line in lines[2:10]] == [
+        "prepare", "map", "read", "second", "grade", "second", "audit", "total"
     ]  # fmt: skip
     assert lines[2].split()[1:] == ["0", "0", "0", "0.0000"]  # the key exists
     assert "- The key exists, so prepare makes no call." in lines

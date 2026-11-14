@@ -456,12 +456,21 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
 def audits(workspace: Workspace, key: Key) -> dict[str, PartAudit]:
     """The class audit of each key part, by part id: each stored audit file made
     under the part's current version."""
-    found = {p.id: _read(workspace.audit_json(p.id), PartAudit) for p in key.parts}
+    found = {p.id: _audit(workspace.audit_json(p.id)) for p in key.parts}
     return {
         p.id: audit
         for p in key.parts
         if (audit := found[p.id]) and audit.part_hash == part_hash(p, key.policies)
     }
+
+
+def _audit(path: Path) -> PartAudit | None:
+    try:
+        return _read(path, PartAudit)
+    except (
+        ValidationError
+    ):  # an earlier shape, before `split`: the next grade redoes it
+        return None
 
 
 def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
