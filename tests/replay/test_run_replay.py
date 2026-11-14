@@ -1,11 +1,13 @@
 """`redpen grade` end to end on three fixture submissions, with recorded calls.
 
 This is the one replay test that chains stages: the reader is given the mapper's
-map and the grader the reader's readings, not the truth's. So a change to any map,
-read or grade prompt orphans its recording, `tests/recordings/run_chain.jsonl`.
-That was made, as the stages' recordings were, by running this seed live into a
-scratch workspace with a persistent call cache and keeping exactly the calls the
-run made (task 2.7 report). This test loads the recording itself into an
+map and the grader the reader's readings, not the truth's, and under the lock's
+profile, balanced, each problem the grader graded is graded a second time. So a
+change to any map, read or grade prompt orphans its recording,
+`tests/recordings/run_chain.jsonl`. That was made, as the stages' recordings were,
+by running this seed live into a scratch workspace with a persistent call cache and
+keeping exactly the calls the run made (task 2.7 report; the second grade's four
+calls were added so in task 4.6b). This test loads the recording itself into an
 offline gateway and does not use the `replay` fixture, so `REDPEN_RECORD=1`
 neither calls the network here nor rewrites the recording.
 
@@ -97,6 +99,13 @@ def test_three_students_are_graded_end_to_end_and_again_for_nothing(
 
     log = workspace.run_log.read_text() if workspace.run_log.exists() else ""
     assert first.exit_code == 0, first.output + log
+    # Nothing failed, the second grade of each problem a model graded among them.
+    assert not log
+    assert (
+        "Awards graded a second time, by the same grader with the same request, and"
+        " compared: 22. Different: 0. Parts flagged (`graders_disagree`): 0."
+        " Problems whose second grade failed: 0."
+    ) in workspace.run_report_md.read_text().splitlines()
     students = read_model(workspace.ingest_summary_json, IngestSummary).students
     assert len(students) == len(CLASSES)
     out = workspace.root / "out"
