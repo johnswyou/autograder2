@@ -5,7 +5,7 @@
 # How much checking is done: "economy", "balanced" or "thorough".
 profile = "balanced"
 
-# Longest image edge, in pixels, sent to a model.
+# Longest image edge, in pixels, sent to a model: from 256 to 4096.
 image_budget = 1536
 
 # Send student work only to endpoints that retain nothing: zero data retention,
@@ -15,7 +15,8 @@ strict_privacy = true
 
 # Blank each student's name in the images sent after the map: the mapper is
 # asked where names are written or printed, and sees each page before it is
-# blanked. A name that overlaps a response is left as it is.
+# blanked. A name that overlaps a response is left as it is. Once on for a
+# workspace, it stays on for it.
 mask_names = false
 
 # The model behind each role: an OpenRouter slug, or a ~author/family-latest
