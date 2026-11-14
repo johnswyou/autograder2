@@ -14,6 +14,7 @@ import re
 import shutil
 import socket
 import sqlite3
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, replace
@@ -1264,6 +1265,26 @@ def test_text_a_spreadsheet_would_run_is_neutralised_in_every_csv(
     by_name = {(r[0], r[2]): r for r in detail}
     assert by_name["'" + NAMES[0], "Q4.b.c1"][5] == "'+1 for the method, line 2"
     assert by_name["'" + NAMES[1], "Q4.b.c1"][3:5] == ["2", "2"]
+
+
+def test_a_csv_cell_holds_no_control_or_format_character(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    # Terminal escapes, a bell, a direction mark and a zero-width space.
+    name = "\x1b[2J\x1b]0;pwned\x07Lee \u202eSmith\u200b"
+    student = copy_student(built, workspace, "typed-in-place", name, "s1")
+
+    write_report(workspace, KEY, [student])
+
+    for path in (
+        workspace.scores_by_problem_csv,
+        workspace.scores_by_page_csv,
+        workspace.scores_detail_csv,
+    ):
+        text = path.read_text(encoding="utf-8-sig")
+        assert "[2J]0;pwnedLee Smith" in text, path
+        assert all(unicodedata.category(c)[0] != "C" or c in "\r\n" for c in text)
 
 
 def test_a_display_name_never_becomes_a_path(built: Built, tmp_path: Path) -> None:

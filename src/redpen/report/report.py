@@ -794,14 +794,19 @@ def _write_csv(path: Path, header: list[str], rows: Iterable[list[Cell]]) -> Non
 
 
 def _cell(value: Cell) -> str:
-    """A number as `number` prints it, None as an empty cell, and text that a
-    spreadsheet would run as a formula behind an apostrophe."""
+    """A number as `number` prints it, None as an empty cell, and text without its
+    control and format characters but white space (a file name may hold terminal
+    escapes or a direction mark), behind an apostrophe when a spreadsheet would
+    run it as a formula."""
     if value is None:
         return ""
     if isinstance(value, Decimal):
         return number(value)
     if isinstance(value, int):
         return str(value)
+    value = "".join(
+        c for c in value if unicodedata.category(c)[0] != "C" or c.isspace()
+    )
     # Leading white space too: an importer that trims it would run the rest.
     risky = value.startswith(FORMULA_STARTS) or value.lstrip().startswith(
         FORMULA_STARTS
