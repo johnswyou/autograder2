@@ -47,14 +47,14 @@ cd ~/redpen-practice
    redpen run practice-set-3.pdf submissions --dry-run
    ```
 
-3. **Grade.** This writes the answer key and then grades every student. It shows a progress bar for each stage with the money spent so far. Everything goes into the folder `practice-set-3.redpen` beside the PDF, called the workspace. You can stop it with Ctrl-C and run the same command again: nothing already answered is paid for twice. If its last lines say that some students failed, run it again.
+3. **Grade.** This writes the answer key and then grades every student. While it grades, it shows a progress bar for each stage with the money spent so far. Everything goes into the folder `practice-set-3.redpen` beside the PDF, called the workspace. You can stop it with Ctrl-C and run the same command again: nothing already answered is paid for twice. If its last lines say that some students failed, run it again.
 
    ```
    redpen run practice-set-3.pdf submissions
    ```
 
 4. **Look at the results** in `practice-set-3.redpen/out/`:
-   - `scores_by_problem.csv` and `scores_by_page.csv`: a row per student, for a spreadsheet. The `status` column says `final`, `provisional` (a flag on the student is open: look before you use it) or `incomplete` (a part has no score).
+   - `scores_by_problem.csv` and `scores_by_page.csv`: a row per student, for a spreadsheet. The `status` column of `scores_by_problem.csv` says `final`, `provisional` (a flag of high or medium severity is open: look before you use the score) or `incomplete` (a part has no score).
    - `feedback/`: one file per student, with the points of each part and the reasons points were lost. Read it before you send it.
    - `review.md`: the review list, most serious first.
    - `run_report.md`: the run as a whole: the key, what was flagged, the models used, and what it cost.
