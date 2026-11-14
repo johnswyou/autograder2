@@ -21,6 +21,8 @@ from redpen.llm.cache import CallCache, cache_key
 from redpen.llm.client import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
+    MAX_WAIT,
+    STOPS,
     FatalError,
     Gateway,
     Part,
@@ -28,6 +30,7 @@ from redpen.llm.client import (
     Result,
     RetryableError,
     StageError,
+    StopError,
     _locations,
     finish_all,
     without_validation_keywords,
@@ -831,3 +834,144 @@ def test_finish_all_raises_the_first_error_noting_every_later_one() -> None:
     assert "also failed: StageError" in "".join(
         traceback.format_exception(raised.value)
     )
+
+
+# --- task 5.4a: rate limits, a provider that fails, and failures no retry cures ----
+
+
+def limited(code: int, wait: str | None) -> httpx.Response:
+    headers = {} if wait is None else {"Retry-After": wait}
+    return httpx.Response(code, headers=headers, json={"error": {"code": code}})
+
+
+@pytest.mark.parametrize(
+    ("reply", "waited"),
+    [
+        (limited(429, "7"), 7),
+        (limited(503, "3"), 3),
+        (limited(429, "0"), 0),
+        (limited(402, "4"), 4),  # the in-flight budget, not the balance
+        (limited(429, "3600"), MAX_WAIT),
+    ],
+    ids=["429", "503", "now", "402 with the header", "past the bound"],
+)
+def test_a_retry_after_is_waited_for_before_the_retry(
+    tmp_path: Path, reply: httpx.Response, waited: float
+) -> None:
+    server = Server(reply, '{"letter": "B"}')
+    sleeps: list[float] = []
+
+    result = run(tmp_path / "cache.sqlite", server, ask(), sleep=sleeps_into(sleeps))
+
+    assert result.value == Answer(letter="B")
+    assert len(server.requests) == 2
+    assert sum(sleeps) == pytest.approx(waited, abs=0.05)
+
+
+@pytest.mark.parametrize("wait", [None, "soon", "-5", "nan"])
+def test_without_a_usable_retry_after_the_backoff_applies(
+    tmp_path: Path, wait: str | None
+) -> None:
+    server = Server(limited(429, wait), '{"letter": "B"}')
+    sleeps: list[float] = []
+
+    run(tmp_path / "cache.sqlite", server, ask(), sleep=sleeps_into(sleeps))
+
+    [delay] = sleeps
+    assert BACKOFF_SECONDS <= delay <= 2 * BACKOFF_SECONDS
+
+
+OTHER = MODEL.model_copy(update={"slug": "vendor/model-2"})
+
+
+def test_a_wait_told_to_one_request_holds_the_model_s_other_requests(
+    tmp_path: Path,
+) -> None:
+    server = Server(limited(429, "5"), '{"letter": "B"}')
+    sleeps: list[float] = []
+
+    async def scenario(gateway: Gateway) -> list[float]:
+        await ask()(gateway)  # told to wait 5 s, and waits
+        waited = []
+        for model in (MODEL, OTHER):  # one more request to each model
+            before = len(sleeps)
+            await ask(items=(f"to {model.slug}",), model=model)(gateway)
+            waited.append(sum(sleeps[before:]))
+        return waited
+
+    same, other = run(
+        tmp_path / "cache.sqlite", server, scenario, sleep=sleeps_into(sleeps)
+    )
+
+    assert same == pytest.approx(5, abs=0.05)  # what is left of the wait
+    assert other == 0
+    assert len(server.requests) == 4
+
+
+def test_a_model_that_rate_limits_its_first_answers_is_asked_once_more_for_each(
+    tmp_path: Path,
+) -> None:
+    limit = 3
+    answered: set[str] = set()
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        item = body["messages"][1]["content"][1]["text"]
+        assert item not in answered, "asked again after it was answered"
+        asked.append(item)
+        if len(asked) <= limit:
+            return limited(429, "2")
+        answered.add(item)
+        return completion('{"letter": "B"}')
+
+    async def scenario(gateway: Gateway) -> list[Result[BaseModel]]:
+        return await asyncio.gather(
+            *[ask(items=(f"item {n}",))(gateway) for n in range(10)]
+        )
+
+    found = run(tmp_path / "cache.sqlite", handler, scenario, sleep=sleeps_into([]))
+
+    assert len(asked) == 10 + limit
+    assert len(answered) == 10
+    assert all(r.value == Answer(letter="B") for r in found)
+
+
+@pytest.mark.parametrize("code", [401, 402, 404])
+def test_a_failure_no_retry_cures_stops_every_later_request_with_one_fixed_line(
+    tmp_path: Path, code: int
+) -> None:
+    server = Server(httpx.Response(code, json={"error": {"code": code}}))
+
+    async def scenario(gateway: Gateway) -> list[Result[BaseModel] | BaseException]:
+        first = await asyncio.gather(ask()(gateway), return_exceptions=True)
+        later = [ask(items=(f"item {n}",))(gateway) for n in range(5)]
+        return [*first, *await asyncio.gather(*later, return_exceptions=True)]
+
+    with pytest.raises(StopError) as stopped:
+        run(tmp_path / "cache.sqlite", server, scenario)
+
+    assert len(server.requests) == 1  # not retried, and nothing more is sent
+    assert str(stopped.value) == STOPS[code]
+    assert "\n" not in STOPS[code] and "again" in STOPS[code]
+
+
+def test_identical_requests_in_flight_together_are_sent_once(tmp_path: Path) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0)  # let the identical calls meet
+        return completion('{"letter": "B"}')
+
+    sent: list[int] = []
+
+    async def counted(request: httpx.Request) -> httpx.Response:
+        sent.append(1)
+        return await handler(request)
+
+    async def scenario(gateway: Gateway) -> list[Result[BaseModel]]:
+        return await asyncio.gather(*[ask()(gateway) for _ in range(5)])
+
+    found = run(tmp_path / "cache.sqlite", counted, scenario)
+
+    assert len(sent) == 1
+    assert [r.value for r in found] == [Answer(letter="B")] * 5
+    assert [r.from_cache for r in found].count(False) == 1

@@ -7,6 +7,7 @@ import random
 import re
 import sqlite3
 import time
+from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -24,6 +25,20 @@ from redpen.schemas.strict import strict_problems
 
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = 1.0
+# The longest `Retry-After` taken as asked, in seconds: OpenRouter's rate limits are
+# per minute, and a longer wait would hold the whole run on one header.
+MAX_WAIT = 60.0
+# The failures no retry cures, each said in one line: every later request would
+# meet them too, so the run stops at the first.
+STOPS = {
+    401: "OpenRouter refused the API key (HTTP 401). Set OPENROUTER_API_KEY to a"
+    " valid key and run the same command again; what was answered is kept.",
+    402: "The OpenRouter account has no credit left (HTTP 402). Add credit and run"
+    " the same command again; what was answered is kept.",
+    404: "OpenRouter no longer serves a pinned model or endpoint (HTTP 404)."
+    " `redpen models check --workspace DIR` names it; run the same command again"
+    " once it is served, or start a new workspace. What was answered is kept.",
+}
 NAME = "[name]"
 """What each name of the class is replaced by in the text posted to a model."""
 
@@ -55,11 +70,21 @@ type Part = str | bytes
 class RetryableError(Exception):
     """A rate limit or server error on every attempt."""
 
+    def __init__(self, message: str, wait: float | None = None) -> None:
+        super().__init__(message)
+        self.wait = wait
+        """The seconds the provider asked to wait (`Retry-After`), if it did."""
+
 
 class FatalError(Exception):
     """A failure retrying cannot fix: a bad request, no credits, no provider that
     meets the routing requirements, a response served by another model, or a cache
     miss while offline."""
+
+
+class StopError(FatalError):
+    """One of `STOPS`: once met, the gateway sends nothing more, and leaving its
+    `async with` raises it."""
 
 
 class ResponseValidationError(Exception):
@@ -146,6 +171,9 @@ class Gateway:
         self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}
         self._sleep = sleep
+        self._asking: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self.stopped: StopError | None = None
+        """The failure no retry cures that stopped the gateway, if one did."""
 
     async def __aenter__(self) -> Self:
         return self
@@ -153,6 +181,9 @@ class Gateway:
     async def __aexit__(self, *exc_info: object) -> None:
         await self._http.aclose()
         self._db.close()
+        # Raised even where a stage took each failure as one unit's.
+        if self.stopped is not None and exc_info[0] is None:
+            raise self.stopped
 
     async def call[T: BaseModel](
         self,
@@ -198,65 +229,68 @@ class Gateway:
         key = cache_key(model.slug, keyed, schema, sent, prompt_version, draw)
         if (asked := _asked.get()) is not None:
             asked.append((self, key))
-        if (raw := self._cache.get(key)) is not None:
-            response = json.loads(raw)
-            try:
-                value = response_model.model_validate_json(_content(response))
-            except ValidationError as error:
-                # Fetching it again could change a grade (design 10.3).
-                raise ResponseValidationError(
-                    f"the stored {name} for role {role} no longer validates"
-                    f" ({_locations(error, schema)})."
-                    f" Bump prompt version {prompt_version}."
-                ) from None
-            return Result(value, response["model"], _usage(response, model), True)
-        if self._offline:
-            raise FatalError(
-                f"offline, and nothing is recorded for role {role}"
-                f" at prompt version {prompt_version}"
-            )
+        # One request at a time per key: an identical request already in flight is
+        # awaited and then found in the cache, not sent again.
+        async with self._asking[key]:
+            if (raw := self._cache.get(key)) is not None:
+                response = json.loads(raw)
+                try:
+                    value = response_model.model_validate_json(_content(response))
+                except ValidationError as error:
+                    # Fetching it again could change a grade (design 10.3).
+                    raise ResponseValidationError(
+                        f"the stored {name} for role {role} no longer validates"
+                        f" ({_locations(error, schema)})."
+                        f" Bump prompt version {prompt_version}."
+                    ) from None
+                return Result(value, response["model"], _usage(response, model), True)
+            if self._offline:
+                raise FatalError(
+                    f"offline, and nothing is recorded for role {role}"
+                    f" at prompt version {prompt_version}"
+                )
 
-        body: dict[str, Any] = {
-            **sent,
-            "model": model.slug,
-            "messages": _messages(system, shared, items, digest=False),
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": name,
-                    "strict": True,
-                    "schema": without_validation_keywords(schema),
+            body: dict[str, Any] = {
+                **sent,
+                "model": model.slug,
+                "messages": _messages(system, shared, items, digest=False),
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": name,
+                        "strict": True,
+                        "schema": without_validation_keywords(schema),
+                    },
                 },
-            },
-            "provider": provider,
-        }
-        if session_id is not None:
-            body["session_id"] = session_id
-        response = await self._post(role, model, body)
-        output = _content(response)
-        try:
-            value = response_model.model_validate_json(output)
-        except ValidationError as error:
-            invalid = [{"role": "assistant", "content": output}] if output else []
-            body["messages"] = [
-                *body["messages"],
-                *invalid,
-                {"role": "user", "content": str(error)},
-            ]
+                "provider": provider,
+            }
+            if session_id is not None:
+                body["session_id"] = session_id
             response = await self._post(role, model, body)
+            output = _content(response)
             try:
-                value = response_model.model_validate_json(_content(response))
-            except ValidationError as again:
-                cut = _first_choice(response).get("finish_reason") == "length"
-                # `from None`: Pydantic's own text quotes the output, which comes
-                # from student work.
-                raise ResponseValidationError(
-                    f"{model.slug} returned an invalid {name} twice"
-                    f" ({_locations(again, schema)})"
-                    + (", the response cut off at the token limit" if cut else "")
-                ) from None
-        self._cache.put(key, json.dumps(response))
-        return Result(value, response["model"], _usage(response, model), False)
+                value = response_model.model_validate_json(output)
+            except ValidationError as error:
+                invalid = [{"role": "assistant", "content": output}] if output else []
+                body["messages"] = [
+                    *body["messages"],
+                    *invalid,
+                    {"role": "user", "content": str(error)},
+                ]
+                response = await self._post(role, model, body)
+                try:
+                    value = response_model.model_validate_json(_content(response))
+                except ValidationError as again:
+                    cut = _first_choice(response).get("finish_reason") == "length"
+                    # `from None`: Pydantic's own text quotes the output, which comes
+                    # from student work.
+                    raise ResponseValidationError(
+                        f"{model.slug} returned an invalid {name} twice"
+                        f" ({_locations(again, schema)})"
+                        + (", the response cut off at the token limit" if cut else "")
+                    ) from None
+            self._cache.put(key, json.dumps(response))
+            return Result(value, response["model"], _usage(response, model), False)
 
     def forget(self, key: str) -> None:
         """Drop the cached response under `key`, so that it is asked for again. The
@@ -279,13 +313,21 @@ class Gateway:
         for attempt in range(MAX_ATTEMPTS - 1):
             try:
                 return await self._attempt(role, model, body)
-            except RetryableError:
-                await self._sleep(BACKOFF_SECONDS * 2**attempt * random.uniform(1, 2))
+            except RetryableError as error:
+                if error.wait is None:
+                    backoff = BACKOFF_SECONDS * 2**attempt * random.uniform(1, 2)
+                    await self._sleep(backoff)
+                else:  # every request to the model waits it out, in `_wait_turn`
+                    until = time.monotonic() + error.wait
+                    slug = model.slug
+                    self._next_start[slug] = max(self._next_start.get(slug, 0), until)
         return await self._attempt(role, model, body)
 
     async def _attempt(
         self, role: str, model: ModelInfo, body: dict[str, Any]
     ) -> dict[str, Any]:
+        if self.stopped is not None:
+            raise StopError(*self.stopped.args)
         async with self._slots:
             # Waiting inside the slot stops queued requests bursting past the rate.
             await self._wait_turn(model.slug)
@@ -302,9 +344,13 @@ class Gateway:
                 ) from error
             response = {}
         if (code := reply.status_code) != 200:
-            _raise_for(
-                code, f"{model.slug}: HTTP {code}{_message(response.get('error'))}"
-            )
+            wait = _retry_after(reply)
+            # A 402 with a wait is OpenRouter's in-flight budget, not the balance.
+            if code in STOPS and not (code == 402 and wait is not None):
+                self.stopped = StopError(STOPS[code])
+                raise self.stopped
+            message = f"{model.slug}: HTTP {code}{_message(response.get('error'))}"
+            _raise_for(code, message, wait)
         self._ledger.record(role, model.slug, _usage(response, model))
         # A provider failure can arrive inside a 200 response.
         choice = _first_choice(response)
@@ -371,9 +417,20 @@ async def finish_all[T](awaitables: Iterable[Awaitable[T]]) -> list[T]:
     return cast(list[T], results)
 
 
-def _raise_for(code: int, message: str) -> NoReturn:
-    transient = code in (408, 429) or code >= 500
-    raise (RetryableError if transient else FatalError)(message)
+def _raise_for(code: int, message: str, wait: float | None = None) -> NoReturn:
+    if code in (408, 429) or code >= 500 or (code == 402 and wait is not None):
+        raise RetryableError(message, wait)
+    raise FatalError(message)
+
+
+def _retry_after(reply: httpx.Response) -> float | None:
+    """The seconds a `Retry-After` header asks for, at most `MAX_WAIT`; None without
+    one in seconds (OpenRouter sends seconds)."""
+    try:
+        wait = float(reply.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    return min(wait, MAX_WAIT) if wait >= 0 else None  # NaN fails the comparison
 
 
 # Exception text never quotes a response: model output is derived from student work.
