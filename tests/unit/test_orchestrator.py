@@ -1579,6 +1579,7 @@ def test_a_grade_is_withheld_once_a_dependency_it_was_shown_is_read_again(
     ]
     save_key(WS.key_yaml, key.model_copy(update={"parts": parts}))
     assert regrade().exit_code == 0
+    assert OTHER_READING not in detail_rows(NAMES[0]).values()
     # The first student's Q4.b read again, differently; their new Q5 grade fails.
     path = WS.reading_json(first, "Q4")
     records = read_model(path, ProblemReadings).records
