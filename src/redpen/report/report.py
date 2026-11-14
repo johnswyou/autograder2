@@ -12,7 +12,7 @@ import re
 import sqlite3
 import unicodedata
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
@@ -104,6 +104,11 @@ OUTDATED = (
 )
 CLOSED = (
     "Each entry below was reviewed, and its flags are closed while it shows the same."
+)
+# Why a correction or a review of a student who left the class is not applied.
+GONE = (
+    "No student of the latest ingest has the student key of each entry below, so it"
+    " is kept and not applied. It applies again if that student is ingested again."
 )
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
@@ -198,7 +203,8 @@ class Derived:
     """What the report files are made from: each student's stored files and the
     score of each part; every flag raised; the corrections not applied; the review
     that would close each flagged entry as it stands, by place; the places a stored
-    review closes; and the stored reviews of a flagged entry that no longer hold."""
+    review closes; and the stored reviews of a flagged entry that no longer hold,
+    and of a student not in the class."""
 
     scored: list[tuple[Stored, list[Score]]]
     raised: list[Flag]
@@ -224,13 +230,18 @@ def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> 
     """What is stored for `students`, scored and flagged. The corrections in
     `overrides.yaml` are applied, or listed as stale; a review in `reviews.yaml`
     closes the flags of its entry while the entry shows what it was made for, or is
-    listed as out of date. A file of them that cannot be loaded raises
+    listed as out of date. One of a student not in `students` is listed so too, and
+    applies again once the student is. A file of them that cannot be loaded raises
     `OverrideError`."""
-    keys = [s.student_key for s in students]
-    corrections = load_overrides(workspace.overrides_yaml, key, keys)
-    reviews = load_reviews(workspace.reviews_yaml, key, keys)
+    keys = {s.student_key for s in students}
+    corrections = load_overrides(workspace.overrides_yaml, key)
+    reviews = load_reviews(workspace.reviews_yaml, key)
     hashes = {c.id: part_hash(p, key.policies) for p in key.parts for c in p.criteria}
-    stale = [o for o in corrections if o.part_hash != hashes[o.criterion]]
+    stale = [
+        o
+        for o in corrections
+        if o.student not in keys or o.part_hash != hashes[o.criterion]
+    ]
     stored = [
         replace(
             load(workspace, key, s),
@@ -254,7 +265,8 @@ def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> 
     outdated = [
         r
         for r in reviews
-        if (r.student, r.part) in current and (r.student, r.part) not in reviewed
+        if (r.student is not None and r.student not in keys)
+        or ((r.student, r.part) in current and (r.student, r.part) not in reviewed)
     ]
     return Derived(scored, raised, stale, current, reviewed, outdated)
 
@@ -968,7 +980,8 @@ def _run_report(
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
         lines.append("")
         lines += [f"- {code_span(file)}: {NOT_INGESTED}" for file in not_ingested]
-    lines += [*_stale(found.stale), *_outdated(found.outdated)]
+    keys = {s.student.student_key for s, _ in scored}
+    lines += [*_stale(found.stale, keys), *_outdated(found.outdated, keys)]
     counts = Counter(f.code for f in raised)
     lines += ["", "## Flags", ""]
     if counts:
@@ -1071,7 +1084,12 @@ def review(
     line. Entries come in `_order`'s order. Text a student, a model or the
     instructor wrote is only ever in a code span."""
     lines = ["# Review list", ""]
-    after = [*_stale(stale), *_outdated(outdated), *_closed(key, scored, closed)]
+    keys = {s.student.student_key for s, _ in scored}
+    after = [
+        *_stale(stale, keys),
+        *_outdated(outdated, keys),
+        *_closed(key, scored, closed),
+    ]
     if not raised:
         return "\n".join([*lines, NOTHING_TO_REVIEW, *after]) + "\n"
     out = workspace.review_md.parent
@@ -1232,13 +1250,28 @@ def _line(
     return line
 
 
-def _outdated(outdated: Sequence[Review]) -> list[str]:
+def _outdated(outdated: Sequence[Review], keys: Collection[str]) -> list[str]:
     """The section of the reviews out of date, with a blank line before it, or
-    nothing when there are none."""
-    if not outdated:
-        return []
-    found = [f"- {_whose((r.student, r.part))}." for r in outdated]
-    return ["", "## Reviews out of date", "", OUTDATED, "", *found]
+    nothing when there are none: those whose entry changed, then those of a student
+    not among `keys`, the class's."""
+    gone = [r for r in outdated if r.student is not None and r.student not in keys]
+    return _section(
+        "## Reviews out of date",
+        [
+            (why, [f"- {_whose((r.student, r.part))}." for r in found])
+            for why, found in (
+                (OUTDATED, [r for r in outdated if r not in gone]),
+                (GONE, gone),
+            )
+        ],
+    )
+
+
+def _section(heading: str, groups: Sequence[tuple[str, list[str]]]) -> list[str]:
+    """A section with a blank line before it, holding each group with lines: its
+    reason, then its lines; nothing when no group has a line."""
+    lines = [line for why, found in groups if found for line in ["", why, "", *found]]
+    return ["", heading, *lines] if lines else []
 
 
 def _closed(
@@ -1337,13 +1370,23 @@ def _corrections(s: Score, base: GradeRecord | None) -> list[str]:
     ]
 
 
-def _stale(stale: Sequence[Override]) -> list[str]:
+def _stale(stale: Sequence[Override], keys: Collection[str]) -> list[str]:
     """The section of the corrections not applied, with a blank line before it, or
-    nothing when there are none."""
-    if not stale:
-        return []
-    found = [f"- `{o.student}`, {o.criterion}: {number(o.points)}." for o in stale]
-    return ["", "## Corrections not applied", "", STALE, "", *found]
+    nothing when there are none: those made before their part was edited, then
+    those of a student not among `keys`, the class's."""
+    return _section(
+        "## Corrections not applied",
+        [
+            (
+                why,
+                [f"- `{o.student}`, {o.criterion}: {number(o.points)}." for o in found],
+            )
+            for why, found in (
+                (STALE, [o for o in stale if o.student in keys]),
+                (GONE, [o for o in stale if o.student not in keys]),
+            )
+        ],
+    )
 
 
 def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> list[str]:

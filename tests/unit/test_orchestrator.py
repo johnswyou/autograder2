@@ -47,6 +47,7 @@ from redpen.orchestrator import (
 )
 from redpen.prepare.key import load_key, number, part_hash, save_key, yaml_reader
 from redpen.report.report import (
+    GONE,
     NOTHING_TO_REVIEW,
     OTHER_KEY,
     OTHER_READING,
@@ -1760,7 +1761,11 @@ def ungraded_class(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("args", "line"),
     [
-        (["nobody-000000", "Q4.b.c1", "1"], "No student of the latest ingest has that"),
+        (
+            ["nobody-000000", "Q4.b.c1", "1"],
+            "No student of the latest ingest has that student key. Each key is the"
+            f" name of a student's folder in {WS.students_dir}.",
+        ),
         (["{first}", "Q9.c1", "1"], "The key has no criterion with that id."),
         (["{first}", "Q4.b.c1", "-1"], "POINTS is a number from 0 to 2,"),
         (["{first}", "Q4.b.c1", "2.25"], "POINTS is a number from 0 to 2,"),
@@ -1811,10 +1816,6 @@ def test_a_correction_that_cannot_be_recorded_is_one_line_and_writes_nothing(
 BAD_FILES = {
     "not YAML": ("- [unclosed\n", "does not parse as YAML"),
     "not a correction": ("- student: x\n", ", entry 1 is not a correction"),
-    "unknown student": (
-        "- {{student: nobody-000000, criterion: Q4.b.c1, points: 1, part_hash: h}}\n",
-        ", entry 1: no student of the latest ingest has its key.",
-    ),
     "unknown criterion": (
         "- {{student: {first}, criterion: Q9.c1, points: 1, part_hash: h}}\n",
         ", entry 1: the key has no criterion Q9.c1.",
@@ -1837,7 +1838,6 @@ COMMANDS = ("report", "regrade", "grade", "override")
 @pytest.mark.parametrize(
     ("command", "bad"),
     [
-        *((c, "unknown student") for c in COMMANDS),
         *((c, "not YAML") for c in COMMANDS),
         *(("report", b) for b in ("not a correction", "unknown criterion")),
         *(("report", b) for b in ("above full points", "a duplicate")),
@@ -2063,7 +2063,9 @@ def test_a_correction_whose_student_or_criterion_is_gone_can_still_be_removed(
     WS.overrides_yaml.write_text(
         entry.format(first, "Q4.a.c2", hashed) + entry.format(who, criterion, hashed)
     )
-    assert runner.invoke(app, ["report", "--workspace", "ws"]).exit_code == 1
+    # Only a criterion the key lacks is refused: a student may leave the class.
+    refused = runner.invoke(app, ["report", "--workspace", "ws"]).exit_code
+    assert refused == (1 if gone == "criterion" else 0)
 
     result = override(who, criterion, "--remove")
 
@@ -2076,21 +2078,62 @@ def test_a_correction_whose_student_or_criterion_is_gone_can_still_be_removed(
     assert awarded("Q4.a.c2")[NAMES[0]] == "1"
 
 
-def test_grade_names_the_correction_of_a_student_its_ingest_no_longer_finds(
-    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+def section(path: Path, heading: str) -> list[str]:
+    """The lines of `path`'s section `heading`, up to the next, blank lines left
+    out; none when it has no such section."""
+    lines = path.read_text().splitlines()
+    if heading not in lines:
+        return []
+    at = lines.index(heading) + 1
+    end = next((n for n in range(at, len(lines)) if lines[n].startswith("## ")), None)
+    return [line for line in lines[at:end] if line]
+
+
+def test_a_student_who_left_the_class_blocks_nothing_and_counts_again_on_return(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    ungraded_class(router, monkeypatch)
+    own_pages()
+    router.reads, router.grades = True, disputing
+    fast(router, monkeypatch)
+    assert grade().exit_code == 0
     first = students()[0]
-    assert override(first, "Q4.a.c1", "1").exit_code == 0
-    Path("subs", f"HW 1 - {NAMES[0]}.pdf").unlink()
+    assert override(first, "Q4.a.c1", "0").exit_code == 0
+    reviewed = review(answers="accept\n" * len(NAMES))
+    assert reviewed.exit_code == 0, reviewed.output
+    entries = [e for e in yaml_reader().load(WS.reviews_yaml) if e["student"] == first]
+    assert entries
+    pdf = Path("subs", f"HW 1 - {NAMES[0]}.pdf")
+    pdf.rename(tmp_path / pdf.name)
+    corrected, reviews = WS.overrides_yaml.read_text(), WS.reviews_yaml.read_bytes()
 
-    result = grade()
+    assert grade().exit_code == 0
+    other = students()[0]
+    for args in (
+        ["regrade"],
+        ["report"],
+        ["review", "--list"],
+        ["override", other, "Q4.a.c1", "1"],
+        ["override", other, "Q4.a.c1", "--remove"],
+    ):
+        result = runner.invoke(app, [*args, "--workspace", "ws"])
+        assert result.exit_code == 0, result.output
 
-    quiet(result)
-    assert result.stderr.splitlines()[-1] == (
-        f"{WS.overrides_yaml}, entry 1: no student of the latest ingest has its key."
-    )
-    assert not WS.run_log.exists()
+    assert NAMES[0] not in WS.scores_by_problem_csv.read_text(encoding="utf-8-sig")
+    assert yaml_reader().load(WS.overrides_yaml) == yaml_reader().load(corrected)
+    assert WS.reviews_yaml.read_bytes() == reviews
+    gone = [f"- `{first}`, Q4.a.c1: 0."]
+    assert section(WS.review_md, "## Corrections not applied") == [GONE, *gone]
+    out_of_date = section(WS.review_md, "## Reviews out of date")
+    assert out_of_date[0] == GONE and len(out_of_date) == 1 + len(entries)
+    assert all(f"`{first}`" in line for line in out_of_date[1:])
+    (tmp_path / pdf.name).rename(pdf)
+
+    assert grade().exit_code == 0
+
+    assert awarded("Q4.a.c1")[NAMES[0]] == "0"
+    assert section(WS.review_md, "## Corrections not applied") == []
+    assert section(WS.review_md, "## Reviews out of date") == []
+    assert f"`{first}`" in "\n".join(section(WS.review_md, "## Closed by review"))
 
 
 def test_a_mistyped_option_is_an_unknown_option_and_the_dry_run_says_what_it_prints(
@@ -2610,10 +2653,6 @@ def test_a_review_goes_out_of_date_when_a_new_pdf_is_read_and_graded_the_same(
 BAD_REVIEWS = {
     "not YAML": ("- [unclosed\n", "does not parse as YAML"),
     "not a review": ("- student: x\n", ", entry 1 is not a review"),
-    "unknown student": (
-        "- {student: nobody-000000, part: Q4.b, part_hash: h, digest: d}\n",
-        ", entry 1: no student of the latest ingest has its key.",
-    ),
     "unknown part": (
         "- {student: STUDENT, part: Q9, part_hash: h, digest: d}\n",
         ", entry 1: the key has no part Q9.",
@@ -2639,7 +2678,6 @@ REVIEWED_BY = ("report", "regrade", "grade", "review", "override")
 @pytest.mark.parametrize(
     ("command", "bad"),
     [
-        *((c, "unknown student") for c in REVIEWED_BY),
         *((c, "not YAML") for c in REVIEWED_BY),
         *(
             ("review", b)

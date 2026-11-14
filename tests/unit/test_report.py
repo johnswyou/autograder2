@@ -2789,8 +2789,7 @@ def review_of(
         for e in review_entries(workspace, key, students)
         if (e.review.student, e.review.part) == place
     ]
-    keys = [s.student_key for s in students]
-    record_review(workspace.reviews_yaml, key, keys, entry.review)
+    record_review(workspace.reviews_yaml, key, entry.review)
 
 
 def test_a_review_that_would_not_read_back_is_refused_as_a_review(
@@ -2800,7 +2799,7 @@ def test_a_review_that_would_not_read_back_is_refused_as_a_review(
     unknown = Review(student="s1", part="Q9", part_hash="h", digest="d")
 
     with pytest.raises(OverrideError) as refused:
-        record_review(path, KEY, ["s1"], unknown)
+        record_review(path, KEY, unknown)
 
     assert str(refused.value) == (
         f"{path} would not read back as the reviews, so it is left as it is."

@@ -920,13 +920,7 @@ def _grade(
     grade and, under the lock's profile, grade a second time, and the report. Exit
     code 0 only when nothing failed; with `dry_run`, an estimate."""
     config, api_key, spec, lock, key = _graded(ws, dry_run)
-    # Against the class they were recorded for.
-    if ws.overrides_yaml.exists() or ws.reviews_yaml.exists():
-        try:
-            earlier = read_model(ws.ingest_summary_json, IngestSummary).students
-        except (OSError, ValueError):
-            earlier = []
-        _corrections(ws, key, earlier)
+    _corrections(ws, key)  # before anything is paid for
     if dry_run:
         _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
         return
@@ -1059,13 +1053,12 @@ def _run(
     return failed
 
 
-def _corrections(ws: Workspace, key: Key, students: Sequence[IngestRecord]) -> None:
+def _corrections(ws: Workspace, key: Key) -> None:
     """Exit with one line naming the entry unless overrides.yaml and reviews.yaml
-    load against the key and `students`."""
-    keys = [s.student_key for s in students]
+    load against the key."""
     try:
-        load_overrides(ws.overrides_yaml, key, keys)
-        load_reviews(ws.reviews_yaml, key, keys)
+        load_overrides(ws.overrides_yaml, key)
+        load_reviews(ws.reviews_yaml, key)
     except OverrideError as error:
         _fail(str(error))
 
@@ -1084,7 +1077,7 @@ def _rebuilt(ws: Workspace, key: Key, summary: IngestSummary) -> list[Flag]:
     line; the open flags."""
     try:
         return write_report(ws, key, summary.students, [f.file for f in summary.failed])
-    except OverrideError as error:  # a corrected student the new ingest lacks
+    except OverrideError as error:  # a file changed since it was checked
         _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
@@ -1263,7 +1256,7 @@ def regrade(
         _damaged(ws)
         _no_class(ws)
     students = summary.students
-    _corrections(ws, key, students)
+    _corrections(ws, key)
     if dry_run:
         if (grader := lock.models.get("grader")) is None:
             _fail(f"{ws.config_lock_toml}: no model is pinned for grader.")
@@ -1308,7 +1301,7 @@ def report(workspace: KeyWorkspace) -> None:
     model call."""
     ws = Workspace(workspace)
     key, summary = _stored(ws)
-    _corrections(ws, key, summary.students)
+    _corrections(ws, key)
     _report(ws, key, summary)
 
 
@@ -1352,7 +1345,7 @@ def review(
     stdout. No model call."""
     ws = Workspace(workspace)
     key, summary = _stored(ws)
-    _corrections(ws, key, summary.students)
+    _corrections(ws, key)
     found = [e for e in _entries(ws, key, summary) if not e.closed]
     if not found:
         if not listing:  # out/ current, even after a session killed before it
@@ -1404,9 +1397,8 @@ def _take(ws: Workspace, key: Key, summary: IngestSummary, entry: Entry) -> str:
     asked = f"{', '.join(offered[:-1])} or {offered[-1]}"
     while (action := _answer(asked.capitalize()).lower()) not in offered:
         typer.echo(f"Type {asked}.")
-    keys = [s.student_key for s in summary.students]
     if action == "correct" and entry.score:
-        if _correct(ws, key, keys, entry.score, entry.review.student or ""):
+        if _correct(ws, key, entry.score, entry.review.student or ""):
             place = (entry.review.student, entry.review.part)
             [entry] = [  # as it stands with the corrections
                 e
@@ -1416,13 +1408,11 @@ def _take(ws: Workspace, key: Key, summary: IngestSummary, entry: Entry) -> str:
         else:
             action = "accept"
     if action in ("accept", "correct"):
-        record_review(ws.reviews_yaml, key, keys, entry.review)
+        record_review(ws.reviews_yaml, key, entry.review)
     return action
 
 
-def _correct(
-    ws: Workspace, key: Key, keys: Sequence[str], score: Score, student: str
-) -> bool:
+def _correct(ws: Workspace, key: Key, score: Score, student: str) -> bool:
     """Ask the points of each criterion of `score`'s part, return keeping the award
     shown, and a note; record those typed as `redpen override` does, the note on the
     first, in one write. Whether any was typed. A part withheld shows no award to
@@ -1452,7 +1442,7 @@ def _correct(
         _correction(key, score.part, student, criterion, value, "" if n else note)
         for n, (criterion, value) in enumerate(typed.items())
     ]
-    record_overrides(ws.overrides_yaml, key, keys, new)
+    record_overrides(ws.overrides_yaml, key, new)
     return True
 
 
@@ -1515,17 +1505,19 @@ def override(
         # Whatever the entry names: a correction for a criterion the key lost, or a
         # student the class lost, can always be taken out.
         try:
-            record_override(ws.overrides_yaml, key, None, student, criterion, None)
+            record_override(ws.overrides_yaml, key, student, criterion, None)
         except OverrideError as error:
             _fail(str(error))
         typer.echo(f"Removed from {ws.overrides_yaml}")
-        _corrections(ws, key, summary.students)
+        _corrections(ws, key)
         _report(ws, key, summary)
         return
-    _corrections(ws, key, summary.students)
-    keys = [s.student_key for s in summary.students]
-    if student not in keys:
-        _fail("No student of the latest ingest has that student key.")
+    _corrections(ws, key)
+    if student not in [s.student_key for s in summary.students]:
+        _fail(
+            "No student of the latest ingest has that student key. Each key is the"
+            f" name of a student's folder in {ws.students_dir}."
+        )
     parts = {c.id: (p, c) for p in key.parts for c in p.criteria}
     if criterion not in parts:
         _fail("The key has no criterion with that id.")
@@ -1537,7 +1529,7 @@ def override(
         )
     new = _correction(key, part, student, criterion, value, note or "")
     try:
-        record_override(ws.overrides_yaml, key, keys, student, criterion, new)
+        record_override(ws.overrides_yaml, key, student, criterion, new)
     except OverrideError as error:
         _fail(str(error))
     typer.echo(f"Recorded in {ws.overrides_yaml}")

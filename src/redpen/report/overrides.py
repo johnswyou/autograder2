@@ -1,7 +1,8 @@
 """The instructor's corrections (design 11) and reviews (design 12): `overrides.yaml`
 and `reviews.yaml` in the workspace root, lists of `Override` and `Review` entries
 that may be edited by hand. `load_overrides` and `load_reviews` refuse a file that
-does not parse or names what does not exist; `record_override` sets or removes one
+does not parse or names a part or criterion the key lacks (an entry may name a
+student no longer in the class: it stays); `record_override` sets or removes one
 correction, `record_overrides` sets several in one write, and `record_review` sets
 one review, keeping the rest of the file as it is, every comment included."""
 
@@ -9,7 +10,7 @@ one review, keeping the rest of the file as it is, every comment included."""
 # pyright: reportUnknownMemberType=false
 
 import io
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -32,20 +33,20 @@ class OverrideError(Exception):
     line, naming the entry and never quoting the file."""
 
 
-def load_overrides(path: Path, key: Key, students: Collection[str]) -> list[Override]:
+def load_overrides(path: Path, key: Key) -> list[Override]:
     """The corrections in `path`, none when there is no file. `OverrideError` when it
-    does not parse; when an entry names a student key not in `students` or a
-    criterion not in `key`, or repeats another's student and criterion; or when its
-    points are above its criterion's full points under the part's current version
-    (a stale correction keeps the points it had)."""
-    return _checked(path, _text(path), key, students)
+    does not parse; when an entry names a criterion not in `key`, or repeats
+    another's student and criterion; or when its points are above its criterion's
+    full points under the part's current version (a stale correction keeps the
+    points it had)."""
+    return _checked(path, _text(path), key)
 
 
-def load_reviews(path: Path, key: Key, students: Collection[str]) -> list[Review]:
+def load_reviews(path: Path, key: Key) -> list[Review]:
     """The reviews in `path`, none when there is no file. `OverrideError` when it
-    does not parse, or when an entry names a student key not in `students`, a part
-    not in `key`, or neither, or repeats another's student and part."""
-    return _reviewed(path, _text(path), key, students)
+    does not parse, or when an entry names a part not in `key`, or no student and
+    no part, or repeats another's student and part."""
+    return _reviewed(path, _text(path), key)
 
 
 def _text(path: Path) -> str:
@@ -86,11 +87,9 @@ def _parsed[E: Schema](
         raise OverrideError(f"{path}{what}: each has {holds}.") from None
 
 
-def _checked(
-    path: Path, text: str, key: Key, students: Collection[str] | None
-) -> list[Override]:
-    """`load_overrides` on `text`; with `students` None, no entry's student or
-    criterion is checked against the class and the key."""
+def _checked(path: Path, text: str, key: Key, criteria: bool = True) -> list[Override]:
+    """`load_overrides` on `text`; with `criteria` false, no entry's criterion is
+    checked against the key."""
     found = _parsed(
         path,
         text,
@@ -103,13 +102,7 @@ def _checked(
     first: dict[tuple[str, str], int] = {}
     for n, o in enumerate(found, 1):
         where = f"{path}, entry {n}"
-        if students is None:
-            pass
-        elif o.student not in students:
-            raise OverrideError(
-                f"{where}: no student of the latest ingest has its key."
-            )
-        elif o.criterion not in parts:
+        if criteria and o.criterion not in parts:
             raise OverrideError(f"{where}: the key has no criterion {o.criterion}.")
         if (earlier := first.setdefault((o.student, o.criterion), n)) != n:
             raise OverrideError(
@@ -130,37 +123,29 @@ def _checked(
 
 
 def record_override(
-    path: Path,
-    key: Key,
-    students: Collection[str] | None,
-    student: str,
-    criterion: str,
-    new: Override | None,
+    path: Path, key: Key, student: str, criterion: str, new: Override | None
 ) -> None:
     """Make `new` the correction of `student` on `criterion` in `path`, in place of
     an earlier one, or remove that one when `new` is None, keeping every comment and
-    every other entry as it is. `students` as for `_checked`: None skips the checks
-    that an entry's student and criterion exist, so that a removal always works.
-    What is written is read back first: unless it holds exactly the corrections
-    asked for, `OverrideError` leaves `path` as it is, as when there is nothing to
-    remove."""
+    every other entry as it is. A removal skips the check that an entry's criterion
+    exists, so that it always works. What is written is read back first: unless it
+    holds exactly the corrections asked for, `OverrideError` leaves `path` as it is,
+    as when there is nothing to remove."""
     _record(
         path,
-        lambda text: _checked(path, text, key, students),
+        lambda text: _checked(path, text, key, new is not None),
         _corrects,
         [((student, criterion), new)],
         "corrections",
     )
 
 
-def record_overrides(
-    path: Path, key: Key, students: Collection[str], new: Sequence[Override]
-) -> None:
+def record_overrides(path: Path, key: Key, new: Sequence[Override]) -> None:
     """Make each of `new` the correction of its student and criterion in `path`, as
     `record_override` does, in one write: all of them or none."""
     _record(
         path,
-        lambda text: _checked(path, text, key, students),
+        lambda text: _checked(path, text, key),
         _corrects,
         [(_corrects(o), o) for o in new],
         "corrections",
@@ -171,22 +156,20 @@ def _corrects(o: Override) -> tuple[str, str]:
     return o.student, o.criterion
 
 
-def record_review(path: Path, key: Key, students: Collection[str], new: Review) -> None:
+def record_review(path: Path, key: Key, new: Review) -> None:
     """Make `new` the review of its entry in `path`, in place of an earlier one,
     keeping every comment and every other entry as it is, and read back first as
     `record_override` is."""
     _record(
         path,
-        lambda text: _reviewed(path, text, key, students),
+        lambda text: _reviewed(path, text, key),
         lambda r: (r.student, r.part),
         [((new.student, new.part), new)],
         "reviews",
     )
 
 
-def _reviewed(
-    path: Path, text: str, key: Key, students: Collection[str]
-) -> list[Review]:
+def _reviewed(path: Path, text: str, key: Key) -> list[Review]:
     """`load_reviews` on `text`."""
     found = _parsed(
         path,
@@ -202,10 +185,6 @@ def _reviewed(
     first: dict[tuple[str | None, str | None], int] = {}
     for n, r in enumerate(found, 1):
         where = f"{path}, entry {n}"
-        if r.student is not None and r.student not in students:
-            raise OverrideError(
-                f"{where}: no student of the latest ingest has its key."
-            )
         if r.part is not None and r.part not in parts:
             raise OverrideError(f"{where}: the key has no part {r.part}.")
         if r.student is None and r.part is None:
