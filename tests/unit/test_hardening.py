@@ -189,13 +189,15 @@ def test_a_blank_that_cannot_be_opened_stops_the_command_in_one_line(
     class_folder: Path, command: str, kind: str
 ) -> None:
     blank = blanks(Path("blanks"))[kind]
+    # The dry run takes the prepared workspace, whose lock prices it: a new one
+    # would list OpenRouter's models first, over the network.
     args = {
-        "prepare": ["prepare", str(blank)],
-        "run": ["run", str(blank), "subs"],
-        "run --dry-run": ["run", str(blank), "subs", "--dry-run"],
+        "prepare": ["prepare", str(blank), "--workspace", "new"],
+        "run": ["run", str(blank), "subs", "--workspace", "new"],
+        "run --dry-run": ["run", str(blank), "subs", "--dry-run", "--workspace", "ws"],
     }[command]
 
-    result = runner.invoke(app, [*args, "--workspace", "new"])
+    result = runner.invoke(app, args)
 
     assert_one_line(
         result, f"{blank} cannot be opened as a PDF: it {WHY[kind]}. {GIVE_BLANK}"
