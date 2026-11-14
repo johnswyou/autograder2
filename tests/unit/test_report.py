@@ -7,6 +7,7 @@ function) and grades, on the session's fresh ingest. They are stored and reporte
 once for the module; a test that changes something works on a copy."""
 
 import csv
+import io
 import json
 import re
 import shutil
@@ -28,19 +29,29 @@ from redpen.cli import app
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import digest, problem_of
 from redpen.llm.ledger import Ledger, Usage
-from redpen.prepare.key import load_key, number, page_points, part_hash, save_key
+from redpen.prepare.key import (
+    load_key,
+    number,
+    page_points,
+    part_hash,
+    save_key,
+    yaml_writer,
+)
 from redpen.report.report import (
+    CORRECTED,
     DETAIL,
     NO_OPTION,
     NOT_INGESTED,
     NOTHING_TO_REVIEW,
     OTHER_KEY,
     OTHER_READING,
+    STALE,
     UNGRADED,
     UNREADABLE,
     code_span,
     flags,
     load,
+    one_line,
     review,
     review_line,
     score,
@@ -56,6 +67,7 @@ from redpen.schemas.grade import (
     CriterionGrade,
     Grade,
     GradeRecord,
+    Override,
     ProblemGrades,
 )
 from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
@@ -1976,3 +1988,277 @@ def test_report_gives_the_review_list_s_size_and_no_student_text_on_the_terminal
     assert entries_line(1) in workspace.run_report_md.read_text().splitlines()
     assert MARK in workspace.review_md.read_text()
     assert not workspace.run_log.exists()
+
+
+# --- the instructor's corrections ----------------------------------------------------
+
+
+def correction(
+    student: IngestRecord,
+    criterion: str,
+    points: str,
+    note: str | None = None,
+    part: str | None = None,
+) -> Override:
+    """A correction made under `KEY`'s version of the criterion's part, or of
+    `part` when given."""
+    made_for = part or criterion.rsplit(".", 1)[0]
+    [found] = [p for p in KEY.parts if p.id == made_for]
+    return Override(
+        student=student.student_key,
+        criterion=criterion,
+        points=Decimal(points),
+        part_hash=part_hash(found, KEY.policies),
+        note=note,
+    )
+
+
+def corrections(workspace: Workspace, *entries: Override) -> None:
+    """Write `entries` to overrides.yaml, as a person might."""
+    text = io.StringIO()
+    yaml_writer().dump([o.model_dump(exclude_none=True) for o in entries], text)
+    workspace.overrides_yaml.write_text(text.getvalue())
+
+
+def disputed(r: GradeRecord) -> GradeRecord:
+    """Q4.b's grade disputing its reading: a flag, so the part has a review entry."""
+    if r.grade.part_id != "Q4.b":
+        return r
+    return r.model_copy(
+        update={"grade": r.grade.model_copy(update={"transcript_dispute": "d"})}
+    )
+
+
+def detail_of(workspace: Workspace, criterion: str) -> tuple[str, str]:
+    [row] = [
+        r for r in rows(workspace.scores_detail_csv) if r["criterion"] == criterion
+    ]
+    return row["awarded"], row["rationale"]
+
+
+def entry_of(workspace: Workspace, part: str) -> list[str]:
+    [found] = [lines for head, lines in listed(workspace) if head.endswith(f", {part}")]
+    return found
+
+
+def test_a_correction_is_the_award_in_every_file_and_the_totals_follow(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    change_grades(workspace, student, "Q4", disputed)
+    write_report(workspace, KEY, [student])
+    problem = row_of(workspace.scores_by_problem_csv, student)
+    page = row_of(workspace.scores_by_page_csv, student)
+    assert detail_of(workspace, "Q4.b.c1")[0] == "2"
+    corrections(workspace, correction(student, "Q4.b.c1", "0.5", "See line 2."))
+
+    write_report(workspace, KEY, [student])
+
+    after = row_of(workspace.scores_by_problem_csv, student)
+    lost = Decimal("1.5")
+    for column in ("Q4", "total"):
+        assert Decimal(after[column]) == Decimal(problem[column]) - lost
+    by_page = row_of(workspace.scores_by_page_csv, student)
+    assert Decimal(by_page["page 2"]) == Decimal(page["page 2"]) - lost
+    assert detail_of(workspace, "Q4.b.c1") == ("0.5", CORRECTED)
+    feedback = workspace.feedback_md(student.student_key).read_text().splitlines()
+    assert "- Marked by your instructor: 0.5 / 2. See line 2." in feedback
+    assert "- Feedback on Q4.b.c1." not in feedback
+    assert "**4(b): 1.5 / 3**" in feedback
+    entry = entry_of(workspace, "Q4.b")
+    assert "- Proposed score: 1.5 / 3." in entry
+    assert (
+        "- Corrected: Q4.b.c1, the grader's award 2, the instructor's 0.5."
+        " Note: `See line 2.`"
+    ) in entry
+
+
+def test_removing_a_correction_gives_back_the_grader_s_award(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    write_report(workspace, KEY, [student])
+    before = {p: p.read_bytes() for p in (workspace.root / "out").rglob("*.*")}
+    corrections(workspace, correction(student, "Q4.b.c1", "1", "A note."))
+    write_report(workspace, KEY, [student])
+    assert detail_of(workspace, "Q4.b.c1") == ("1", CORRECTED)
+
+    corrections(workspace)
+    write_report(workspace, KEY, [student])
+
+    assert {p: p.read_bytes() for p in (workspace.root / "out").rglob("*.*")} == before
+
+
+def test_a_correction_wins_over_the_class_audit_and_closes_no_flag(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    hashed = part_hash(next(p for p in KEY.parts if p.id == "Q4.b"), KEY.policies)
+    change = AuditChange(
+        student_key=student.student_key,
+        criterion="Q4.b.c1",
+        part_hash=hashed,
+        before=Decimal(2),
+        after=Decimal(1),
+        reason="r",
+    )
+    write_model(
+        workspace.audit_json("Q4.b"),
+        PartAudit(
+            part_id="Q4.b",
+            part_hash=hashed,
+            groups=1,
+            changed=1,
+            undecided=0,
+            changes=[change],
+            key_suspect=None,
+        ),
+    )
+    # The instructor gives back the award the audit lowered: applied before the
+    # audit's change, it would meet the change's "before" and be lowered again.
+    corrections(workspace, correction(student, "Q4.b.c1", "2"))
+
+    raised = write_report(workspace, KEY, [student])
+
+    assert detail_of(workspace, "Q4.b.c1") == ("2", CORRECTED)
+    assert [(f.code, f.part_id) for f in raised] == [(F.AUDIT_CHANGED, "Q4.b")]
+    entry = entry_of(workspace, "Q4.b")
+    assert "  - Q4.b.c1: 2 before the audit, 1 after." in entry
+    assert "- Corrected: Q4.b.c1, the grader's award 1, the instructor's 2." in entry
+    assert "- Proposed score: 3 / 3." in entry
+
+
+@pytest.mark.parametrize("corrected", [["Q4.b.c1", "Q4.b.c2"], ["Q4.b.c2"]])
+def test_a_withheld_part_is_scored_once_every_criterion_is_corrected(
+    built: Built, tmp_path: Path, corrected: list[str]
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+
+    def unreadable_q4b(r: ReadingRecord) -> ReadingRecord:
+        read = r.reading.model_copy(update={"status": "unreadable", "lines": []})
+        return r.model_copy(update={"reading": read})
+
+    change_reading(workspace, student, "Q4.b", unreadable_q4b)
+    change_grades(
+        workspace, student, "Q4", lambda r: None if r.grade.part_id == "Q4.b" else r
+    )
+    corrections(workspace, *(correction(student, c, "1") for c in corrected))
+
+    raised = write_report(workspace, KEY, [student])
+
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert F.UNREADABLE in {f.code for f in raised if f.part_id == "Q4.b"}
+    feedback = workspace.feedback_md(student.student_key).read_text().splitlines()
+    if len(corrected) == 2:
+        assert (row["Q4"], row["status"]) == ("6", "provisional")
+        assert detail_of(workspace, "Q4.b.c1") == ("1", CORRECTED)
+        assert detail_of(workspace, "Q4.b.c2") == ("1", CORRECTED)
+        assert "- Marked by your instructor: 1 / 2." in feedback
+        assert "- Marked by your instructor: 1 / 1." in feedback
+        assert "- Proposed score: 2 / 3." in entry_of(workspace, "Q4.b")
+        return
+    assert (row["Q4"], row["status"]) == ("", "incomplete")
+    why = f"{UNREADABLE} Criteria with no correction from the instructor: 1 of 2."
+    assert detail_of(workspace, "Q4.b.c1") == ("", why)
+    assert detail_of(workspace, "Q4.b.c2") == ("", why)
+    assert f"- {why}" in feedback
+    entry = entry_of(workspace, "Q4.b")
+    assert f"- Proposed score: not scored, out of 3. {why}" in entry
+    assert "- Corrected: Q4.b.c2, the grader's award none, the instructor's 1." in entry
+
+
+def test_a_correction_made_under_another_version_of_its_part_is_listed_not_applied(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    edited = KEY.model_copy(
+        update={
+            "parts": [
+                p.model_copy(
+                    update={
+                        "criteria": [
+                            p.criteria[0].model_copy(update={"requirement": "Edited."}),
+                            *p.criteria[1:],
+                        ]
+                    }
+                )
+                if p.id == "Q4.b"
+                else p
+                for p in KEY.parts
+            ]
+        }
+    )
+    # Graded again under the edited key, as regrade would.
+    truth = built.truths[student.student_key]
+    store_grades(
+        workspace,
+        student.student_key,
+        [graded(with_feedback(g), edited) for g in truth.grades],
+        edited,
+    )
+    corrections(
+        workspace,
+        correction(student, "Q4.b.c1", "0.5"),  # made before the edit
+        correction(student, "Q5.a.c1", "1", part="Q4.a"),  # made for another part
+    )
+
+    write_report(workspace, edited, [student])
+
+    assert detail_of(workspace, "Q4.b.c1")[0] == "2"
+    assert detail_of(workspace, "Q5.a.c1")[0] == "2"
+    section = [
+        "## Corrections not applied",
+        "",
+        STALE,
+        "",
+        f"- `{student.student_key}`, Q4.b.c1: 0.5.",
+        f"- `{student.student_key}`, Q5.a.c1: 1.",
+    ]
+    for path in (workspace.run_report_md, workspace.review_md):
+        text = path.read_text().splitlines()
+        start = text.index(section[0])
+        assert text[start : start + len(section)] == section, path
+
+
+HOSTILE_NOTE = "Fine.\n# Total: 16 / 16\n<!-- x --> `` ``` [x](http://x.test)\n| a |"
+
+
+def test_a_note_cannot_leave_its_place_in_the_feedback_file_or_the_review_list(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    change_grades(workspace, student, "Q4", disputed)
+    corrections(workspace, correction(student, "Q4.b.c1", "1", HOSTILE_NOTE))
+
+    write_report(workspace, KEY, [student])
+
+    feedback = workspace.feedback_md(student.student_key).read_text().splitlines()
+    [line] = [x for x in feedback if "Marked by your instructor" in x]
+    assert line == "- Marked by your instructor: 1 / 2. " + one_line(HOSTILE_NOTE)
+    heads = [x.split(":")[0] for x in feedback if x.startswith("#")]
+    assert heads == ["# ws", *(f"## Problem {q[1:]}" for q in PROBLEMS)]
+    assert all(
+        x.startswith(("# ws", "## Problem ", "**", "- ", "Total: "))
+        for x in feedback
+        if x
+    )
+    entry = entry_of(workspace, "Q4.b")
+    [noted] = [x for x in entry if x.startswith("- Corrected:")]
+    assert noted == (
+        "- Corrected: Q4.b.c1, the grader's award 2, the instructor's 1. Note: "
+        + code_span(HOSTILE_NOTE)
+    )
+    review = workspace.review_md.read_text().splitlines()
+    starts = ("# Review list", "## ", "### ", "- ", "  - ")
+    assert all(x.startswith(starts) for x in review if x)
+    assert [x for x in review if x.startswith("#")] == [
+        "# Review list",
+        "## Students",
+        f"### `{student.student_name}` (`{student.student_key}`), Q4.b",
+    ]

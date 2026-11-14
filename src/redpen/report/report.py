@@ -1,6 +1,7 @@
 """Report, first version (design 8 and 9): the three score files, one feedback file
 per student, the flags and the run report, computed by code from the stored
-readings and grades. No model call; every point value is a Decimal.
+readings and grades and the instructor's corrections (design 11). No model call;
+every point value is a Decimal.
 
 The caller supplies the students. The `students/` directory is never listed: a
 respelled name leaves an old folder behind."""
@@ -12,7 +13,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal, get_args
@@ -32,9 +33,17 @@ from redpen.prepare.key import (
     scaled,
     scoring,
 )
+from redpen.report.overrides import load_overrides
 from redpen.schemas.audit import PartAudit
+from redpen.schemas.common import Provenance
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode, Severity
-from redpen.schemas.grade import CriterionGrade, GradeRecord, ProblemGrades
+from redpen.schemas.grade import (
+    CriterionGrade,
+    Grade,
+    GradeRecord,
+    Override,
+    ProblemGrades,
+)
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import (
     FinalAnswer,
@@ -61,6 +70,18 @@ UNGRADED = "No reading or no grade was recorded for it."
 # points, in place of whatever the grader wrote then (often praise): the student's
 # file never shows the audit's own reason.
 LOWERED = "This point was marked again for consistency across the class. What it needs:"
+# The instructor's corrections, in fixed words: the mark of a corrected award in
+# scores_detail.csv; the student's line in its place, before the note; what a part
+# still withheld lacks; and why a correction made before its part was edited is not
+# applied.
+CORRECTED = "Corrected by the instructor."
+MARKED = "Marked by your instructor: {points} / {full}."
+OPEN = "Criteria with no correction from the instructor: {open} of {all}."
+STALE = (
+    "The key's part of each criterion below was edited after its correction was"
+    " recorded, so the correction is not applied. Record it again with `redpen"
+    " override` if it still holds."
+)
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
 # Under the pinned models, once a grade run of the workspace had strict privacy off.
@@ -101,7 +122,9 @@ NO_USE = Usage(0, 0, Decimal(0))
 class Stored:
     """One student's ingest record, and each part's reading and grade record that
     are stored, by part id; the class audit of each part, the same for every
-    student; and each part's second reading compared with the stored first."""
+    student; each part's second reading compared with the stored first; and the
+    instructor's corrections made under the key's current version of their part,
+    by criterion id."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
@@ -110,17 +133,20 @@ class Stored:
     seconds: Mapping[str, SecondReading] = field(
         default_factory=dict[str, SecondReading]
     )
+    overrides: Mapping[str, Override] = field(default_factory=dict[str, Override])
 
 
 @dataclass(frozen=True)
 class Score:
     """One part of one student: the grade record that counts and the points it
-    awards on the key's scale, or, when the part is withheld, why."""
+    awards on the key's scale, or, when the part is withheld, why; and the
+    instructor's corrections of its criteria, by criterion id."""
 
     part: KeyPart
     record: GradeRecord | None
     awarded: Decimal | None
     withheld: str | None
+    overrides: Mapping[str, Override]
 
 
 def write_report(
@@ -132,9 +158,26 @@ def write_report(
     """Write `out/` for `students`, in the order given: the three score files, one
     feedback file per student (any other is removed), the review list and the run
     report, which also lists the files of `not_ingested` (names inside the
-    submissions, never opened here). Returns every flag derived."""
+    submissions, never opened here). The corrections in `overrides.yaml` are
+    applied, or listed as stale; one that cannot be loaded raises `OverrideError`.
+    Returns every flag derived."""
     problems, pages = columns(workspace, key)
-    stored = [load(workspace, key, s) for s in students]
+    corrections = load_overrides(
+        workspace.overrides_yaml, key, [s.student_key for s in students]
+    )
+    hashes = {c.id: part_hash(p, key.policies) for p in key.parts for c in p.criteria}
+    stale = [o for o in corrections if o.part_hash != hashes[o.criterion]]
+    stored = [
+        replace(
+            load(workspace, key, s),
+            overrides={
+                o.criterion: o
+                for o in corrections
+                if o.student == s.student_key and o not in stale
+            },
+        )
+        for s in students
+    ]
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
     maximum = points_of(key, key.parts)
@@ -172,8 +215,8 @@ def write_report(
                 detail.append(row)
         text = _feedback(key, title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
-    run_report = _run_report(workspace, key, pages, scored, raised, not_ingested)
-    review_md = review(workspace, key, scored, raised)
+    run_report = _run_report(workspace, key, pages, scored, raised, not_ingested, stale)
+    review_md = review(workspace, key, scored, raised, stale)
     # Everything is rendered before any old file is removed.
     workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
     for old in workspace.feedback_dir.glob("*.md"):
@@ -277,20 +320,74 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
 
 def score(key: Key, stored: Stored) -> list[Score]:
     """Each key part's score for the stored student, in key order: what its
-    criteria award, scaled to the part's points when a constraint is set."""
+    criteria award, after the class audit's changes and then the instructor's
+    corrections, scaled to the part's points when a constraint is set. A part
+    withheld is scored once every criterion of it is corrected."""
     points, step = allocation(key), key.policies.point_step
     scores: list[Score] = []
     for part in key.parts:
         why = withheld(key, part, stored)
         record = None if why else audited(stored, part)
+        mine = {c.id: o for c in part.criteria if (o := stored.overrides.get(c.id))}
+        if why and mine and len(mine) < len(part.criteria):
+            gaps = OPEN.format(
+                all=len(part.criteria), open=len(part.criteria) - len(mine)
+            )
+            why = f"{why} {gaps}"
+        elif mine:
+            why, record = None, corrected(key, part, record, mine)
         awarded = None
         if record:
             earned, weight = part_points(record, key)
             awarded = earned
             if key.points is not None:
                 awarded = scaled(points[part.id], earned, weight, step)
-        scores.append(Score(part, record, awarded, why))
+        scores.append(Score(part, record, awarded, why, mine))
     return scores
+
+
+def corrected(
+    key: Key, part: KeyPart, record: GradeRecord | None, mine: Mapping[str, Override]
+) -> GradeRecord:
+    """`record` with the instructor's award in place of the grader's on each
+    criterion corrected in `mine`, marked, with fixed words and the note for the
+    student; for a part the tool did not score, a record of the corrections alone."""
+    if record is None:  # every criterion is corrected
+        record = GradeRecord(
+            provenance=Provenance(
+                key_part_hash=part_hash(part, key.policies),
+                prompt_version=None,
+                model_slug=None,
+            ),
+            grade=Grade(
+                part_id=part.id,
+                criteria=[],
+                transcript_dispute=None,
+                belongs_elsewhere=None,
+                code_overruled=None,
+            ),
+            check=None,
+            reading_digest=None,
+        )
+    given = {c.id: c for c in record.grade.criteria}
+    criteria = [
+        CriterionGrade(
+            id=c.id,
+            rationale=CORRECTED,
+            evidence_line=None,
+            evidence_element=None,
+            awarded=o.points,
+            feedback=" ".join(
+                [MARKED.format(points=number(o.points), full=number(c.points))]
+                + ([o.note] if o.note else [])
+            ),
+        )
+        if (o := mine.get(c.id))
+        else given[c.id]
+        for c in part.criteria
+    ]
+    grade = record.grade.model_copy(update={"criteria": criteria})
+    return record.model_copy(update={"grade": grade})
 
 
 def audited(stored: Stored, part: KeyPart) -> GradeRecord:
@@ -372,10 +469,10 @@ def flags(key: Key, students: Sequence[Stored]) -> list[Flag]:
 
 
 def status(key: Key, stored: Stored, flags: Sequence[Flag]) -> Status:
-    """`incomplete` when a part is withheld; else `provisional` when one of the
-    student's flags, or a flag on the key (which counts for every student), is of
-    high or medium severity; else `final`."""
-    if any(withheld(key, part, stored) for part in key.parts):
+    """`incomplete` when a part is withheld, and not corrected in full; else
+    `provisional` when one of the student's flags, or a flag on the key (which
+    counts for every student), is of high or medium severity; else `final`."""
+    if any(s.withheld for s in score(key, stored)):
         return "incomplete"
     whose = (None, stored.student.student_key)
     if any(f.severity != "low" and f.student_key in whose for f in flags):
@@ -545,7 +642,8 @@ def _notes(s: Score) -> list[str]:
     return [
         got[c.id].feedback
         for c in s.part.criteria
-        if got[c.id].awarded < c.points and got[c.id].feedback.strip()
+        if c.id in s.overrides
+        or (got[c.id].awarded < c.points and got[c.id].feedback.strip())
     ]
 
 
@@ -582,11 +680,12 @@ def _run_report(
     scored: Sequence[tuple[Stored, list[Score]]],
     raised: Sequence[Flag],
     not_ingested: Sequence[str],
+    stale: Sequence[Override],
 ) -> str:
     """The state of every key part, the class audit, the second read's results,
     each page's maximum and the total, the students with parts not scored and why,
-    the files not ingested, the flags by code, the pinned models, and the cost by
-    role from the usage ledger."""
+    the files not ingested, the corrections not applied, the flags by code, the
+    pinned models, and the cost by role from the usage ledger."""
     maxima = page_points(key)
     lines = ["# Run report", "", "## Key", ""]
     if key.points is not None:
@@ -636,6 +735,7 @@ def _run_report(
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
         lines.append("")
         lines += [f"- {code_span(file)}: {NOT_INGESTED}" for file in not_ingested]
+    lines += _stale(stale)
     counts = Counter(f.code for f in raised)
     lines += ["", "## Flags", ""]
     if counts:
@@ -683,17 +783,19 @@ def review(
     key: Key,
     scored: Sequence[tuple[Stored, list[Score]]],
     raised: Sequence[Flag],
+    stale: Sequence[Override] = (),
 ) -> str:
     """`out/review.md` (design 8.4): an entry for each key part flagged, with its
     points, the number of students scored on it and what is stored behind its
     flags; then one for each student and part, or whole submission, flagged, with
-    every flag on it and its stored cause, the proposed score, the transcript and
-    links to the crops and the stored files. Students' entries come by their
-    highest severity, the points at stake, the student key and the key's part
-    order. Text a student or a model wrote is only ever in a code span."""
+    every flag on it and its stored cause, the proposed score, the instructor's
+    corrections, the transcript and links to the crops and the stored files; then
+    the `stale` corrections, not applied. Students' entries come by their highest
+    severity, the points at stake, the student key and the key's part order. Text
+    a student, a model or the instructor wrote is only ever in a code span."""
     lines = ["# Review list", ""]
     if not raised:
-        return "\n".join([*lines, NOTHING_TO_REVIEW]) + "\n"
+        return "\n".join([*lines, NOTHING_TO_REVIEW, *_stale(stale)]) + "\n"
     entries: dict[tuple[str | None, str | None], list[Flag]] = {}
     for f in raised:
         entries.setdefault((f.student_key, f.part_id), []).append(f)
@@ -752,11 +854,14 @@ def review(
             continue
         [s] = [x for x in scores if x.part.id == part_id]
         record = stored.grades.get(part_id)
+        # The tool's own score: the grade record after the class audit.
+        base = None if withheld(key, s.part, stored) else audited(stored, s.part)
         worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
-        lines += [f"### {name}, {part_id}", "", *_flagged(found, _causes(s, record))]
+        lines += [f"### {name}, {part_id}", "", *_flagged(found, _causes(record, base))]
         lines.append(
             f"- Proposed score: {worth}." + (f" {s.withheld}" if s.withheld else "")
         )
+        lines += _corrections(s, base)
         codes = {f.code for f in found}
         files = []
         if first := stored.readings.get(part_id):
@@ -777,7 +882,30 @@ def review(
         if FlagCode.AUDIT_CHANGED in codes:
             files.append(("audit", workspace.audit_json(part_id)))
         lines += [_files(out, files), ""]
-    return "\n".join(lines)
+    return "\n".join([*lines[:-1], *_stale(stale), ""])
+
+
+def _corrections(s: Score, base: GradeRecord | None) -> list[str]:
+    """Each criterion of the part the instructor corrected: the grader's award in
+    `base`, or none when the tool did not score the part, the instructor's, and the
+    note."""
+    given = {c.id: number(c.awarded) for c in base.grade.criteria} if base else {}
+    return [
+        f"- Corrected: {c.id}, the grader's award {given.get(c.id, 'none')}, the"
+        f" instructor's {number(o.points)}."
+        + (f" Note: {code_span(o.note)}" if o.note else "")
+        for c in s.part.criteria
+        if (o := s.overrides.get(c.id))
+    ]
+
+
+def _stale(stale: Sequence[Override]) -> list[str]:
+    """The section of the corrections not applied, with a blank line before it, or
+    nothing when there are none."""
+    if not stale:
+        return []
+    found = [f"- `{o.student}`, {o.criterion}: {number(o.points)}." for o in stale]
+    return ["", "## Corrections not applied", "", STALE, "", *found]
 
 
 def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> list[str]:
@@ -791,12 +919,15 @@ def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> lis
     ]
 
 
-def _causes(s: Score, record: GradeRecord | None) -> dict[FlagCode, list[str]]:
+def _causes(
+    record: GradeRecord | None, after: GradeRecord | None
+) -> dict[FlagCode, list[str]]:
     """What a part's stored grade holds behind the flags it raises: the grader's
     own sentences, the answer check it overruled, and each award the class audit
-    changed. The changes are the audited record's awards against the stored
-    record's, so a change that no longer holds is never shown."""
-    if record is None or s.record is None:
+    changed. The changes are the awards `after` the audit (None when the part is
+    withheld) against the stored record's, so a change that no longer holds is
+    never shown."""
+    if record is None or after is None:
         return {}
     grade, check = record.grade, record.check
     before = {c.id: c.awarded for c in grade.criteria}
@@ -812,7 +943,7 @@ def _causes(s: Score, record: GradeRecord | None) -> dict[FlagCode, list[str]]:
         FlagCode.AUDIT_CHANGED: [
             f"  - {c.id}: {number(before[c.id])} before the audit,"
             f" {number(c.awarded)} after."
-            for c in s.record.grade.criteria
+            for c in after.grade.criteria
             if c.awarded != before[c.id]
         ],
     }

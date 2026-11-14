@@ -60,7 +60,9 @@ def _decimal(representer: RoundTripRepresenter, value: Decimal) -> Any:
 _Representer.add_representer(Decimal, _decimal)
 
 
-def _writer() -> YAML:
+def yaml_writer() -> YAML:
+    """Round trip, keeping a file's comments; a Decimal in its shortest form. Also
+    writes `overrides.yaml`."""
     yaml = YAML()
     yaml.Representer = _Representer
     yaml.indent(mapping=2, sequence=4, offset=2)
@@ -71,7 +73,8 @@ class KeyFileError(Exception):
     """`key.yaml` would not read back as the key it was written from."""
 
 
-def _reader() -> YAML:
+def yaml_reader() -> YAML:
+    """Safe, a float read as its text. Also reads `overrides.yaml`."""
     yaml = YAML(typ="safe", pure=True)
     yaml.Constructor = _Constructor
     return yaml
@@ -80,7 +83,7 @@ def _reader() -> YAML:
 def load_key(path: Path) -> Key:
     """The key in `path`. Raises `OSError`, ruamel's `YAMLError`, or Pydantic's
     `ValidationError`."""
-    data = _reader().load(path)
+    data = yaml_reader().load(path)
     _fill_answers(data)
     return Key.model_validate(data)
 
@@ -106,7 +109,7 @@ def save_key(path: Path, key: Key) -> None:
     values are written into it, so that its comments and key order survive. What is
     written is read back first: if it is not `key`, `KeyFileError` is raised and
     `path` is left as it is."""
-    yaml = _writer()
+    yaml = yaml_writer()
     data = _yaml_data(key.model_dump(exclude={"points"}))
     if key.points is not None:  # left out when unset, as in a key from before it
         data["points"] = key.points.model_dump(exclude_none=True)
@@ -119,7 +122,7 @@ def save_key(path: Path, key: Key) -> None:
     buffer = io.StringIO()
     yaml.dump(data, buffer)
     try:
-        written = _reader().load(buffer.getvalue())
+        written = yaml_reader().load(buffer.getvalue())
         _fill_answers(written)
         back = Key.model_validate(written)
     except (YAMLError, ValidationError):
@@ -228,7 +231,7 @@ def examine(path: Path, spec: Spec) -> tuple[Key | None, list[str]]:
     the file's own (read, YAML, schema) or, once it loads, those of `check`. A
     schema error is placed by part id when it lies inside a part."""
     try:
-        data = _reader().load(path)
+        data = yaml_reader().load(path)
     except (OSError, YAMLError) as error:
         return None, [str(error)]
     _fill_answers(data)

@@ -1296,6 +1296,10 @@ def test_regrade_sends_nothing_past_a_failed_gate_or_a_bad_key_or_in_a_dry_run(
 ) -> None:
     graded_once(router, monkeypatch)
     edit_criterion("Q4.b")  # so that each student's Q4 would be asked again
+    # A file stored before the reading's digest was kept, which any grading of it
+    # would write again.
+    old = WS.grade_json(students()[0], "Q1")
+    old.write_text(re.sub(r',\s*"reading_digest": "\w+"', "", old.read_text()))
     files, out = grade_files(), out_files(WS)
     cache = WS.cache_sqlite.read_bytes()
     if how == "gate fails":
@@ -1386,3 +1390,155 @@ def test_a_problem_whose_new_grade_fails_keeps_its_file_and_is_logged_and_counte
     shown = {r["part"]: r["rationale"] for r in mine}
     assert shown["Q4.a"] == OTHER_READING
     assert shown["Q4.b"] != OTHER_READING
+
+
+# --- redpen override -----------------------------------------------------------------
+
+
+def override(*args: str) -> Any:
+    return runner.invoke(app, ["override", *args, "--workspace", "ws"])
+
+
+def awarded(criterion: str) -> dict[str, str]:
+    """Each student's award on `criterion` in scores_detail.csv, by name."""
+    with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
+        found = [r for r in csv.DictReader(file) if r["criterion"] == criterion]
+    return {r["student"]: r["awarded"] for r in found}
+
+
+def test_a_correction_survives_regrade_and_grade_and_its_removal_restores_the_award(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    first = students()[0]
+
+    recorded = override(first, "Q4.b.c1", "0.5", "--note", MARKER)
+
+    assert recorded.exit_code == 0, recorded.output
+    assert recorded.stdout.splitlines()[0] == f"Recorded in {WS.overrides_yaml}"
+    assert awarded("Q4.b.c1") == {NAMES[0]: "0.5", NAMES[1]: "2", NAMES[2]: "2"}
+    assert MARKER in WS.feedback_md(first).read_text()
+    assert router.chats == []
+    edit_criterion("Q5.a")  # so that the regrade asks the grader again
+    again = regrade()
+    assert again.exit_code == 0 and len(router.chats) == len(NAMES)
+    assert awarded("Q4.b.c1")[NAMES[0]] == "0.5"
+    router.reads = True
+    assert grade().exit_code == 0
+    assert awarded("Q4.b.c1")[NAMES[0]] == "0.5"
+
+    removed = override(first, "Q4.b.c1", "--remove")
+
+    assert removed.exit_code == 0, removed.output
+    assert removed.stdout.splitlines()[0] == f"Removed from {WS.overrides_yaml}"
+    assert awarded("Q4.b.c1")[NAMES[0]] == "2"
+    assert MARKER not in WS.feedback_md(first).read_text()
+    for result in (recorded, again, removed):
+        assert "MARKER" not in result.output + result.stderr
+    assert not WS.run_log.exists()
+
+
+def ungraded_class(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The class graded with nothing found to read: its files, and no request."""
+    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    assert grade().exit_code == 0
+    router.requests.clear()
+
+
+@pytest.mark.parametrize(
+    ("args", "line"),
+    [
+        (["nobody-000000", "Q4.b.c1", "1"], "No student of the latest ingest has that"),
+        (["{first}", "Q9.c1", "1"], "The key has no criterion with that id."),
+        (["{first}", "Q4.b.c1", "-1"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "2.25"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "two"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1"], "POINTS is a number from 0 to 2,"),
+        (["{first}", "Q4.b.c1", "--remove"], "No correction is recorded for that"),
+        (["{first}", "Q4.b.c1", "1", "--remove"], "--remove takes no POINTS"),
+    ],
+    ids=[
+        "unknown student",
+        "unknown criterion",
+        "below zero",
+        "above full points",
+        "not a number",
+        "no points",
+        "nothing to remove",
+        "points to remove",
+    ],
+)
+def test_a_correction_that_cannot_be_recorded_is_one_line_and_writes_nothing(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, args: list[str], line: str
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    assert override(first, "Q4.a.c1", "1").exit_code == 0
+    kept, out = WS.overrides_yaml.read_bytes(), out_files(WS)
+
+    result = override(*(a.replace("{first}", first) for a in args))
+
+    quiet(result)
+    [said] = result.stderr.splitlines()
+    assert said.startswith(line)
+    assert result.stdout == ""
+    assert WS.overrides_yaml.read_bytes() == kept and out_files(WS) == out
+    assert router.requests == []
+
+
+BAD_FILES = {
+    "not YAML": ("- [unclosed\n", "does not parse as YAML"),
+    "not a correction": ("- student: x\n", ", entry 1 is not a correction"),
+    "unknown student": (
+        "- {{student: nobody-000000, criterion: Q4.b.c1, points: 1, part_hash: h}}\n",
+        ", entry 1: no student of the latest ingest has its key.",
+    ),
+    "unknown criterion": (
+        "- {{student: {first}, criterion: Q9.c1, points: 1, part_hash: h}}\n",
+        ", entry 1: the key has no criterion Q9.c1.",
+    ),
+    "above full points": (
+        "- {{student: {first}, criterion: Q4.b.c1, points: 3, part_hash: {hashed}}}\n",
+        ", entry 1: its points are above the 2 that Q4.b.c1 is worth.",
+    ),
+}
+
+
+COMMANDS = ("report", "regrade", "grade", "override")
+
+
+@pytest.mark.parametrize(
+    ("command", "bad"),
+    [
+        *((c, "unknown student") for c in COMMANDS),
+        *((c, "not YAML") for c in COMMANDS),
+        *(("report", b) for b in ("not a correction", "unknown criterion")),
+        ("report", "above full points"),
+    ],
+)
+def test_an_overrides_file_that_cannot_be_used_stops_each_command_with_one_line(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str, bad: str
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    hashed = part_hash(next(p for p in KEY.parts if p.id == "Q4.b"), KEY.policies)
+    text, line = BAD_FILES[bad]
+    WS.overrides_yaml.write_text(text.format(first=first, hashed=hashed))
+    out, files = out_files(WS), grade_files()
+    summary = WS.ingest_summary_json.read_bytes()
+    args = {
+        "report": ["report", "--workspace", "ws"],
+        "regrade": ["regrade", "--workspace", "ws"],
+        "grade": ["grade", "subs", "--workspace", "ws"],
+        "override": ["override", first, "Q4.a.c1", "1", "--workspace", "ws"],
+    }[command]
+
+    result = runner.invoke(app, args)
+
+    quiet(result)
+    [said] = result.stderr.splitlines()
+    assert said.startswith(str(WS.overrides_yaml)) and line in said
+    assert router.requests == []
+    assert out_files(WS) == out and grade_files() == files
+    assert WS.ingest_summary_json.read_bytes() == summary
+    assert WS.overrides_yaml.read_text() == text.format(first=first, hashed=hashed)

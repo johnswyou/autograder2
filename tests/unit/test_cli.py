@@ -59,7 +59,6 @@ def test_help_lists_every_command(group: list[str], commands: set[str]) -> None:
     "args",
     [
         ["review"],
-        ["override", "s1", "Q7.b-1", "2.5"],
     ],
 )
 def test_stub_accepts_its_arguments_and_reports_not_implemented(
@@ -92,8 +91,6 @@ def test_prepare_and_run_refuse_what_they_do_not_support_yet(
         ["run", "blank.pdf", "subs", "--total", "fifty"],
         ["prepare", "blank.pdf", "--page-points", "nan"],
         ["prepare", "blank.pdf", "--total", "-3"],
-        ["override", "s1", "Q7.b.c1", "Infinity"],
-        ["override", "s1", "Q7.b.c1", "0x10"],
     ],
 )
 def test_points_that_are_not_a_number_are_refused_with_a_clear_message(

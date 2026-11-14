@@ -73,6 +73,7 @@ from redpen.prepare.key import (
     load_key,
     number,
     page_points,
+    part_hash,
     point_problems,
     save_key,
     spec_point_problems,
@@ -98,7 +99,9 @@ from redpen.prepare.verify import (
     verification_md,
     verify,
 )
+from redpen.report.overrides import OverrideError, load_overrides, record_override
 from redpen.report.report import review_line, write_report
+from redpen.schemas.grade import Override
 from redpen.schemas.key import Key, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
@@ -616,6 +619,12 @@ def _grade(
     and grade, and the report. Exit code 0 only when nothing failed; with
     `dry_run`, an estimate."""
     config, api_key, spec, lock, key = _graded(ws, dry_run)
+    if ws.overrides_yaml.exists():  # against the class they were recorded for
+        try:
+            earlier = read_model(ws.ingest_summary_json, IngestSummary).students
+        except (OSError, ValueError):
+            earlier = []
+        _corrections(ws, key, earlier)
     if dry_run:
         _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
         return
@@ -711,6 +720,15 @@ def _run(
     if failed:
         typer.echo(f"Each traceback is in {ws.run_log}.", err=True)
     return failed
+
+
+def _corrections(ws: Workspace, key: Key, students: Sequence[IngestRecord]) -> None:
+    """Exit with one line naming the entry unless overrides.yaml loads against the
+    key and `students`."""
+    try:
+        load_overrides(ws.overrides_yaml, key, [s.student_key for s in students])
+    except OverrideError as error:
+        _fail(str(error))
 
 
 def _report(ws: Workspace, key: Key, summary: IngestSummary) -> None:
@@ -870,6 +888,7 @@ def regrade(workspace: KeyWorkspace, dry_run: DryRun = False) -> None:
     except (OSError, ValueError) as error:
         _fail(f"{ws.root} holds no ingest to grade again ({type(error).__name__}).")
     students = summary.students
+    _corrections(ws, key, students)
     if dry_run:
         if (grader := lock.models.get("grader")) is None:
             _fail(f"{ws.config_lock_toml}: no model is pinned for grader.")
@@ -898,8 +917,16 @@ def regrade(workspace: KeyWorkspace, dry_run: DryRun = False) -> None:
 
 @app.command()
 def report(workspace: KeyWorkspace) -> None:
-    """Rebuild the files in out/ from stored readings and grades. No model call."""
+    """Rebuild the files in out/ from stored readings, grades and corrections. No
+    model call."""
     ws = Workspace(workspace)
+    key, summary = _stored(ws)
+    _corrections(ws, key, summary.students)
+    _report(ws, key, summary)
+
+
+def _stored(ws: Workspace) -> tuple[Key, IngestSummary]:
+    """The key and the latest ingest, or exit with one line."""
     try:
         key = load_key(ws.key_yaml)
         summary = read_model(ws.ingest_summary_json, IngestSummary)
@@ -910,7 +937,7 @@ def report(workspace: KeyWorkspace) -> None:
         )
     if found := _point_problems(ws, key):
         _fail("\n".join(found))
-    _report(ws, key, summary)
+    return key, summary
 
 
 @app.command()
@@ -919,14 +946,62 @@ def review() -> None:
     _not_implemented()
 
 
-@app.command()
+# Unknown options are taken as arguments, so that POINTS below zero reaches the
+# command's own check.
+@app.command(context_settings={"ignore_unknown_options": True})
 def override(
-    student: str,
-    criterion: str,
-    points: Annotated[Decimal, typer.Argument(parser=_point_value)],
+    student: Annotated[str, typer.Argument(help="The student key.")],
+    criterion: Annotated[str, typer.Argument(help="A criterion id, such as Q7.b.c1.")],
+    workspace: KeyWorkspace,
+    points: Annotated[
+        str | None,
+        typer.Argument(help="From 0 to the criterion's full points, in its points."),
+    ] = None,
+    note: Annotated[
+        str | None, typer.Option(help="A note for the student's feedback file.")
+    ] = None,
+    remove: Annotated[
+        bool, typer.Option("--remove", help="Delete the correction instead.")
+    ] = False,
 ) -> None:
-    """Record a correction."""
-    _not_implemented()
+    """Record a correction in overrides.yaml, in place of an earlier one for the
+    student and criterion, then rebuild out/. No model call."""
+    ws = Workspace(workspace)
+    key, summary = _stored(ws)
+    _corrections(ws, key, summary.students)
+    keys = [s.student_key for s in summary.students]
+    if student not in keys:
+        _fail("No student of the latest ingest has that student key.")
+    parts = {c.id: (p, c) for p in key.parts for c in p.criteria}
+    if criterion not in parts:
+        _fail("The key has no criterion with that id.")
+    part, found = parts[criterion]
+    new = None
+    if remove and (points is not None or note is not None):
+        _fail("--remove takes no POINTS and no --note.")
+    if not remove:
+        try:
+            value = Decimal((points or "").strip())
+        except InvalidOperation:
+            value = Decimal("NaN")
+        if not value.is_finite() or not 0 <= value <= found.points:
+            _fail(
+                f"POINTS is a number from 0 to {number(found.points)}, the full"
+                f" points of {criterion}."
+            )
+        new = Override(
+            student=student,
+            criterion=criterion,
+            points=value,
+            part_hash=part_hash(part, key.policies),
+            note=note or None,
+        )
+    try:
+        record_override(ws.overrides_yaml, key, keys, student, criterion, new)
+    except OverrideError as error:
+        _fail(str(error))
+    typer.echo(f"{'Removed from' if remove else 'Recorded in'} {ws.overrides_yaml}")
+    _report(ws, key, summary)
 
 
 @app.command("eval")

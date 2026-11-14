@@ -1,15 +1,24 @@
-"""The grader's decisions on a part (design 7.5).
+"""The grader's decisions on a part (design 7.5), and the instructor's corrections
+(design 11).
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
 with the provenance, including the key part hash, and the reading it was produced
-from. `ProblemGrades` is one stored file, a top-level problem's records.
+from. `ProblemGrades` is one stored file, a top-level problem's records. `Override`
+is one entry of `overrides.yaml`.
 """
 
 from typing import Any, Literal, cast
 
-from pydantic import PositiveInt, model_validator
+from pydantic import ConfigDict, PositiveInt, model_validator
 
-from redpen.schemas.common import CriterionId, PartId, Points, Provenance, Schema
+from redpen.schemas.common import (
+    CriterionId,
+    PartId,
+    Points,
+    Provenance,
+    Schema,
+    StudentKey,
+)
 
 # The answer check's verdict on a stated final answer (redpen.grade.check).
 type Verdict = Literal["matches", "does not match", "cannot tell"]
@@ -66,3 +75,20 @@ class GradeRecord(Schema):
 # option read: its score is withheld, never zero.
 class ProblemGrades(Schema):
     records: list[GradeRecord]
+
+
+# One of the instructor's corrections: `student` gets `points` on `criterion`, in the
+# criterion's own points, while the key part of the criterion has `part_hash`, its
+# hash when the correction was recorded. `note` is the instructor's, for the student.
+class Override(Schema):
+    # A hand-written entry may leave the note out.
+    model_config = ConfigDict(
+        json_schema_mode_override="serialization",
+        json_schema_serialization_defaults_required=True,
+    )
+
+    student: StudentKey
+    criterion: CriterionId
+    points: Points
+    part_hash: str
+    note: str | None = None
