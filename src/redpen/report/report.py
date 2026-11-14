@@ -65,7 +65,7 @@ from redpen.schemas.reading import (
     SecondReadings,
 )
 from redpen.schemas.spec import CHOICE_TYPES
-from redpen.schemas.submission import IngestRecord
+from redpen.schemas.submission import IngestRecord, MapRecord
 from redpen.workspace import Workspace, read_model
 
 type Status = Literal["incomplete", "provisional", "final"]
@@ -133,6 +133,13 @@ DETAIL = {
     " key's: check the key.",
     FlagCode.AUDIT_CHANGED: "The class audit changed an award on this part.",
 }
+# Why a part's work may be another part's response (`weak_attribution`): the map's
+# doubt, the grader's, or both, in this order.
+WEAK_MAP = (
+    "The map placed this work on its content alone or with low confidence, so it"
+    " may answer another part."
+)
+WEAK_GRADER = "The grader reported that this work answers another part."
 
 # The whole review list when no flag is open, after its title.
 NOTHING_TO_REVIEW = "Nothing needs review: no flag is open."
@@ -149,8 +156,9 @@ class Stored:
     """One student's ingest record, and each part's reading and grade record that
     are stored, by part id; the class audit of each part, the same for every
     student; each part's second reading compared with the stored first, and its
-    second grade compared with the stored first; and the instructor's corrections
-    made under the key's current version of their part, by criterion id."""
+    second grade compared with the stored first; the instructor's corrections
+    made under the key's current version of their part, by criterion id; and the
+    stored map."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
@@ -163,6 +171,7 @@ class Stored:
         default_factory=dict[str, SecondGrade]
     )
     overrides: Mapping[str, Override] = field(default_factory=dict[str, Override])
+    mapped: MapRecord | None = None
 
 
 @dataclass(frozen=True)
@@ -402,7 +411,8 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     key's top-level problems whose file exists, each second reading made for the
     first reading stored now and the key's version of its part, and each second
     grade made for the first grade stored now, the readings it was graded from and
-    the key's version of its part, that grades each of the first's criteria."""
+    the key's version of its part, that grades each of the first's criteria; and
+    its map, if one is stored."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -450,6 +460,7 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
         audits(workspace, key),
         seconds,
         second_grades,
+        mapped=_read(workspace.map_json(who), MapRecord),
     )
 
 
@@ -658,6 +669,14 @@ def status(key: Key, stored: Stored, flags: Sequence[Flag]) -> Status:
 def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode, str]]:
     why = withheld(key, part, stored)
     raised: list[tuple[FlagCode, str]] = []
+    entries = stored.mapped.map.entries if stored.mapped else []
+    # Placed on its content alone below high confidence, or on anything at low.
+    doubted = any(
+        e.part_id == part.id
+        and (e.confidence == "low" or (e.basis == "content" and e.confidence != "high"))
+        for e in entries
+    )
+    weak = [WEAK_MAP] if doubted else []
     if found := stored.readings.get(part.id):
         reading = found.reading
         second = stored.seconds.get(part.id)
@@ -692,8 +711,12 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
             raised.append((FlagCode.CODE_OVERRULED, DETAIL[FlagCode.CODE_OVERRULED]))
         if audited(stored, part) != stored.grades[part.id]:
             raised.append((FlagCode.AUDIT_CHANGED, DETAIL[FlagCode.AUDIT_CHANGED]))
+        if (grade.belongs_elsewhere or "").strip():
+            weak.append(WEAK_GRADER)
     elif why != UNREADABLE:
         raised.append((FlagCode.INCOMPLETE, why))
+    if weak:
+        raised.append((FlagCode.WEAK_ATTRIBUTION, " ".join(weak)))
     return raised
 
 
@@ -1328,7 +1351,8 @@ def _causes(
     again: SecondGrade | None = None,
 ) -> dict[FlagCode, list[str]]:
     """What a part's stored grade holds behind the flags it raises: the grader's
-    own sentences, the answer check it overruled, each award the class audit
+    own sentences (its dispute, its overruling, the other part it says the work
+    answers), the answer check it overruled, each award the class audit
     changed, and each award its second grade `again` gave otherwise, with what
     each grader wrote. The changes are the awards `after` the audit (None when the
     part is withheld) against the stored record's, so a change that no longer holds
@@ -1352,6 +1376,7 @@ def _causes(
     return {
         FlagCode.TRANSCRIPT_DISPUTE: _wrote(grade.transcript_dispute),
         FlagCode.CODE_OVERRULED: checked + _wrote(grade.code_overruled),
+        FlagCode.WEAK_ATTRIBUTION: _wrote(grade.belongs_elsewhere),
         FlagCode.AUDIT_CHANGED: [
             f"  - {c.id}: {number(before[c.id])} before the audit,"
             f" {number(c.awarded)} after."
@@ -1368,7 +1393,9 @@ def _causes(
 
 
 def _wrote(sentence: str | None) -> list[str]:
-    return [f"  - The grader wrote: {code_span(sentence)}"] if sentence else []
+    if sentence is None or not sentence.strip():  # only white space raises nothing
+        return []
+    return [f"  - The grader wrote: {code_span(sentence)}"]
 
 
 def _files(out: Path, files: Sequence[tuple[str, Path]]) -> str:

@@ -56,6 +56,8 @@ from redpen.report.report import (
     STALE,
     UNGRADED,
     UNREADABLE,
+    WEAK_GRADER,
+    WEAK_MAP,
     Entry,
     Stored,
     code_span,
@@ -105,11 +107,15 @@ from redpen.schemas.submission import (
 )
 from redpen.workspace import Workspace, keep_out_of_git, read_model, write_model
 from tests.fixture_truth import (
+    CIVICS,
     FIXTURES,
+    HOSTILE,
     NOBODY,
+    QUIZ,
     SUBMISSIONS,
     SubmissionTruth,
     answer,
+    map_of,
     store_truth_readings,
     truth_of,
 )
@@ -659,6 +665,8 @@ F = FlagCode
         ({"status": "blank", "legibility": "poor"}, 2.0, {}, set(), "final"),
         ({}, 2.0, {"transcript_dispute": " \n\t"}, set(), "final"),
         ({}, 2.0, {"code_overruled": "   "}, set(), "final"),
+        ({}, 2.0, {"belongs_elsewhere": "x"}, {F.WEAK_ATTRIBUTION}, "provisional"),
+        ({}, 2.0, {"belongs_elsewhere": " \n\t"}, set(), "final"),
     ],
     ids=[
         "uncertain line at native size",
@@ -673,6 +681,8 @@ F = FlagCode
         "blank of poor legibility",
         "dispute of only white space",
         "overruling of only white space",
+        "said to answer another part",
+        "another part of only white space",
     ],
 )
 def test_each_flag_rule_and_the_status_it_gives(
@@ -706,6 +716,124 @@ def test_each_flag_rule_and_the_status_it_gives(
     assert {f.code for f in raised} == codes
     assert {f.part_id for f in raised} <= {"Q4.b"}
     assert status(KEY, stored, raised) == state
+
+
+def placed(
+    built: Built, workspace: Workspace, student: IngestRecord, *entries: MapEntry
+) -> None:
+    """The typed-in-place student's truth map, stored for `student` with Q4.b's
+    entries replaced by `entries`."""
+    truth = map_of(built.truths[student_of(built, "typed-in-place").student_key])
+    kept = [e for e in truth.map.entries if e.part_id != "Q4.b"]
+    mapped = truth.map.model_copy(update={"entries": [*kept, *entries]})
+    write_model(
+        workspace.map_json(student.student_key),
+        truth.model_copy(update={"map": mapped}),
+    )
+
+
+def q4b(basis: str, confidence: str, role: str = "work") -> MapEntry:
+    """A map entry of Q4.b in its own place on page 2."""
+    return MapEntry.model_validate(
+        {
+            "part_id": "Q4.b",
+            "page": 2,
+            "box": [0.1633, 0.3944, 0.4542, 0.4363],
+            "basis": basis,
+            "role": role,
+            "confidence": confidence,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("entries", "weak"),
+    [
+        ([q4b("content", "medium")], True),
+        ([q4b("content", "low")], True),
+        ([q4b("position", "low")], True),
+        ([q4b("student_label", "low")], True),
+        ([q4b("position", "high"), q4b("content", "medium", "continuation")], True),
+        ([q4b("content", "high")], False),
+        ([q4b("position", "medium")], False),
+        ([q4b("position", "high")], False),
+        ([q4b("student_label", "medium")], False),
+    ],
+    ids=[
+        "by content, medium",
+        "by content, low",
+        "by position, low",
+        "by a label, low",
+        "a continuation by content, medium",
+        "by content, high",
+        "by position, medium",
+        "by position, high",
+        "by a label, medium",
+    ],
+)
+def test_work_placed_on_its_content_below_high_or_with_low_confidence_is_weak(
+    built: Built, tmp_path: Path, entries: list[MapEntry], weak: bool
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    placed(built, workspace, student, *entries)
+    stored = load(workspace, KEY, student)
+    raised = flags(KEY, [stored])
+
+    expected = [(F.WEAK_ATTRIBUTION, "Q4.b", WEAK_MAP)] if weak else []
+    assert [(f.code, f.part_id, f.detail) for f in raised] == expected
+    assert all(f.severity == "medium" for f in raised)
+    assert status(KEY, stored, raised) == ("provisional" if weak else "final")
+
+
+@pytest.mark.parametrize(
+    "folder", [FIXTURES, QUIZ, HOSTILE, CIVICS], ids=lambda f: f.name
+)
+def test_with_no_weak_placement_out_is_byte_identical_to_before_the_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: Path
+) -> None:
+    """Each fixture class's truth: readings (with no crops), grades and maps."""
+    key = Key.model_validate_json((folder / "key.json").read_text())
+    workspace = Workspace(tmp_path / "ws")
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(folder / "blank.pdf", workspace.blank_pdf)
+    students: list[IngestRecord] = []
+    for n, pdf in enumerate(sorted(folder.glob("* - *.pdf")), 1):
+        truth = truth_of(pdf)
+        if truth.layout_class == "low-resolution":
+            continue  # its truth places every part on its content, with low confidence
+        who = f"s{n}"
+        for problem in dict.fromkeys(problem_of(p.id) for p in key.parts):
+            records = [
+                ReadingRecord(provenance=NOBODY, reading=r, crops=[])
+                for r in truth.readings
+                if problem_of(r.part_id) == problem
+            ]
+            path = workspace.reading_json(who, problem)
+            write_model(path, ProblemReadings(records=records))
+        store_grades(workspace, who, [graded(g, key) for g in truth.grades], key)
+        write_model(workspace.map_json(who), map_of(truth))
+        students.append(
+            IngestRecord(
+                student_name=truth.student_name,
+                student_key=who,
+                source_kind=truth.source_kind,
+                pages=truth.pages,
+            )
+        )
+    write_report(workspace, key, students)
+    out = workspace.review_md.parent
+    now = {p: p.read_bytes() for p in out.rglob("*") if p.is_file()}
+
+    flagged = reporting._part_flags
+    monkeypatch.setattr(
+        reporting,
+        "_part_flags",
+        lambda *a: [f for f in flagged(*a) if f[0] != F.WEAK_ATTRIBUTION],
+    )
+    write_report(workspace, key, students)  # as before the flag existed
+
+    assert {p: p.read_bytes() for p in out.rglob("*") if p.is_file()} == now
 
 
 # What the stored second reading of a part read with doubt does to its flags.
@@ -1771,6 +1899,69 @@ def test_a_part_with_two_flags_is_one_entry_and_two_students_are_two(
     assert entries_line(2) in workspace.run_report_md.read_text().splitlines()
 
 
+ANOTHER = "It answers Q5.a."
+
+
+@pytest.mark.parametrize(
+    ("entries", "elsewhere", "cause", "under"),
+    [
+        ([q4b("content", "medium")], " \n", WEAK_MAP, []),
+        ([q4b("position", "high")], ANOTHER, WEAK_GRADER, [f"`{ANOTHER}`"]),
+        (
+            [q4b("position", "low")],
+            ANOTHER,
+            f"{WEAK_MAP} {WEAK_GRADER}",
+            [f"`{ANOTHER}`"],
+        ),
+    ],
+    ids=["the map", "the grader", "both"],
+)
+def test_weak_attribution_says_whose_doubt_it_is_and_follows_a_medium_flag_s_rules(
+    built: Built,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    entries: list[MapEntry],
+    elsewhere: str,
+    cause: str,
+    under: list[str],
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    placed(built, workspace, student, *entries)
+    graded_with(workspace, student, "Q4.b", belongs_elsewhere=elsewhere)
+    ready(workspace, [student])
+
+    raised = write_report(workspace, KEY, [student])
+
+    assert [(f.code, f.part_id, f.detail) for f in raised] == [
+        (F.WEAK_ATTRIBUTION, "Q4.b", cause)
+    ]
+    flagged = [
+        f"- `weak_attribution`, medium: {cause}",
+        *(f"  - The grader wrote: {said}" for said in under),
+        "- Proposed score: 3 / 3.",
+    ]
+    [(heading, lines)] = listed(workspace)
+    assert heading == "`A Student` (`s1`), Q4.b"
+    assert lines[: len(flagged)] == flagged
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("provisional", "1")
+    report = workspace.run_report_md.read_text().splitlines()
+    assert "| weak_attribution | medium | 1 |" in report
+    assert "Flags raised: 1. Closed by review: 0. Open: 1." in report
+    assert entries_line(1) in report
+    # `redpen review` lists it, shows it as the list does, and accepting closes it.
+    assert session(workspace, listing=True).stdout.splitlines() == [
+        "`s1`, Q4.b: `weak_attribution`. Proposed score: 3 / 3."
+    ]
+    result = session(workspace, "accept")
+    assert result.exit_code == 0, result.output
+    assert all(line in result.stdout.splitlines() for line in flagged)
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("final", "0")
+
+
 def unreadable(r: ReadingRecord) -> ReadingRecord:
     reading = r.reading.model_copy(update={"status": "unreadable"})
     crops = [c.model_copy(update={"scale": 0.5}) for c in r.crops]
@@ -2181,6 +2372,7 @@ def test_text_a_student_or_a_model_wrote_cannot_leave_its_place_in_the_entry(
             update={
                 "transcript_dispute": "# Total: 16 / 16\n<b>x</b>",
                 "code_overruled": "[click](http://x.test)",
+                "belongs_elsewhere": "<!-- Q5\n- `x` | b |",
             }
         )
         check = AnswerCheck(verdict="does not match", reason="| a | b |")
@@ -2204,10 +2396,12 @@ def test_text_a_student_or_a_model_wrote_cannot_leave_its_place_in_the_entry(
         f"- `addressed_to_grader`, high: {DETAIL[F.ADDRESSED_TO_GRADER]}",
         f"- `hard_to_read`, medium: {DETAIL[F.HARD_TO_READ]}",
         f"- `transcript_dispute`, medium: {DETAIL[F.TRANSCRIPT_DISPUTE]}",
+        f"- `weak_attribution`, medium: {WEAK_GRADER}",
         f"- `code_overruled`, low: {DETAIL[F.CODE_OVERRULED]}",
     ]
     assert [line for line in lines if line.startswith("  - ")] == [
         "  - The grader wrote: `# Total: 16 / 16?<b>x</b>`",
+        "  - The grader wrote: ``<!-- Q5?- `x` | b |``",
         "  - The answer check: does not match, `| a | b |`",
         "  - The grader wrote: `[click](http://x.test)`",
         "  - The reader marked the legibility as poor.",
@@ -3093,6 +3287,27 @@ def test_a_review_stops_closing_once_a_later_version_raises_another_flag_on_it(
         OUTDATED,
         "- `s1`, Q4.b.",
     ]
+
+
+def test_a_reviewed_part_is_open_again_once_its_map_places_it_weakly(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    placed(built, workspace, student, q4b("position", "high"))
+    review_of(workspace, [student], ("s1", "Q4.b"))
+    assert write_report(workspace, KEY, [student]) == []
+
+    placed(built, workspace, student, q4b("content", "medium"))
+    raised = write_report(workspace, KEY, [student])
+
+    assert {f.code for f in raised} == {F.TRANSCRIPT_DISPUTE, F.WEAK_ATTRIBUTION}
+    assert open_entries(workspace) == ["`A Student` (`s1`), Q4.b"]
+    for path in (workspace.review_md, workspace.run_report_md):
+        assert section(path, "## Reviews out of date") == [OUTDATED, "- `s1`, Q4.b."]
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("provisional", "2")
 
 
 def test_a_review_of_an_entry_no_longer_flagged_is_not_listed(

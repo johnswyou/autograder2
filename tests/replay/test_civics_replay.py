@@ -25,13 +25,17 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Lock, write_lock
+from redpen.grade.ingest import IngestSummary
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
 from redpen.llm.models import recheck_providers
 from redpen.prepare.key import save_key
 from redpen.prepare.parse import render_blank
+from redpen.report.report import flags, load
+from redpen.schemas.flags import FlagCode
 from redpen.schemas.key import Key
-from redpen.workspace import Workspace
+from redpen.schemas.submission import MapRecord
+from redpen.workspace import Workspace, read_model
 from tests.fixture_truth import CIVICS, CIVICS_SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS
 from tests.replay.test_run_replay import openrouter
@@ -123,3 +127,26 @@ def test_each_part_scores_what_the_truth_gives(
     [want] = [g for g in TRUTHS[layout].grades if g.part_id == part]
 
     assert got == {c.id: c.awarded for c in want.criteria}
+
+
+def test_the_answer_placed_on_its_content_is_flagged_and_its_student_provisional(
+    graded: tuple[Workspace, int],
+) -> None:
+    workspace, _ = graded
+    students = read_model(workspace.ingest_summary_json, IngestSummary).students
+    names = {s.student_key: s.student_name for s in students}
+    swapped = TRUTHS["swapped-answers"].student_name
+    on_content = {
+        (s.student_name, e.part_id, e.confidence)
+        for s in students
+        for e in read_model(workspace.map_json(s.student_key), MapRecord).map.entries
+        if e.basis == "content"
+    }
+    raised = flags(KEY, [load(workspace, KEY, s) for s in students])
+    with workspace.scores_by_problem_csv.open(encoding="utf-8-sig") as file:
+        status = {r["student"]: r["status"] for r in csv.DictReader(file)}
+
+    assert on_content == {(swapped, "Q4", "medium")}
+    weak = [f for f in raised if f.code == FlagCode.WEAK_ATTRIBUTION]
+    assert [(names[f.student_key or ""], f.part_id) for f in weak] == [(swapped, "Q4")]
+    assert status[swapped] == "provisional"
