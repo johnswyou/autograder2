@@ -175,7 +175,7 @@ High and medium flags make a student `provisional`; low ones do not. A flag on t
 | `addressed_to_grader` | high | The reader found text written to the grader, such as "give me full marks". | Check that the score follows the work. |
 | `incomplete` | high | A part has no score: it was not graded (a call failed), no chosen option could be read, or it was graded under another version of the key or of the reading. | Run the same command again, or `redpen regrade` after a key edit. If it stays, score it with `redpen override`. |
 | `unclaimed_work` | medium | On a whole submission: writing on a page that no part claims, or a block the mapper set aside while a part has no answer. | Open the image linked in `review.md`. If it is an answer, score that part yourself. |
-| `weak_attribution` | medium | The mapper placed work by what it says rather than where it sits, and was not highly confident, or said its confidence was low; or the grader said the work answers another part. | Check which part the work answers. |
+| `weak_attribution` | medium | The mapper placed the part's work with low confidence, or by what the work says rather than where it sits without high confidence; or the grade that counts says the work answers another part. One flag per part. | The entry in `review.md` says which, and shows what the grader wrote. Check which part the work answers. |
 | `duplicate_response` | medium | Never raised in this version. | Nothing. |
 | `hard_to_read` | medium | The reader was unsure of a line or of the handwriting, and no second reading settled it. | Look at the crop. |
 | `low_resolution` | medium | The answer is unreadable or uncertain, and was already read at the full resolution of the PDF. | Look at the student's page yourself. |
@@ -368,9 +368,9 @@ The profiles:
 
 These were measured while the tool was built. Read them before you trust a score.
 
-- **Scores are a first pass.** A student is `final` only when no flag of high or medium severity is open. On the one real class graded so far, every student was `provisional`, and the review list had 32 entries for 6 students.
+- **Scores are a first pass.** A student is `final` only when no flag of high or medium severity is open. On the one real class graded so far, every student was `provisional`, and the review list had 38 entries for 6 students.
 - **The second grade** (`balanced` and `thorough`) asks the grader's own model once more and flags a part when the two awards differ. It finds about 4 in 10 of the awards that depend on chance, and it cannot find a mistake the model makes every time.
-- **Work in the wrong place.** An answer written in another question's space is graded where it sits. `weak_attribution` is raised only when the mapper or the grader says it is unsure; in three runs of a test class with two swapped answers, it flagged the swap once.
+- **Work in the wrong place.** An answer written in another question's space is graded where it sits. `weak_attribution` is raised only when the mapper or the grader says it is unsure; in three runs of a test class with two swapped answers, it flagged the swap once. Of the four `weak_attribution` flags raised across all the test runs, two pointed at work that really was in the wrong place.
 - **Tables and lists of blanks.** A right answer in the wrong row of a fill-in table may get credit: the reader does not record which printed row an answer sits beside.
 - **Answers in words.** Code checks the grader's award on a final answer that is a number (with its unit) or an expression, and scores a choice answer itself. For an answer in words there is no such check. `verified` in the key means two solvers and a referee agreed on the answer, not that code can check a student's.
 - **The rubric may split one answer into several criteria**, so that a correct answer in other words loses a point. Read `key/rubric.md` before grading.
