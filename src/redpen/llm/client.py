@@ -331,6 +331,8 @@ class Gateway:
         async with self._slots:
             # Waiting inside the slot stops queued requests bursting past the rate.
             await self._wait_turn(model.slug)
+            if self.stopped is not None:  # only what is in flight is sent
+                raise StopError(*self.stopped.args)
             try:
                 reply = await self._http.post("/chat/completions", json=body)
             except httpx.TransportError as error:

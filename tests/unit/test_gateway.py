@@ -975,3 +975,31 @@ def test_identical_requests_in_flight_together_are_sent_once(tmp_path: Path) -> 
     assert len(sent) == 1
     assert [r.value for r in found] == [Answer(letter="B")] * 5
     assert [r.from_cache for r in found].count(False) == 1
+
+
+@pytest.mark.parametrize("code", [401, 402, 404])
+def test_a_stop_sends_only_the_requests_already_in_flight(
+    tmp_path: Path, code: int
+) -> None:
+    sent: list[bool] = []  # whether the gateway had stopped when each was sent
+    gateways: list[Gateway] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(gateways[0].stopped is not None)
+        if len(sent) == 1:
+            for _ in range(20):  # the other slots fill meanwhile
+                await asyncio.sleep(0)
+            return httpx.Response(code, json={"error": {"code": code}})
+        for _ in range(200):
+            await asyncio.sleep(0)
+        return completion('{"letter": "B"}')
+
+    async def scenario(gateway: Gateway) -> list[object]:
+        gateways.append(gateway)
+        calls = [ask(items=(f"item {n}",))(gateway) for n in range(40)]
+        return await asyncio.gather(*calls, return_exceptions=True)
+
+    with pytest.raises(StopError):
+        run(tmp_path / "cache.sqlite", handler, scenario, max_concurrency=8)
+
+    assert sent == [False] * 8  # the 8 in flight, and nothing after the stop
