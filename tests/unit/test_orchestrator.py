@@ -2258,12 +2258,21 @@ def test_a_review_holds_through_a_regrade_and_a_grade_that_change_nothing(
     assert len(router.requests) == sent  # no model call, and no key
     assert statuses() == {"final"}
     kept = WS.reviews_yaml.read_bytes()
+    crops = {p: p.read_bytes() for p in WS.root.glob("students/*/crops/*.png")}
+    assert crops
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    for again in (regrade(), grade()):
-        assert again.exit_code == 0, again.output
+    for again in (
+        regrade,
+        grade,
+        lambda: runner.invoke(app, ["report", "--workspace", "ws"]),
+    ):
+        result = again()
+        assert result.exit_code == 0, result.output
+        # The images each entry links, which its review covers, made again the same.
+        assert {p: p.read_bytes() for p in crops} == crops
         assert review("--list").stdout == f"{NOTHING_TO_REVIEW}\n"
         assert statuses() == {"final"}
-    assert WS.reviews_yaml.read_bytes() == kept
+        assert WS.reviews_yaml.read_bytes() == kept
     # A re-grade that gives another award: the grader asked again, and Q4.b.c2 lost.
     with closing(sqlite3.connect(WS.cache_sqlite, autocommit=True)) as db:
         db.execute("DELETE FROM calls WHERE response LIKE '%grades%'")
@@ -2290,6 +2299,39 @@ def test_a_review_holds_through_a_regrade_and_a_grade_that_change_nothing(
     lines = WS.review_md.read_text().splitlines()
     at = lines.index("## Reviews out of date")
     assert lines[at + 4 :] == [f"- `{s}`, Q4.b." for s in sorted(students())]
+
+
+def test_a_review_goes_out_of_date_when_a_new_pdf_is_read_and_graded_the_same(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own_pages()
+    router.reads, router.grades = True, disputing
+    fast(router, monkeypatch)
+    assert grade().exit_code == 0
+    assert review(answers="accept\n" * len(NAMES)).exit_code == 0
+    [who] = [
+        s.student_key
+        for s in read_model(WS.ingest_summary_json, IngestSummary).students
+        if s.student_name == NAMES[0]
+    ]
+    readings = WS.reading_json(who, "Q4").read_bytes()
+    # Another PDF from the student, which the reader and grader answer as before.
+    write_pdf(Path("subs") / f"HW 1 - {NAMES[0]}.pdf", "1. x = 999, other work")
+
+    assert grade().exit_code == 0
+
+    assert WS.reading_json(who, "Q4").read_bytes() == readings
+    assert review("--list").stdout.splitlines() == [
+        f"`{who}`, Q4.b: `transcript_dispute`. Proposed score: 3 / 3."
+    ]
+    assert {r["student"]: r["status"] for r in by_problem(WS)} == {
+        **{name: "final" for name in NAMES},
+        NAMES[0]: "provisional",
+    }
+    for path in (WS.review_md, WS.run_report_md):
+        lines = path.read_text().splitlines()
+        at = lines.index("## Reviews out of date")
+        assert lines[at + 4 :][:1] == [f"- `{who}`, Q4.b."]
 
 
 BAD_REVIEWS = {

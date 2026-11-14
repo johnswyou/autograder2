@@ -229,7 +229,7 @@ def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> 
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
     current = {
-        place: _shown(key, scored, place, found)
+        place: _shown(workspace, key, scored, place, found)
         for place, found in _grouped(raised).items()
     }
     reviewed = {
@@ -244,6 +244,7 @@ def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> 
 
 
 def _shown(
+    workspace: Workspace,
     key: Key,
     scored: Sequence[tuple[Stored, list[Score]]],
     place: Place,
@@ -253,20 +254,28 @@ def _shown(
     stands: its key part's hash, and the digest of what it shows that a later run
     could change. That is its flag codes; for a key part, the class audit's finding
     that the class disputes the key's answer; for a student's part, its stored
-    reading and second reading, its second grade, its grade after the class audit,
-    why it is withheld, and the instructor's corrections of it (with the grade, they
-    give the grade after the corrections)."""
+    reading, the bytes of each crop the entry links, its second reading, its second
+    grade, its grade after the class audit, why it is withheld, and the
+    instructor's corrections of it (with the grade, they give the grade after the
+    corrections)."""
     who, part_id = place
     part = next((p for p in key.parts if p.id == part_id), None)
     shown: list[BaseModel | str | None] = [*sorted({f.code for f in found})]
     if who is None and part_id is not None:
         audit = scored[0][0].audits.get(part_id) if scored else None
         shown.append(audit.key_suspect if audit else None)
-    elif part is not None and (s := _score_at(scored, place)):
+    elif who is not None and part is not None and (s := _score_at(scored, place)):
         [stored] = [st for st, _ in scored if st.student.student_key == who]
         base = None if withheld(key, part, stored) else audited(stored, part)
+        first = stored.readings.get(part.id)
+        crops = _crops(workspace, who, first) if first else []
         shown += [
-            stored.readings.get(part.id),
+            first,
+            # The images themselves: a new PDF can be read and graded the same.
+            *(
+                hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
+                for p in crops
+            ),
             stored.seconds.get(part.id),
             stored.second_grades.get(part.id),
             base,
@@ -1112,8 +1121,7 @@ def _entry(
     if first := stored.readings.get(part_id):
         lines += _transcript("First reading", first)
         files += [
-            (f"crop {n}", workspace.crop_png(who, part_id, n))
-            for n in range(1, len(first.crops) + 1)
+            (f"crop {n}", p) for n, p in enumerate(_crops(workspace, who, first), 1)
         ]
         files.append(("reading", workspace.reading_json(who, problem_of(part_id))))
     second = stored.seconds.get(part_id)
@@ -1127,6 +1135,13 @@ def _entry(
     if FlagCode.GRADERS_DISAGREE in codes:
         files.append(("second grade", workspace.second_grade_json(who)))
     return lines, files
+
+
+def _crops(workspace: Workspace, who: str, first: ReadingRecord) -> list[Path]:
+    """The crop image of each region of `who`'s reading `first`, which its entry
+    links and its review covers."""
+    part = first.reading.part_id
+    return [workspace.crop_png(who, part, n) for n in range(1, len(first.crops) + 1)]
 
 
 def _whose(place: Place) -> str:

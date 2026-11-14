@@ -2810,7 +2810,49 @@ def made_from_another_reading(
     )
 
 
+def crop(data: bytes) -> Step:
+    """Q4.b's crop stored as `data`, its reading and grade as they are: another
+    image read as before."""
+
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        path = workspace.crop_png(student.student_key, "Q4.b", 1)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    return step
+
+
+def audit_reason(reason: str) -> Step:
+    """The class audit of Q4.b lowering the student's Q4.b.c1 from 2 to 1 for
+    `reason`."""
+
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        hashed = part_hash(next(p for p in KEY.parts if p.id == "Q4.b"), KEY.policies)
+        change = AuditChange(
+            student_key=student.student_key,
+            criterion="Q4.b.c1",
+            part_hash=hashed,
+            before=Decimal(2),
+            after=Decimal(1),
+            reason=reason,
+        )
+        audit = PartAudit(
+            part_id="Q4.b",
+            part_hash=hashed,
+            groups=1,
+            changed=1,
+            undecided=0,
+            changes=[change],
+            key_suspect=None,
+        )
+        write_model(workspace.audit_json("Q4.b"), audit)
+
+    return step
+
+
 OUT_OF_DATE: dict[str, tuple[Step, Step]] = {
+    "a crop of it replaced": (crop(b"one image"), crop(b"another image")),
+    "the audit's reason only": (audit_reason("One."), audit_reason("Two.")),
     "the part read again otherwise": (unchanged, reread),
     "a re-grade that changes an award": (unchanged, lowered("Q4.b.c2")),
     "a re-grade under a correction": (corrected("Q4.b.c1"), lowered("Q4.b.c1")),
