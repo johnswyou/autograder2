@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass, fields
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -145,7 +146,9 @@ async def grade_class(
             for stage in stages:
                 await asyncio.gather(*(one(stage, s) for s in keys))
                 if stage == "map":  # the class mapped: check it, in code
-                    check_class(workspace, students)
+                    pages = {p.number for s in students for p in s.pages}
+                    check = progress.add_task("check", total=len(pages), cost="")
+                    check_class(workspace, students, partial(progress.advance, check))
             # On the same gateway: a reading is student work, sent only past the gate.
             await audit_class(workspace, key, students, gw, models["grader"])
     return failed

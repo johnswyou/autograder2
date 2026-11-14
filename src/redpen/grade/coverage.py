@@ -15,7 +15,7 @@ give the report what those files hold, in fixed words."""
 
 import contextlib
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -36,7 +36,10 @@ from redpen.schemas.submission import (
 from redpen.workspace import Workspace, log_failure, read_model, write_model
 
 # The thresholds, measured on the fixture classes (task 4.3 report). A channel
-# darker than the background's by more than INK is ink.
+# darker than the background's by more than INK is ink. At 20 the check finds 88 of
+# 100 responses left out of the fixtures' maps, against 84 at 40, with no false
+# flag; but the fixtures are drawn and lossless, and 40 leaves twice the room for
+# the antialiasing and compression of real exports.
 INK = 40
 # A page with ink on more than NEARLY of its background's paper (WHITE_LEVEL or more
 # in every channel) differs from the class's over much of it, and is not compared:
@@ -56,6 +59,13 @@ PRINT = 128
 CELL = 40
 DENSE = 0.125
 FEWEST = 3  # comparable students a page needs
+# The background is a pixel's k-th lightest value, k = min(LIGHTEST, n - 2): two
+# students whose pages are lighter there (white over the print) cannot move it.
+LIGHTEST = 3
+# Dense cells no more than REACH cells apart are one patch: a gap of one cell, as
+# between the lines and words of a response.
+REACH = 2
+NAMED = 0.5  # a block set aside at least this much inside a name region is that name
 
 type Reason = Literal[
     "few comparable", "not classkick", "other rendering", "unreadable", "check failed"
@@ -94,13 +104,18 @@ BLOCKS = (
 )
 
 
-def check_class(workspace: Workspace, students: Sequence[IngestRecord]) -> None:
+def check_class(
+    workspace: Workspace,
+    students: Sequence[IngestRecord],
+    done: Callable[[], object] = lambda: None,
+) -> None:
     """Compare each page of the class with its background, one page image held at a
-    time, and store each mapped student's coverage file and images, the earlier
-    ones removed first. A student with no map gets none but counts for the
-    background. A page whose image cannot be read is not compared, that page alone.
-    When the check itself fails, the failure goes to the run log and each student's
-    file says so of every page, with nothing else of the check kept."""
+    time, calling `done` as each page number is done, and store each mapped
+    student's coverage file and images, the earlier ones removed first. A student
+    with no map gets none but counts for the background. A page whose image cannot
+    be read is not compared, that page alone. When the check itself fails, the
+    failure goes to the run log and each student's file says so of every page, with
+    nothing else of the check kept."""
     maps: dict[str, MapRecord] = {}
     for student in students:
         _clear(workspace, student.student_key)
@@ -109,7 +124,7 @@ def check_class(workspace: Workspace, students: Sequence[IngestRecord]) -> None:
                 workspace.map_json(student.student_key), MapRecord
             )
     try:
-        found = _compare(workspace, students, maps)
+        found = _compare(workspace, students, maps, done)
         for key, mapped in maps.items():
             for n, block in _blocks(mapped):
                 page = _open(workspace.student_page(key, block.page))
@@ -146,6 +161,7 @@ def _compare(
     workspace: Workspace,
     students: Sequence[IngestRecord],
     maps: Mapping[str, MapRecord],
+    done: Callable[[], object],
 ) -> dict[str, list[CoveragePage]]:
     """Each mapped student's pages, page number by page number: why each was not
     compared, or the patches of ink its map leaves, each patch's image saved."""
@@ -194,6 +210,7 @@ def _compare(
                     number=number, not_compared=reasons.get(key), patches=patches
                 )
             )
+        done()
     return found
 
 
@@ -254,8 +271,8 @@ def _background(
 
 
 def _lightest(pages: Iterable[Image.Image]) -> list[Image.Image]:
-    """Per pixel and channel, the three lightest values of `pages`, the lightest
-    first: three images kept besides the page read."""
+    """Per pixel and channel, the LIGHTEST lightest values of `pages`, the lightest
+    first: that many images kept besides the page read."""
     top: list[Image.Image] = []
     for page in pages:
         for i in range(len(top)):  # no name keeps a page alive past its turn
@@ -263,17 +280,17 @@ def _lightest(pages: Iterable[Image.Image]) -> list[Image.Image]:
                 ImageChops.lighter(top[i], page),
                 ImageChops.darker(top[i], page),
             )
-        if len(top) < 3:
+        if len(top) < LIGHTEST:
             top.append(page)
     return top
 
 
 def _kth(top: Sequence[Image.Image], count: int) -> Image.Image:
     """Of the lightest values `top` of `count` pages (FEWEST or more), the k-th, k =
-    min(3, count - 2): ink darkens a page, so any number of students writing at a
-    pixel leave it while two do not, and from five students on, two whose pages are
-    lighter there (white over the print) cannot move it either."""
-    return top[min(3, count - 2) - 1]
+    min(LIGHTEST, count - 2): ink darkens a page, so any number of students writing
+    at a pixel leave it while two do not, and from five students on, two whose
+    pages are lighter there (white over the print) cannot move it either."""
+    return top[min(LIGHTEST, count - 2) - 1]
 
 
 def _ink(page: Image.Image, background: Image.Image) -> Image.Image:
@@ -351,7 +368,7 @@ def _dense(ink: Image.Image) -> list[list[float]]:
         group = [min(dense, key=lambda cell: (cell[1], cell[0]))]
         dense.discard(group[0])
         for cell in group:  # grows as it goes
-            near = _around(cell, 2) & dense
+            near = _around(cell, REACH) & dense
             dense -= near
             group += sorted(near)
         inky = {c for cell in group for c in _around(cell, 1) if values.get(c)}
@@ -406,7 +423,7 @@ def _blocks(mapped: MapRecord) -> list[tuple[int, SetAside]]:
         (n, block)
         for n, block in enumerate(mapped.map.set_aside, 1)
         if not any(
-            _inside(block.box, name) >= 0.5 for name in names.get(block.page, [])
+            _inside(block.box, name) >= NAMED for name in names.get(block.page, [])
         )
     ]
 
