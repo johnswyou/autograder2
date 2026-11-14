@@ -218,10 +218,9 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
     assert len(provider.asked) == at  # nothing sent after it
     kept = cached(workspace)
     assert len(kept) == at - 1
-    # At once: no later stage ran (the read stage writes its crops before it asks),
-    # and no student's failure was logged for it.
-    assert list(workspace.students_dir.glob("*/map.json"))
-    assert not list(workspace.students_dir.glob("*/crops"))
+    # At once: no later stage took a student, and no student's failure was logged.
+    for stage in ("read", "second", "grade", "second grade"):
+        assert any(re.match(rf"{stage} +0/3 ", line) for line in lines(stopped.output))
     assert not list(workspace.students_dir.glob("*/readings"))
     assert not workspace.run_log.exists()
 
