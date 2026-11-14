@@ -2,6 +2,7 @@ import functools
 import logging
 import shutil
 from decimal import Decimal
+from importlib import metadata
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -53,6 +54,13 @@ def test_help_lists_every_command(group: list[str], commands: set[str]) -> None:
 
     assert result.exit_code == 0
     assert commands <= first_column(result.output)
+
+
+def test_version_prints_the_installed_version_and_exits() -> None:
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output == f"redpen {metadata.version('redpen')}\n"
 
 
 # --total and --page-points are supported since task 4.5a (tests/unit/test_points.py).

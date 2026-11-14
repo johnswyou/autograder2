@@ -15,6 +15,7 @@ import zipfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
+from importlib import metadata
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -225,10 +226,25 @@ KeyWorkspace = Annotated[
 ]
 
 
+def _version(value: bool) -> None:
+    if value:
+        typer.echo(f"redpen {metadata.version('redpen')}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     verbose: Annotated[
         bool, typer.Option("-v", "--verbose", help="Log debug detail.")
+    ] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version,
+            is_eager=True,
+            help="Print the installed version and exit.",
+        ),
     ] = False,
 ) -> None:
     """Grade student work on an assignment."""
