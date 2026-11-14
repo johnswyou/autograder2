@@ -1099,6 +1099,7 @@ def test_the_parts_of_a_split_group_are_decided_each_on_its_own(tmp_path: Path) 
 def test_a_split_group_with_a_part_not_decided_is_counted_once_as_undecided(
     tmp_path: Path, failing: set[int]
 ) -> None:
+    changed = 1 if failing == {1} else 0  # the others' changes apply
     workspace = new_workspace(tmp_path)
     who = [f"S{n:03d}" for n in range(60)]
     for n, student in enumerate(who):
@@ -1114,14 +1115,15 @@ def test_a_split_group_with_a_part_not_decided_is_counted_once_as_undecided(
 
     [found] = audit(workspace, Q4C, model, who)
 
-    assert (found.groups, found.split, found.changed, found.undecided) == (1, 1, 0, 1)
-    assert len(found.changes) == (15 if failing == {1} else 0)  # the others' stand
+    counts = (found.groups, found.split, found.changed, found.undecided)
+    assert counts == (1, 1, changed, 1)
+    assert len(found.changes) == 15 * changed
     write_report(workspace, Q4C, [record_of(s) for s in who])
     report = workspace.run_report_md.read_text().splitlines()
     assert (
         "Groups of the same evidence with differing awards: 1. Decided again: 0."
-        " Changed: 0. Could not be decided: 1. Groups too large for one request,"
-        " decided in parts that may differ: 1." in report
+        f" Changed: {changed}. Could not be decided: 1. Groups too large for one"
+        " request, decided in parts that may differ: 1." in report
     )
 
 

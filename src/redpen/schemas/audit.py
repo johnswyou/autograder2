@@ -37,8 +37,9 @@ class Suspect(Schema):
 
 
 # `groups`: groups of cases with the same evidence and differing awards; `changed`:
-# those decided again with an award changed; `undecided`: those whose call failed
-# or whose answer failed its checks twice, in any part; `split`: those too large
+# those with an award changed, in any part (a group split in parts may be changed
+# and undecided too); `undecided`: those whose call failed or whose answer failed
+# its checks twice, in any part; `split`: those too large
 # for one request, decided in parts that may differ. `part_hash` is the key part's
 # when the audit ran.
 class PartAudit(Schema):
