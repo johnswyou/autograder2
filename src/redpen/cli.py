@@ -873,6 +873,13 @@ def _grade(
     if found := vendor_problem(lock.models):  # before anything is sent
         _fail(f"{ws.config_lock_toml}: {found}.")
     summary = _ingest(ws, submissions, roster)
+    if lock.mask_names and not config.mask_names:  # once on, on for the workspace
+        typer.echo(
+            f"{ws.config_lock_toml} has mask_names on, which holds once on: names"
+            " are blanked though redpen.toml has it off.",
+            err=True,
+        )
+        config = config.model_copy(update={"mask_names": True})
     lock = _gate(ws, config, lock, api_key)
     failed = _run(ws, spec, key, lock, config, api_key, summary.students, [*STAGES])
     _report(ws, key, summary)

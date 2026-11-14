@@ -21,6 +21,7 @@ import functools
 import io
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ from PIL import Image, ImageChops
 from typer.testing import CliRunner
 
 from redpen.cli import app
-from redpen.config import Lock, write_lock
+from redpen.config import Lock, read_lock, write_lock
 from redpen.grade.ingest import IngestSummary
 from redpen.llm.client import NAME as TOKEN
 from redpen.llm.client import Gateway
@@ -533,3 +534,42 @@ def test_with_names_masked_the_mapper_is_sent_each_page_whole(
     assert len(looks) == len(plain) == 6  # three students, two pages each
     for body in looks:
         assert body["messages"][1] in plain  # the same page, outline and size
+
+
+MASK_KEPT = (
+    "ws/config.lock.toml has mask_names on, which holds once on: names are blanked"
+    " though redpen.toml has it off."
+)
+
+
+def test_names_stay_masked_in_a_workspace_once_a_grade_run_masked_them(
+    runs: dict[bool, tuple[OpenRouter, Workspace]], tmp_path: Path
+) -> None:
+    """A grade run from a folder whose settings have mask_names off, in a copy of
+    the masked run: every request is one the masked run made, so the call cache
+    answers each and none is sent; the lock and the run report still say so."""
+    root = tmp_path / "copy"
+    shutil.copytree(runs[True][1].root.parent, root)
+    router = OpenRouter()
+    transport = httpx.MockTransport(router)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(root)
+        patch.setenv("OPENROUTER_API_KEY", "test-key")
+        offline = functools.partial(Gateway, transport=transport)
+        for where in ("redpen.cli.Gateway", "redpen.orchestrator.Gateway"):
+            patch.setattr(where, offline)
+        patch.setattr(
+            "redpen.orchestrator.recheck_providers",
+            functools.partial(recheck_providers, transport=transport),
+        )
+        Path("redpen.toml").unlink()  # mask_names off
+
+        result = CliRunner().invoke(app, ["grade", "subs", "--workspace", "ws"])
+
+    assert result.exit_code == 0, result.output
+    assert router.chats == []
+    assert MASK_KEPT in result.stderr.splitlines()
+    workspace = Workspace(root / "ws")
+    assert read_lock(workspace.config_lock_toml).mask_names is True
+    report = workspace.run_report_md.read_text().splitlines()
+    assert any(line.startswith("Names masked (`mask_names`).") for line in report)
