@@ -541,15 +541,23 @@ def _constraint(
 
 
 def _point_problems(ws: Workspace, key: Key) -> list[str]:
-    """What stops the key's points being met on the blank of `ws`, one line each."""
-    if key.points is None:
-        return []
+    """What stops the key's parts and points being placed on the blank of `ws`, one
+    line each: a part on a page the blank does not have, or points that cannot be
+    met. Without points, a blank that does not open is no problem here."""
     try:
         with render.open_pdf(ws.blank_pdf) as pdf:
             pages = len(pdf)
     except Exception:  # pdfium reports a file it cannot open as PdfiumError
+        if key.points is None:
+            return []
         return [f"{ws.blank_pdf} cannot be opened to count its pages"]
-    return point_problems(key, pages)
+    placed = [
+        f"{p.id} has home page {p.home_page}, and the blank has {pages} pages"
+        for p in key.parts
+        if p.home_page > pages
+    ]
+    # Without points nothing is summed: a huge criterion is key check's to name.
+    return placed + (point_problems(key, pages) if key.points is not None else [])
 
 
 def _points(key: Key) -> None:

@@ -507,6 +507,22 @@ def test_key_check_reports_a_huge_exponent_without_raising(tmp_path: Path) -> No
     ]
 
 
+def test_key_check_refuses_a_part_on_a_page_the_blank_does_not_have(
+    tmp_path: Path,
+) -> None:
+    workspace = workspace_with(
+        tmp_path, edited(lambda p: p["Q5.c"].update(home_page=99))
+    )
+    shutil.copy(FIXTURES / "blank.pdf", workspace.blank_pdf)
+
+    result = runner.invoke(app, ["key", "check", "--workspace", str(workspace.root)])
+
+    assert result.exit_code == 1
+    assert result.output.splitlines() == [
+        "Q5.c has home page 99, and the blank has 4 pages"
+    ]
+
+
 def huge_workspace(tmp_path: Path) -> Workspace:
     """A workspace for the fixture blank whose key has `points: 1e1000000`, more
     than Decimal arithmetic can hold."""
