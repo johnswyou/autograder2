@@ -350,6 +350,22 @@ def test_key_check_asks_for_no_api_key(
     assert "no problem found" in result.output
 
 
+def test_key_check_works_on_a_workspace_that_cannot_be_written_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    workspace = prepared_key(tmp_path, monkeypatch)
+    workspace.root.chmod(0o555)  # and no .gitignore: none can be written
+
+    try:
+        result = runner.invoke(app, ["key", "check", "--workspace", "ws"])
+    finally:
+        workspace.root.chmod(0o755)
+
+    assert result.exit_code == 0, result.output
+    assert "no problem found" in result.output
+
+
 @pytest.mark.parametrize(
     ("flags", "level"),
     [([], logging.INFO), (["-v"], logging.DEBUG), (["--verbose"], logging.DEBUG)],

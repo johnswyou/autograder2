@@ -210,10 +210,11 @@ class Workspace:
 def keep_out_of_git(workspace: Workspace) -> None:
     """Give a workspace, a folder holding a blank, a `.gitignore` holding `*` when
     it has none: it holds student work and scores (design 14.1). An existing one,
-    or anything else of that name, is left as it is."""
+    or anything else of that name, is left as it is, and a folder that cannot be
+    written to gets none: the command goes on."""
     if not workspace.blank_pdf.exists():
         return
-    with contextlib.suppress(FileExistsError), workspace.gitignore.open("x") as file:
+    with contextlib.suppress(OSError), workspace.gitignore.open("x") as file:
         file.write("*\n")
 
 
