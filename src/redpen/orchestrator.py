@@ -176,7 +176,8 @@ async def uncached(
     counted and refused before it leaves, the cache is a copy and the grade files,
     second grades and run log go to a scratch folder, all inside the workspace
     (they hold text derived from student work), so nothing is sent and nothing
-    stored changes. A request that would follow a refused one is not counted."""
+    stored changes. A request that would follow a refused one is not counted,
+    but for the second grade of a problem whose first grade was refused."""
     asked = 0
 
     def refuse(request: httpx.Request) -> httpx.Response:
@@ -203,11 +204,15 @@ async def uncached(
             transport=httpx.MockTransport(refuse),
         ) as gateway:
             for student in students:
+                first = asked
                 with contextlib.suppress(Exception):  # a refusal fails its problem
                     await grade_student(
                         scratch, student.student_key, key, gateway, model
                     )
                 if profile in PROFILES:
+                    # A first grade refused here leaves no grade to grade again,
+                    # though the real run would ask for its second grade too.
+                    asked += asked - first
                     with contextlib.suppress(Exception):  # as the first grade's
                         await grade_again(
                             scratch, student.student_key, key, gateway, model

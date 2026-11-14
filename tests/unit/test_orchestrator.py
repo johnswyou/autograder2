@@ -1347,8 +1347,9 @@ def test_regrade_sends_nothing_past_a_failed_gate_or_a_bad_key_or_in_a_dry_run(
     if how == "dry run":
         assert result.exit_code == 0, result.output
         assert router.requests == []
+        # Each student's Q4, and its second grade under the lock's balanced.
         assert result.stdout.splitlines() == [
-            f"Grade requests the call cache would not answer: {len(NAMES)}."
+            f"Grade requests the call cache would not answer: {2 * len(NAMES)}."
         ]
         assert WS.cache_sqlite.read_bytes() == cache
         assert not WS.run_log.exists()
@@ -2033,6 +2034,39 @@ def test_a_workspace_graded_before_the_second_grade_reports_then_grades_again_fo
     assert second_grade_line(AWARDS * len(NAMES), 0, 0, 0) in lines
     router.requests.clear()
     assert regrade().exit_code == 0 and router.chats == []
+
+
+def stored_files() -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in WS.root.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("profile", ["economy", "balanced", "thorough"])
+@pytest.mark.parametrize("change", ["a key edit", "a reading", "an old workspace"])
+def test_regrade_s_dry_run_counts_the_requests_regrade_then_makes(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, change: str, profile: str
+) -> None:
+    profiled("economy" if change == "an old workspace" else profile)
+    graded_once(router, monkeypatch)
+    profiled(profile)
+    if change == "a key edit":
+        edit_criterion("Q4.b")
+    if change == "a reading":  # the first student's Q4.a read again, differently
+        path = WS.reading_json(students()[0], "Q4")
+        records = read_model(path, ProblemReadings).records
+        read = records[0].reading.model_copy(update={"lines": ["y = 5"]})
+        records[0] = records[0].model_copy(update={"reading": read})
+        write_model(path, ProblemReadings(records=records))
+    stored = stored_files()
+
+    dry = regrade("--dry-run")
+
+    # Nothing stored changes, the run log among them, though requests are refused.
+    assert stored_files() == stored
+    real = regrade()
+    assert real.exit_code == 0, real.output
+    assert dry.stdout == (
+        f"Grade requests the call cache would not answer: {len(router.chats)}.\n"
+    )
 
 
 @pytest.mark.parametrize(
