@@ -8,6 +8,7 @@ the transport runs in the task that made the call. `install` patches
 `redpen.llm.client.cache_key` to keep it, and gives the orchestrator's and the CLI's
 gateways and the privacy gate this transport and an injected sleep."""
 
+import asyncio
 import functools
 import json
 from collections.abc import Callable
@@ -45,7 +46,9 @@ def _keyed(*args: Any, **kwargs: Any) -> str:
 
 
 async def no_wait(seconds: float) -> None:
-    """The gateway's sleep in a test: it returns at once."""
+    """The gateway's sleep in a test: it returns at once, once the other tasks have
+    had their turn, as they would while it waited."""
+    await asyncio.sleep(0)
 
 
 class Provider:

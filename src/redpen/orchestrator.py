@@ -31,7 +31,7 @@ from rich.console import Console
 from rich.progress import MofNCompleteColumn, Progress
 
 from redpen.config import Config, Lock, Profile
-from redpen.grade.audit import audit_class
+from redpen.grade.audit import MAX_CASES, audit_class
 from redpen.grade.coverage import check_class
 from redpen.grade.grade import grade_student
 from redpen.grade.map import map_student
@@ -253,7 +253,16 @@ TOKENS: dict[str, tuple[int, int]] = {
     "resolve": (3916, 748),
     "read": (4684, 461),
     "grade": (5703, 596),
+    "audit": (4428, 420),  # text only: the two calls of audit_class.jsonl (task 5.4a)
 }
+# What is known only once the run is made, assumed: the share of read calls the
+# second reader makes again (none on the fixture class, 5 of 12 on the one real
+# submission measured, task 4.5 keycheck), each priced as the read call it repeats;
+# and the class audit's groups for each part a model grades (2 for 6 parts on the
+# fixture class with one award altered, task 4.7), each asked once per MAX_CASES
+# students.
+SECOND_READS = 0.25
+AUDIT_GROUPS = 0.2
 # A mapped region as sent, in tokens: the fixture means for the reader (choice
 # marks among them) and for the grader.
 READ_REGION = 260
@@ -354,10 +363,11 @@ def estimate(
     budget: int,
     profile: Profile,
 ) -> dict[str, Cost]:
-    """What prepare (nothing when `keyed`), map, read, grade and, under a `profile`
-    that does it, the second grade will cost, by stage, from the blank's page
-    sizes, the spec (or `PER_PAGE` without one), the students' pages and the
-    models' prices. Nothing is sent."""
+    """What prepare (nothing when `keyed`), map, read, the second read, grade, under
+    a `profile` that does it the second grade, and the class audit will cost, by
+    stage, from the blank's page sizes, the spec (or `PER_PAGE` without one), the
+    students' pages, the models' prices and, for the second read and the audit,
+    SECOND_READS and AUDIT_GROUPS. Nothing is sent."""
     found = (
         shape(spec)
         if spec
@@ -367,8 +377,8 @@ def estimate(
     )
     # The second grade makes the grade stage's requests again.
     graded = ["grade", *([SECOND_GRADE] if profile in PROFILES else [])]
-    # Not the second read: how many parts a reader will be unsure of is not known.
-    costs = {stage: Cost() for stage in ("prepare", "map", "read", *graded)}
+    stages = ("prepare", "map", "read", SECOND, *graded, "audit")
+    costs = {stage: Cost() for stage in stages}
 
     def add(stage: str, role: str, kind: str, calls: float, images: float = 0) -> None:
         text, out = TOKENS[kind]
@@ -406,6 +416,11 @@ def estimate(
         overview = sum(mine) / len(mine)
         regions = found.read_pages * overview + found.regions * READ_REGION
         add("read", "reader", "read", found.reads, regions)
+        again = SECOND_READS * found.reads
+        add(SECOND, SECOND, "read", again, SECOND_READS * regions)
         for stage in graded:
             add(stage, "grader", "grade", found.grades, found.crops * GRADE_CROP)
+    if len(students) > 1:  # `crops` counts the parts a model grades
+        asked = math.ceil(len(students) / MAX_CASES)
+        add("audit", "grader", "audit", AUDIT_GROUPS * found.crops * asked)
     return costs

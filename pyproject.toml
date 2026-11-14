@@ -33,7 +33,10 @@ strict = ["src"]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["."]  # so tests can import shared helpers as `tests.<module>`
-markers = ["live: makes a paid OpenRouter call; skipped unless REDPEN_LIVE=1"]
+markers = [
+    "live: makes a paid OpenRouter call; skipped unless REDPEN_LIVE=1",
+    "slow: minutes, not seconds; skipped unless REDPEN_SLOW=1",
+]
 filterwarnings = ["error"]
 
 [dependency-groups]

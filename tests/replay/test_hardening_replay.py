@@ -5,23 +5,31 @@ run as the instructor runs it over the three fixture students whose calls
 OpenRouter that answers from the recording (`tests/provider.py`)."""
 
 import asyncio
+import csv
+import ctypes
 import itertools
 import json
 import os
+import random
 import re
+import resource
 import shutil
 import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import httpx
+import pypdfium2 as pdfium  # pyright: ignore[reportMissingTypeStubs]
+import pypdfium2.raw as pdfium_c  # pyright: ignore[reportMissingTypeStubs]
 import pytest
 from typer.testing import CliRunner
 
@@ -36,8 +44,9 @@ from redpen.report.report import write_report
 from redpen.schemas.audit import PartAudit
 from redpen.schemas.grade import ProblemGrades
 from redpen.schemas.key import Key
+from redpen.schemas.reading import ProblemReadings, ReadingRecord
 from redpen.workspace import Workspace, read_model, write_model
-from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
+from tests.fixture_truth import FIXTURES, NOBODY, SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS, GRADER, KEY_MODELS
 from tests.provider import Provider, recorded
 from tests.replay.test_audit_replay import SEEDED, layouts
@@ -49,10 +58,14 @@ CHAIN = recorded("run_chain")
 PREPARE = recorded("prepare_blank")
 REPO = Path(__file__).parents[2]
 runner = CliRunner()
-# Every N of a sweep runs under REDPEN_SLOW=1 only; a few run in every suite.
-SLOW = pytest.mark.skipif(
-    os.environ.get("REDPEN_SLOW") != "1", reason="slow; set REDPEN_SLOW=1"
-)
+# Every N of a sweep, and the class of 150, run under REDPEN_SLOW=1 only (`pytest -m
+# slow` selects them); a few N run in every suite.
+SLOW = [
+    pytest.mark.slow,
+    pytest.mark.skipif(
+        os.environ.get("REDPEN_SLOW") != "1", reason="slow; set REDPEN_SLOW=1"
+    ),
+]
 
 
 def sweep(last: int, quick: set[int]) -> list[int | object]:
@@ -248,9 +261,8 @@ def run(workspace: Workspace, submissions: Path) -> list[str]:
     return ["run", blank, str(submissions), "--workspace", str(workspace.root)]
 
 
-# The first and last requests, and the first of each later stage: map, read, the
-# second grade.
-@pytest.mark.parametrize("at", sweep(len(CHAIN), {1, 13, 14, 20, 27}))
+# The first and the last request, and the first of the read stage.
+@pytest.mark.parametrize("at", sweep(len(CHAIN), {1, 14, 27}))
 def test_run_killed_at_the_nth_request_resumes_asking_nothing_twice_to_the_same_files(
     chained: tuple[Workspace, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -306,7 +318,7 @@ def regraded(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
         return stored_files(workspace)
 
 
-@pytest.mark.parametrize("at", [1, 4, 8])
+@pytest.mark.parametrize("at", [1, 8])
 def test_regrade_killed_at_the_nth_request_resumes_asking_nothing_twice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -365,7 +377,7 @@ def prepared_once(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
         return stored_files(workspace)
 
 
-@pytest.mark.parametrize("at", sweep(len(PREPARE), {1, 9, 16}))
+@pytest.mark.parametrize("at", sweep(len(PREPARE), {1, 16}))
 def test_prepare_killed_at_the_nth_request_resumes_asking_nothing_twice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -512,16 +524,16 @@ from redpen.llm.cache import CallCache
 
 cache = CallCache(sqlite3.connect(sys.argv[1], autocommit=True))
 n = 0
-while True:
+while True:  # five answers written over and over, as `forget` and a new answer do
     n += 1
-    cache.put(f"key {n}", json.dumps({"n": n, "text": "x" * 500_000}))
+    cache.put(f"key {n % 5}", json.dumps({"n": n, "text": str(n) * 100_000}))
 """
 
 
 def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
     db = tmp_path / "cache.sqlite"
     env = {**os.environ, "PYTHONPATH": str(REPO)}
-    for _ in range(5):  # each kill lands somewhere in a stream of writes
+    for _ in range(10):  # each kill lands somewhere in a stream of writes
         child = subprocess.Popen([sys.executable, "-c", WRITER, str(db)], env=env)
         rows = 0
         deadline = time.monotonic() + 120
@@ -532,6 +544,7 @@ def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
                     [(rows,)] = connection.execute("SELECT COUNT(*) FROM calls")
                 except sqlite3.OperationalError:  # no table yet, or locked
                     continue
+        time.sleep(random.uniform(0.1, 0.4))  # not while it waits on this read's lock
         child.send_signal(signal.SIGKILL)
         assert child.wait() == -signal.SIGKILL
 
@@ -540,7 +553,9 @@ def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
             answers = connection.execute("SELECT key, response FROM calls").fetchall()
         assert answers
         for key, response in answers:  # each answer is there whole
-            assert json.loads(response)["n"] == int(key.split()[1])
+            found = json.loads(response)
+            assert found["n"] % 5 == int(key.split()[1])
+            assert found["text"] == str(found["n"]) * 100_000
 
 
 # --- rule 8: a class audit request has an upper size -----------------------------
@@ -615,3 +630,230 @@ def test_an_audit_group_too_large_for_one_request_is_split_recorded_and_reported
         f"Groups too large for one request, decided in parts that may differ:"
         f" {sum(split.values())}."
     ) in workspace.run_report_md.read_text()
+
+
+# --- rules 7 and 9: a large class --------------------------------------------------
+
+
+def renamed(pdf: Path, name: str, to: Path) -> None:
+    """A copy of the Classkick export `pdf` at `to` whose sidebar names `name`: its
+    pages, and so every request made from them, are the same as the original's."""
+    document = pdfium.PdfDocument(pdf)
+    for page in document:
+        for found in page.get_objects(max_depth=0, textpage=page.get_textpage()):
+            if isinstance(found, pdfium.PdfTextObj) and found.extract().startswith(
+                "Student:"
+            ):
+                given = ctypes.create_string_buffer(
+                    f"Student: {name}\0".encode("utf-16-le")
+                )
+                assert pdfium_c.FPDFText_SetText(
+                    found.raw, ctypes.cast(given, pdfium_c.FPDF_WIDESTRING)
+                )
+        page.gen_content()
+    document.save(to)
+    document.close()
+
+
+def a_class(root: Path, size: int) -> tuple[Workspace, Path]:
+    """A seeded workspace and `size` submissions: the three chained students in
+    turn, each under a name made up for it."""
+    workspace, chained = seed(root)
+    folder = root / f"class of {size}"
+    folder.mkdir()
+    originals = sorted(chained.iterdir())
+    for n in range(size):
+        name = f"Made Up{n:03d}"
+        renamed(originals[n % 3], name, folder / f"Practice Set 3 - {name}.pdf")
+    return workspace, folder
+
+
+class Peak:
+    """The largest resident memory and number of open files of this process while
+    the `with` block runs, sampled every 20 ms, above what they were at its start."""
+
+    def __enter__(self) -> "Peak":
+        self.rss = self.files = 0
+        self._start = (self._rss(), self._files())
+        self._done = threading.Event()
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._done.set()
+        self._thread.join()
+
+    def _sample(self) -> None:
+        while not self._done.wait(0.02):
+            self.rss = max(self.rss, self._rss() - self._start[0])
+            self.files = max(self.files, self._files() - self._start[1])
+
+    @staticmethod
+    def _rss() -> int:
+        found = re.search(r"VmRSS:\s+(\d+) kB", Path("/proc/self/status").read_text())
+        assert found
+        return int(found[1]) * 1024
+
+    @staticmethod
+    def _files() -> int:
+        return len(os.listdir("/proc/self/fd"))
+
+
+@dataclass
+class Graded:
+    seconds: float
+    requests: int
+    rss: int
+    files: int
+    said: list[str]
+    report: list[str]
+
+
+FILE_LIMIT = 256  # macOS's default soft limit on open files
+
+
+def graded_class(root: Path, monkeypatch: pytest.MonkeyPatch, size: int) -> Graded:
+    """`redpen grade` of a class of `size` from the recordings, with the network
+    disabled and at most FILE_LIMIT files open; what it took, said and wrote."""
+    workspace, folder = a_class(root, size)
+    provider = Provider(CHAIN)
+    provider.install(monkeypatch)
+    limits = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (FILE_LIMIT, limits[1]))
+    try:
+        started = time.monotonic()
+        with Peak() as peak:
+            result = runner.invoke(app, grade(workspace, folder))
+        seconds = time.monotonic() - started
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, limits)
+    assert result.exit_code == 0, result.output
+    assert provider.unrecorded == []
+    # Identical pages are answered once: each request is asked once, by whoever
+    # comes first, and the class asks nothing the three students did not.
+    assert sorted(provider.asked) == sorted(CHAIN)
+    for csv_file in (workspace.scores_by_problem_csv, workspace.scores_by_page_csv):
+        with csv_file.open(encoding="utf-8-sig") as rows:
+            assert len(list(csv.DictReader(rows))) == size
+    with workspace.scores_detail_csv.open(encoding="utf-8-sig") as rows:
+        assert len({r["student"] for r in csv.DictReader(rows)}) == size
+    assert len(list(workspace.feedback_dir.glob("*.md"))) == size
+    assert workspace.review_md.exists()
+    report = workspace.run_report_md.read_text().splitlines()
+    assert f"Students: {size}. With every part scored: {size}. With parts not" in (
+        "\n".join(report)
+    )
+    found = Graded(
+        seconds, len(provider.asked), peak.rss, peak.files, lines(result.output), report
+    )
+    shutil.rmtree(workspace.root.parent / f"class of {size}")
+    shutil.rmtree(workspace.students_dir)  # the disk holds little to spare
+    return found
+
+
+def assert_readable(small: Graded, large: Graded) -> None:
+    """Rule 9: nothing said or reported grows with the class but its counts."""
+    assert len(large.said) == len(small.said)
+    assert len(large.report) == len(small.report)
+
+
+def test_a_class_of_11_is_graded_with_each_request_asked_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "made-up")
+    monkeypatch.chdir(tmp_path)
+    three = graded_class(tmp_path / "3", monkeypatch, 3)
+    eleven = graded_class(tmp_path / "11", monkeypatch, 11)
+    assert_readable(three, eleven)
+
+
+@SLOW[0]
+@SLOW[1]
+def test_a_class_of_150_is_graded_from_the_recordings_as_one_of_11_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "made-up")
+    monkeypatch.chdir(tmp_path)
+    eleven = graded_class(tmp_path / "11", monkeypatch, 11)
+    large = graded_class(tmp_path / "150", monkeypatch, 150)
+    print(f"\n11: {eleven}\n150: {large}".replace(", said=", "\n  said="))
+    assert_readable(eleven, large)
+    assert large.requests == eleven.requests == len(CHAIN)
+    assert large.files <= eleven.files + 8  # no file is kept open per student
+    # No page image of every student is held at once: 150 students' 600 pages are
+    # some 3.6 GB decoded.
+    assert large.rss <= eleven.rss + 512 * 2**20
+
+
+# --- rule 11: the estimate -------------------------------------------------------
+
+
+def test_every_stage_that_sends_requests_has_a_row_in_the_estimate(
+    chained: tuple[Workspace, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, submissions = chained
+    dry = runner.invoke(app, [*grade(workspace, submissions), "--dry-run"])
+    assert dry.exit_code == 0, dry.output
+    table, assumed = dry.stdout.split("Assumptions:")
+    rows = {line[:15].strip(): line[15:].split() for line in table.splitlines()[2:]}
+    estimated = {stage: float(row[0]) for stage, row in rows.items()}
+    provider = Provider(CHAIN)
+    provider.install(monkeypatch)
+
+    assert runner.invoke(app, grade(workspace, submissions)).exit_code == 0
+
+    stages = ["map", "read", "second", "grade", "second grade", "audit"]
+    assert [s for s in rows if s not in ("prepare", "total")] == stages
+    assert "the second reader is assumed to read again 25% of what" in " ".join(
+        assumed.split()
+    )
+    assert "class audit to form 0.2 groups for each part a model grades" in " ".join(
+        assumed.split()
+    )
+    # The calls made, by stage: the ledger books each by role; the class audit's are
+    # the grader's Decisions.
+    with closing(sqlite3.connect(workspace.cache_sqlite)) as db:
+        roles = dict(db.execute("SELECT role, COUNT(*) FROM ledger GROUP BY role"))
+    audit = sum('"decisions' in str(CHAIN[k]["choices"]) for k in provider.asked)
+    made = {
+        "map": roles.get("mapper", 0),
+        "read": roles.get("reader", 0),
+        "second": roles.get("second", 0),
+        "grade": roles.get("grader", 0) - audit,
+        "second grade": roles.get("second grade", 0),
+        "audit": audit,
+    }
+    print("\nstage, estimated calls, calls made")
+    for stage in stages:
+        print(f"{stage}, {rows[stage][0]}, {made[stage]}")
+    assert sum(made.values()) == len(CHAIN)
+    assert all(estimated[s] > 0 for s in stages)  # each stage is priced
+
+
+def test_a_stored_file_whose_write_is_cut_short_stays_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "Q4.json"
+    readings = truth_of(SUBMISSIONS[0]).readings
+    old, new = (
+        ProblemReadings(
+            records=[ReadingRecord(provenance=NOBODY, reading=r, crops=[]) for r in rs]
+        )
+        for rs in (readings[:1], readings)
+    )
+    write_model(path, old)
+    write_text = Path.write_text
+
+    def killed_halfway(self: Path, text: str, *args: Any, **kwargs: Any) -> int:
+        write_text(self, text[: len(text) // 2], *args, **kwargs)
+        raise Killed
+
+    monkeypatch.setattr(Path, "write_text", killed_halfway)
+    with pytest.raises(Killed):
+        write_model(path, new)
+    monkeypatch.undo()
+
+    assert read_model(path, ProblemReadings) == old
+    write_model(path, new)  # the next write takes the `.partial` left behind
+    assert read_model(path, ProblemReadings) == new

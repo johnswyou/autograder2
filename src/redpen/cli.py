@@ -41,6 +41,7 @@ from redpen.config import (
     write_lock,
 )
 from redpen.eval.eval import GoldError, evaluate, markdown, table
+from redpen.grade.audit import MAX_CASES
 from redpen.grade.ingest import IngestSummary, ingest
 from redpen.grade.read import problem_of
 from redpen.grade.second import vendor_problem
@@ -63,9 +64,11 @@ from redpen.llm.models import (
     recheck_providers,
 )
 from redpen.orchestrator import (
+    AUDIT_GROUPS,
     GRADE_CROP,
     PATCH,
     READ_REGION,
+    SECOND_READS,
     STAGES,
     Cost,
     blank_sizes,
@@ -1005,8 +1008,11 @@ def _print_estimate(
         f" region is {READ_REGION} tokens to the reader and {GRADE_CROP} to the"
         " grader.",
         "Text and output tokens per call as measured on the fixture run. No retry,"
-        " second read, second look or gap re-read; prompt caching, not counted,"
-        " costs less.",
+        " second look or gap re-read; prompt caching, not counted, costs less.",
+        f"Known only once the run is made: the second reader is assumed to read"
+        f" again {SECOND_READS:.0%} of what the reader reads, and the class audit to"
+        f" form {number(Decimal(str(AUDIT_GROUPS)))} groups for each part a model"
+        f" grades, asked once per {MAX_CASES} students.",
         f"USD per million tokens of the models {whose}: {prices}.",
     ]
     if keyed:
