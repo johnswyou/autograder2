@@ -2016,6 +2016,35 @@ def test_weak_attribution_says_whose_doubt_it_is_and_follows_a_medium_flag_s_rul
     assert (row["status"], row["open_flags"]) == ("final", "0")
 
 
+@pytest.mark.parametrize(
+    ("entry", "elsewhere", "raised"),
+    [
+        (q4b("content", "medium"), None, [F.INCOMPLETE, F.WEAK_ATTRIBUTION]),
+        (q4b("position", "high"), ANOTHER, [F.INCOMPLETE]),
+    ],
+    ids=["the map's doubt", "the grader's report"],
+)
+def test_on_a_withheld_part_the_map_s_doubt_still_counts_and_the_grader_s_does_not(
+    built: Built,
+    tmp_path: Path,
+    entry: MapEntry,
+    elsewhere: str | None,
+    raised: list[F],
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    placed(built, workspace, student, entry)
+    if elsewhere:
+        graded_with(workspace, student, "Q4.b", belongs_elsewhere=elsewhere)
+
+    # Graded under another version of Q4.b, so its grade does not count.
+    found = write_report(workspace, edited(KEY), [student])
+
+    assert [(f.code, f.part_id) for f in found] == [(c, "Q4.b") for c in raised]
+    if F.WEAK_ATTRIBUTION in raised:
+        assert found[-1].detail == WEAK_MAP
+
+
 def unreadable(r: ReadingRecord) -> ReadingRecord:
     reading = r.reading.model_copy(update={"status": "unreadable"})
     crops = [c.model_copy(update={"scale": 0.5}) for c in r.crops]
