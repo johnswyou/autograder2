@@ -850,13 +850,20 @@ def second_grade_of_q4b(
     rationale: str = SECOND_RATIONALE,
 ) -> SecondGrade:
     """A second grade of the stored first grade of Q4.b: the same, or 1 in place
-    of 2 on its first criterion, with `rationale`."""
+    of 2 on its first criterion, with `rationale`. Either way the second grader
+    disputes the reading and overrules the check, which only the first may do."""
     [part] = [p for p in KEY.parts if p.id == "Q4.b"]
     first = stored.grades["Q4.b"]
     c1, c2 = first.grade.criteria
     if result == "differ":
         c1 = c1.model_copy(update={"awarded": Decimal(1), "rationale": rationale})
-    grade = first.grade.model_copy(update={"criteria": [c1, c2]})
+    grade = first.grade.model_copy(
+        update={
+            "criteria": [c1, c2],
+            "transcript_dispute": "The reading is wrong.",
+            "code_overruled": "The check is wrong.",
+        }
+    )
     return SecondGrade(
         part_id="Q4.b",
         part_hash=part_hash(part, KEY.policies),
