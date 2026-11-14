@@ -45,6 +45,9 @@ class Config(BaseModel):
     strict_privacy: bool = True
     """Route only to endpoints that retain nothing: zero data retention, no Safety
     Retention, no data collection."""
+    mask_names: bool = False
+    """Ask the mapper where a student's name is on each page, and blank it in every
+    image of the page sent after the map (design 14.1)."""
 
 
 def load_config(path: Path = Path("redpen.toml")) -> Config:
@@ -89,6 +92,8 @@ class Lock(BaseModel):
     strict_privacy: bool | None = None
     """False once a grade run of this workspace sent pages with strict privacy off,
     and False from then on; True when every grade run had it on; None before any."""
+    mask_names: bool | None = None
+    """True when the latest grade run masked names; None otherwise."""
 
 
 async def pin(
@@ -126,6 +131,8 @@ def write_lock(path: Path, lock: Lock) -> None:
     lines = [f"profile = {json.dumps(lock.profile)}"]
     if lock.strict_privacy is not None:
         lines.append(f"strict_privacy = {json.dumps(lock.strict_privacy)}")
+    if lock.mask_names is not None:
+        lines.append(f"mask_names = {json.dumps(lock.mask_names)}")
     for role, model in lock.models.items():
         lines += ["", f"[models.{role}]"]
         # The lists are sets: sorted, so that the same lock is the same file.

@@ -13,6 +13,11 @@ image_budget = 1536
 # models have such an endpoint. Set to false only for a model that has none.
 strict_privacy = true
 
+# Blank each student's name in the images sent after the map: the mapper is
+# asked where names are written or printed, and sees each page before it is
+# blanked. A name that overlaps a response is left as it is.
+mask_names = false
+
 # The model behind each role: an OpenRouter slug, or a ~author/family-latest
 # alias that is pinned to a concrete slug when an assignment is prepared.
 [models]

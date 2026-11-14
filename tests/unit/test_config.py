@@ -37,6 +37,14 @@ def test_defaults_load_with_no_file(
     assert config.profile == "balanced"
     assert config.image_budget == 1536
     assert config.strict_privacy is True
+    assert config.mask_names is False
+
+
+def test_masking_names_is_switched_on_in_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "redpen.toml"
+    path.write_text("mask_names = true\n")
+
+    assert load_config(path).mask_names is True
 
 
 def test_file_overrides_a_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,3 +124,26 @@ def test_the_lock_is_written_with_its_lists_sorted_and_the_same_every_time(
     assert 'providers = ["alpha", "mid/eu", "zeta/us"]' in lines
     assert 'supported_parameters = ["max_tokens", "response_format", "tools"]' in lines
     assert read_lock(first) == lock
+
+
+def test_the_lock_records_names_masked_and_otherwise_holds_no_such_line(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.lock.toml"
+    model = ModelInfo(
+        slug="vendor/model-1",
+        supported_parameters=frozenset(),
+        accepts_images=True,
+        prompt_price=Decimal(0),
+        completion_price=Decimal(0),
+        providers=frozenset({"zero"}),
+    )
+    write_lock(path, Lock(profile="balanced", models={"mapper": model}))
+    plain = path.read_text()
+
+    write_lock(
+        path, Lock(profile="balanced", models={"mapper": model}, mask_names=True)
+    )
+
+    assert "mask_names" not in plain and read_lock(path).mask_names is True
+    assert path.read_text() == plain.replace("\n", "\nmask_names = true\n", 1)
