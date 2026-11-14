@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 
 from redpen import prompts
 from redpen.grade.check import MATCH, UNSURE, Check, check_answer
@@ -52,7 +53,8 @@ async def grade_student(
     (`graded_from`). A part
     read as unreadable gets none, and so does a choice part answered with no option
     read, and a problem with no stored reading is not graded. Each top-level
-    problem's file is replaced as soon as it is graded. The
+    problem's file is replaced as soon as it is graded, keeping each stored record
+    that nothing it was graded from changed for (`kept`). The
     problems run concurrently; when one still fails its checks after one more call,
     `StageError` is raised once every other problem has finished, and that
     problem's earlier file, if any, is left as it was."""
@@ -62,12 +64,42 @@ async def grade_student(
         if (found := request(workspace, student, key, parts)) is None:
             return
         records = found.by_code | await ask_grader(found, key, gateway, model)
+        path = workspace.grade_json(student, problem)
+        records = kept(path, parts, records)
         file = ProblemGrades(records=[records[p.id] for p in parts if p.id in records])
-        write_model(workspace.grade_json(student, problem), file)
+        write_model(path, file)
         done.update(records)
 
     await finish_all(grade(problem, parts) for problem, parts in by_problem(key))
     return {p.id: done[p.id] for p in key.parts if p.id in done}
+
+
+def kept(
+    path: Path, parts: list[KeyPart], records: dict[str, GradeRecord]
+) -> dict[str, GradeRecord]:
+    """`records`, the new records of one problem's `parts`, with the record stored
+    in `path` in place of each new one made under the same key part, prompt and
+    model, from the same readings and with the same answer check, when every part
+    it depends on is of this problem and kept too: a fresh draw of the grader does
+    not change an award that nothing changed for."""
+    try:
+        stored = {r.grade.part_id: r for r in read_model(path, ProblemGrades).records}
+    except (OSError, ValueError):  # none, or damaged: nothing to keep
+        stored = {}
+    found = dict(records)
+    same: set[str] = set()
+    for part in parts:  # a part depends on earlier parts only (`key.check`)
+        old, new = stored.get(part.id), records.get(part.id)
+        if (
+            old is not None
+            and new is not None
+            and (old.provenance, old.reading_digest, old.check)
+            == (new.provenance, new.reading_digest, new.check)
+            and all(d in same for d in part.depends_on)
+        ):
+            same.add(part.id)
+            found[part.id] = old
+    return found
 
 
 def by_problem(key: Key) -> list[tuple[str, list[KeyPart]]]:

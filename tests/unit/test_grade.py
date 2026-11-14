@@ -24,10 +24,13 @@ from redpen.grade.grade import (
     problems,
 )
 from redpen.grade.read import digest
+from redpen.grade.second_grade import grade_again
 from redpen.llm import client
 from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
+from redpen.report.report import audited, load
+from redpen.schemas.audit import Change, PartAudit
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import (
     AnswerCheck,
@@ -35,6 +38,7 @@ from redpen.schemas.grade import (
     Grade,
     GradeRecord,
     ProblemGrades,
+    SecondGrade,
 )
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import (
@@ -44,6 +48,7 @@ from redpen.schemas.reading import (
     Reading,
     ReadingRecord,
 )
+from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
 from tests.unit.test_gateway import base_cache_key
@@ -1062,3 +1067,153 @@ def test_a_problem_that_fails_twice_keeps_its_earlier_file_and_the_others_are_re
     for problem in ("Q1", "Q5"):
         stored = read_model(workspace.grade_json(STUDENT, problem), ProblemGrades)
         assert stored != earlier
+
+
+# --- a stored grade kept when nothing it was graded from changed --------------------
+
+
+def drawn(key: Key, tag: str, lowered: str | None = None) -> Grades:
+    """One draw of the grader: full marks, every rationale `tag`, but zero on the
+    first criterion of the part `lowered`."""
+    grades: list[Grade] = []
+    for g in (full(key, p.id) for p in key.parts if p.id in ASKED):
+        criteria = [c.model_copy(update={"rationale": tag}) for c in g.criteria]
+        if g.part_id == lowered:
+            criteria[0] = criteria[0].model_copy(update={"awarded": Decimal(0)})
+        grades.append(g.model_copy(update={"criteria": criteria}))
+    return Grades(grades=grades)
+
+
+def tags(records: dict[str, GradeRecord]) -> dict[str, str]:
+    """The rationale of each record, by part id: which draw it came from."""
+    return {i: r.grade.criteria[0].rationale for i, r in records.items()}
+
+
+def requirement(key: Key, criterion: str, text: str) -> Key:
+    """`key` with the requirement of `criterion` edited to `text`."""
+    parts = [
+        p.model_copy(
+            update={
+                "criteria": [
+                    c.model_copy(update={"requirement": text})
+                    if c.id == criterion
+                    else c
+                    for c in p.criteria
+                ]
+            }
+        )
+        for p in key.parts
+    ]
+    return key.model_copy(update={"parts": parts})
+
+
+# Q4.c made to depend on Q4.b.
+DEPENDENT = key_of(PARTS["Q4.a"], PARTS["Q4.b"], changed("Q4.c", depends_on=["Q4.b"]))
+
+
+def test_an_edited_criterion_grades_its_part_and_dependents_again_and_keeps_the_rest(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, list(ASKED.values()))
+    first = run(workspace, DEPENDENT, Grader(DEPENDENT, lambda ids, n: drawn(Q4, "1")))
+    edited = requirement(DEPENDENT, "Q4.b.c2", "States the acceleration.")
+
+    after = run(workspace, edited, Grader(edited, lambda ids, n: drawn(Q4, "2")))
+
+    assert after["Q4.a"].model_dump_json() == first["Q4.a"].model_dump_json()
+    assert tags(after) == {"Q4.a": "1", "Q4.b": "2", "Q4.c": "2"}
+    stored = read_model(workspace.grade_json(STUDENT, "Q4"), ProblemGrades)
+    assert stored.records == list(after.values())
+
+
+@pytest.mark.parametrize(
+    ("change", "new"),
+    [("nothing", set[str]()), ("a reading", {"Q4.a"}), ("a check", {"Q4.b"})],
+)
+def test_a_part_is_graded_again_only_when_what_it_was_graded_from_changed(
+    tmp_path: Path, change: str, new: set[str]
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, list(ASKED.values()))
+    run(workspace, Q4, Grader(Q4, lambda ids, n: drawn(Q4, "1")))
+    path = workspace.grade_json(STUDENT, "Q4")
+    before = path.read_bytes()
+    if change == "a reading":
+        store(workspace, [reading("Q4.a", lines=["other"]), *list(ASKED.values())[1:]])
+    if change == "a check":  # the verdict the check gave before it was put right
+        file = read_model(path, ProblemGrades)
+        older = AnswerCheck(verdict="does not match", reason="An older verdict.")
+        file.records[1] = file.records[1].model_copy(update={"check": older})
+        write_model(path, file)
+    (tmp_path / "cache.sqlite").unlink()  # so that the grader draws again
+
+    after = run(workspace, Q4, Grader(Q4, lambda ids, n: drawn(Q4, "2")))
+
+    assert {i for i, tag in tags(after).items() if tag == "2"} == new
+    if not new:
+        assert path.read_bytes() == before
+
+
+def test_the_second_grade_pairs_with_a_kept_grade_and_is_compared_with_it(
+    tmp_path: Path,
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, list(ASKED.values()))
+    first = run(workspace, Q4, Grader(Q4, lambda ids, n: drawn(Q4, "1")))
+    edited = requirement(Q4, "Q4.b.c2", "States the acceleration.")
+    # The first draw grades, the second lowers Q4.a.
+    grader = Grader(edited, lambda ids, n: drawn(Q4, "2", "Q4.a" if n else None))
+    run(workspace, edited, grader)
+
+    async def again() -> list[SecondGrade]:
+        async with Gateway(
+            tmp_path / "cache.sqlite",
+            "test-key",
+            requests_per_second=1000,
+            transport=httpx.MockTransport(grader),
+        ) as gateway:
+            return await grade_again(workspace, STUDENT, edited, gateway, MODEL)
+
+    found = {s.part_id: s for s in asyncio.run(again())}
+
+    assert found["Q4.a"].first == digest(first["Q4.a"])
+    assert found["Q4.a"].result == "differ"
+    assert found["Q4.b"].result == "same"
+
+
+def test_an_audit_change_decided_on_a_kept_grade_still_applies(tmp_path: Path) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, list(ASKED.values()))
+    run(workspace, Q4, Grader(Q4, lambda ids, n: drawn(Q4, "1")))
+    [criterion, _] = PARTS["Q4.a"].criteria
+    change = Change(
+        student_key=STUDENT,
+        criterion=criterion.id,
+        part_hash=part_hash(PARTS["Q4.a"], KEY.policies),
+        before=criterion.points,
+        after=Decimal(0),
+        reason="Decided again.",
+    )
+    audit = PartAudit(
+        part_id="Q4.a",
+        part_hash=change.part_hash,
+        groups=1,
+        changed=1,
+        undecided=0,
+        split=0,
+        changes=[change],
+        key_suspect=None,
+    )
+    write_model(workspace.audit_json("Q4.a"), audit)
+    edited = requirement(Q4, "Q4.b.c2", "States the acceleration.")
+    # A fresh draw would give Q4.a another award than the one the audit changed.
+    run(workspace, edited, Grader(edited, lambda ids, n: drawn(Q4, "2", "Q4.a")))
+    student = IngestRecord(
+        student_name="S", student_key=STUDENT, source_kind="other", pages=[]
+    )
+
+    found = audited(load(workspace, edited, student), PARTS["Q4.a"])
+
+    assert found.grade.criteria[0].awarded == 0
+    assert found.grade.criteria[0].rationale.startswith("Changed by the class audit")
