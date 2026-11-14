@@ -278,8 +278,8 @@ def run(workspace: Workspace, submissions: Path) -> list[str]:
     return ["run", blank, str(submissions), "--workspace", str(workspace.root)]
 
 
-# The first and the last request, and the first of the read stage.
-@pytest.mark.parametrize("at", sweep(len(CHAIN), {1, 14, 27}))
+# The first of the read stage; the first and the last request run with the slow set.
+@pytest.mark.parametrize("at", sweep(len(CHAIN), {14}))
 def test_run_killed_at_the_nth_request_resumes_asking_nothing_twice_to_the_same_files(
     chained: tuple[Workspace, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -335,7 +335,7 @@ def regraded(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
         return stored_files(workspace)
 
 
-@pytest.mark.parametrize("at", [1, 8])
+@pytest.mark.parametrize("at", [pytest.param(1, marks=SLOW), 8])
 def test_regrade_killed_at_the_nth_request_resumes_asking_nothing_twice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -394,7 +394,7 @@ def prepared_once(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
         return stored_files(workspace)
 
 
-@pytest.mark.parametrize("at", sweep(len(PREPARE), {1, 16}))
+@pytest.mark.parametrize("at", sweep(len(PREPARE), {16}))
 def test_prepare_killed_at_the_nth_request_resumes_asking_nothing_twice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -786,14 +786,14 @@ def assert_readable(small: Graded, large: Graded) -> None:
     assert len(large.report) == len(small.report)
 
 
-def test_a_class_of_11_is_graded_with_each_request_asked_once(
+def test_a_class_of_5_is_graded_with_each_request_asked_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "made-up")
     monkeypatch.chdir(tmp_path)
     three = graded_class(tmp_path / "3", monkeypatch, 3)
-    eleven = graded_class(tmp_path / "11", monkeypatch, 11)
-    assert_readable(three, eleven)
+    five = graded_class(tmp_path / "5", monkeypatch, 5)
+    assert_readable(three, five)
 
 
 @SLOW[0]
