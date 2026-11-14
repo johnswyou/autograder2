@@ -840,6 +840,9 @@ REGRADED = {
     "a file of another shape": Regraded(
         "differ", set(), "final", NONE_COUNTED, "shape"
     ),
+    "a second grade without a criterion": Regraded(
+        "differ", set(), "final", NONE_COUNTED, "criterion"
+    ),
 }
 SECOND_RATIONALE = "The second grader's reason."
 
@@ -886,6 +889,11 @@ def test_a_second_grade_flags_a_differing_award_and_changes_no_score(
     record = second_grade_of_q4b(load(workspace, KEY, student), case.result)
     if case.stale == "hash":
         record = record.model_copy(update={"part_hash": "000000000000"})
+    if case.stale == "criterion" and record.second:  # by hand: the stage asks for all
+        grade = record.second.grade
+        lacking = grade.model_copy(update={"criteria": grade.criteria[:1]})
+        second = record.second.model_copy(update={"grade": lacking})
+        record = record.model_copy(update={"second": second})
     if case.stale == "reading":  # Q4.b read anew since
 
         def anew(r: ReadingRecord) -> ReadingRecord:

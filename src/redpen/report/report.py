@@ -269,7 +269,7 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     key's top-level problems whose file exists, each second reading made for the
     first reading stored now and the key's version of its part, and each second
     grade made for the first grade stored now, the readings it was graded from and
-    the key's version of its part."""
+    the key's version of its part, that grades each of the first's criteria."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -303,6 +303,12 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
         and s.part_hash == hashes.get(s.part_id)
         and s.first == digest(grades[s.part_id])
         and s.reading_digest == graded_from(parts[s.part_id], readings)
+        # Only by hand can a second grade lack one of the part's criteria.
+        and (
+            s.second is None
+            or {c.id for c in s.second.grade.criteria}
+            == {c.id for c in grades[s.part_id].grade.criteria}
+        )
     }
     return Stored(
         student,
