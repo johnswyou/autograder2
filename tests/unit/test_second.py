@@ -15,7 +15,7 @@ import pytest
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import Readings, digest
 from redpen.grade.second import compared, read_again
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, StopError
 from redpen.prepare.key import part_hash
 from redpen.report.report import flags, load, write_report
 from redpen.schemas.flags import FlagCode
@@ -266,6 +266,26 @@ def test_a_run_that_finds_nothing_in_doubt_leaves_no_earlier_result(
 
 
 # --- a failure ----------------------------------------------------------------------
+
+
+class Stopping(Second):
+    """OpenRouter refusing the key: a failure no retry cures, which stops the run."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"code": 401}})
+
+
+def test_a_stop_during_the_second_read_logs_no_unit(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    doubt = {"uncertain": [1]}
+    workspace, student = stored(fixture_workspace, tmp_path, {"Q4.b": doubt})
+
+    with pytest.raises(StopError):  # the command says it, and logs it once
+        again(workspace, student.student_key, Stopping(lambda ids: None))
+
+    assert not workspace.run_log.exists()
+
 
 MARKER = "MARKER-2c9e written by a student"
 

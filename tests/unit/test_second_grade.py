@@ -20,7 +20,7 @@ import pytest
 from redpen.grade.grade import Grades, grade_student
 from redpen.grade.read import digest
 from redpen.grade.second_grade import ROLE, differing, grade_again
-from redpen.llm.client import Gateway, StageError
+from redpen.llm.client import Gateway, StageError, StopError
 from redpen.llm.ledger import Ledger
 from redpen.report.report import flags, load
 from redpen.schemas.flags import FlagCode
@@ -271,6 +271,24 @@ def test_a_first_grade_made_by_another_prompt_or_model_is_not_graded_again(
 
 
 # --- a failure ---------------------------------------------------------------------
+
+
+class Stopping(Grader):
+    """OpenRouter refusing the key: a failure no retry cures, which stops the run."""
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"code": 401}})
+
+
+def test_a_stop_during_the_second_grade_logs_no_unit(tmp_path: Path) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    stored(workspace)
+    first_grade(workspace, Grader())
+
+    with pytest.raises(StopError):  # the command says it, and logs it once
+        second_grade(workspace, Stopping())
+
+    assert not workspace.run_log.exists()
 
 
 @pytest.mark.parametrize("how", ["refused", "fails its checks twice"])

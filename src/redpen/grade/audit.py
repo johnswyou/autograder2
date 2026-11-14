@@ -34,7 +34,7 @@ from pydantic import PositiveInt
 from redpen import prompts
 from redpen.grade.check import MATCH, NO_MATCH, OTHER_UNIT, check_answer, converts
 from redpen.grade.grade import PARAMS, ROLE, finals, graded_from, levels, options
-from redpen.llm.client import Gateway, ask_checked
+from redpen.llm.client import Gateway, StopError, ask_checked
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
@@ -155,7 +155,8 @@ async def audit_class(
             return await decide(part, hashed, cases)
         except Exception as error:  # any failure: the awards stand
             what = f"audit {cases[0][1].id}: a group was not decided again"
-            log_failure(workspace, what, error)
+            if not isinstance(error, StopError):  # logged once, by the command
+                log_failure(workspace, what, error)
             return None
 
     audits: list[PartAudit] = []

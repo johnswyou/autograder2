@@ -20,7 +20,7 @@ from redpen.grade.read import (
     units,
     unsure,
 )
-from redpen.llm.client import Gateway, finish_all
+from redpen.llm.client import Gateway, StopError, finish_all
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import part_hash
 from redpen.prepare.verify import AGREE, DIFFER, compare, vendor
@@ -106,7 +106,8 @@ async def read_again(
             )
         except Exception as error:  # any failure: the flags stay as they are
             what = f"second {student}: {unit.name} was not read a second time"
-            log_failure(workspace, what, error)
+            if not isinstance(error, StopError):  # logged once, by the command
+                log_failure(workspace, what, error)
             return [stored(p.id, "failed", None) for p in unit.parts if p.id in doubted]
         found = {r.reading.part_id: r for r in records}
         results: list[SecondReading] = []

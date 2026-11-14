@@ -12,8 +12,6 @@ from typing import Self
 
 from pydantic import BaseModel
 
-from redpen.llm.client import StopError
-
 
 def write_model(path: Path, model: BaseModel) -> None:
     """Write `model` to `path` as JSON, replacing any earlier file in one step."""
@@ -233,10 +231,8 @@ def keep_out_of_git(workspace: Workspace) -> None:
 
 
 def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
-    """Append `error`'s traceback, under `what` and the time, to the run log; not a
-    `StopError`'s, which the command logs once for the run."""
-    if not isinstance(error, StopError):
-        log_note(workspace, what, "".join(traceback.format_exception(error)))
+    """Append `error`'s traceback, under `what` and the time, to the run log."""
+    log_note(workspace, what, "".join(traceback.format_exception(error)))
 
 
 def log_note(workspace: Workspace, what: str, text: str = "") -> None:

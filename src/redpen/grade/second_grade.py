@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from redpen.grade.grade import ask_grader, by_problem, request, stamps
 from redpen.grade.read import digest
-from redpen.llm.client import Gateway, finish_all
+from redpen.llm.client import Gateway, StopError, finish_all
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import part_hash
 from redpen.schemas.grade import (
@@ -87,7 +87,8 @@ async def grade_again(
             second = await ask_grader(found, key, gateway, model, ROLE, DRAW)
         except Exception as error:  # any failure: the flags stay as they are
             what = f"{ROLE} {student}: {problem} was not graded a second time"
-            log_failure(workspace, what, error)
+            if not isinstance(error, StopError):  # logged once, by the command
+                log_failure(workspace, what, error)
             failed = [tied(p, "failed", None) for p in found.asked]
             return [
                 old
