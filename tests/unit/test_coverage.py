@@ -458,6 +458,20 @@ def test_a_rotated_page_is_covered_in_its_stored_frame_and_its_patch_is_upright(
         assert image.tobytes() == prep.rotate(cut, 1).tobytes()
 
 
+def test_a_response_across_the_corner_of_four_cells_is_found(tmp_path: Path) -> None:
+    # Centred on a corner of the cells: a quarter of it in each, too little for one.
+    corner = (240, 480)
+    assert all(v % coverage.CELL == 0 for v in corner)
+    box = (corner[0] - 15, corner[1] - 15, corner[0] + 15, corner[1] + 15)
+    pages = {"s1": [scribble(slide(), box)], "s2": [slide()], "s3": [slide()]}
+    workspace, students = make_class(tmp_path, pages)
+
+    check_class(workspace, students)
+
+    [patch] = patches(workspace, "s1")
+    assert holds(patch, box)
+
+
 def test_stray_dots_and_a_thin_stroke_raise_nothing(tmp_path: Path) -> None:
     page = slide()
     draw = ImageDraw.Draw(page)

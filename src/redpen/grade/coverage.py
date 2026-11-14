@@ -310,6 +310,15 @@ def _dense(ink: Image.Image) -> list[list[float]]:
     columns = cells.width
     values = {(i % columns, i // columns): v for i, v in enumerate(cells.tobytes())}
     dense = {cell for cell, value in values.items() if value >= DENSE * 255}
+    # The same on cells half a cell across and down, so that a response across the
+    # corner of four cells is found: each dense one there makes the four it overlaps
+    # that hold ink dense.
+    half = ink.crop((CELL // 2, CELL // 2, *ink.size)).reduce(CELL)
+    for i, value in enumerate(half.tobytes()):
+        if value >= DENSE * 255:
+            x, y = i % half.width, i // half.width
+            four = {(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)}
+            dense |= {cell for cell in four if values.get(cell)}
     width, height = ink.size
     boxes: list[list[float]] = []
     while dense:
