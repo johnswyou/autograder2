@@ -1,0 +1,28 @@
+{
+  "box": [
+    0.1255,
+    0.6367,
+    0.2699,
+    0.6672
+  ],
+  "reading": {
+    "part_id": "Q4.b",
+    "status": "answered",
+    "medium": "handwritten",
+    "lines": [
+      "f = µmg = 0.25(4.0)(10) = 10 N",
+      "Fnet = T − f = 20 − 10 = 10 N",
+      "a = Fnet/m = 10/4.0 = 2.5 m/s²"
+    ],
+    "final_answer": {
+      "choices": [],
+      "value": 2.5,
+      "unit": "m/s^2",
+      "expression": null
+    },
+    "elements": [],
+    "uncertain": [],
+    "addressed_to_grader": [],
+    "legibility": "clear"
+  }
+}

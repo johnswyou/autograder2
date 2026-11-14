@@ -2002,6 +2002,111 @@ def write_hostile() -> None:
         )
 
 
+# --- Pen ink drawn as vector paths, not scanned -----------------------------------
+
+INK_OUT = OUT.parent / "ink"
+LOW_PPI = 72  # pixels per inch of the worksheet under the ink, and of the scan
+TINY_PEN = Pen(6, 8.5, 0.5, PEN.color)  # small writing: letters 6 pt high
+TRACE = 10  # mask pixels per point that the ink is traced from
+
+
+def ink_paths(c: Canvas, lines: list[str], rng) -> tuple[float, float, float, float]:
+    """`lines` handwritten in Q4(b)'s space on page 2, drawn on `c` as a tablet app
+    exports pen ink: one filled vector path per mark, a mark being the ink between
+    empty columns of its line. The ink's box in points, from the top-left."""
+    _, left, top, right, bottom = REGION["Q4.b"]
+    size = (round((right - left) * TRACE), round((bottom - top) * TRACE))
+    sheet = Sheet(Image.new("L", size), TRACE, (-left * TRACE, -top * TRACE))
+    c.setFillColorRGB(*(v / 255 for v in TINY_PEN.color))
+    found = []
+    for i, line in enumerate(lines):
+        mask = sheet.mask()
+        y = top + 6 + i * TINY_PEN.spacing
+        write(sheet, mask, left + 8 + rng.uniform(-3, 3), y, line, TINY_PEN, rng)
+        ink = mask.point([0] * 128 + [255] * 128)
+        found.append(ink.getbbox())
+        width, height = size
+        columns = ink.transpose(Image.Transpose.TRANSPOSE).tobytes()
+        used = bytes(
+            b"\xff" in columns[x * height : (x + 1) * height] for x in range(width)
+        )
+        for mark in re.finditer(rb"\x01+", used):
+            start, end = mark.span()
+            rows = ink.crop((start, 0, end, height)).tobytes()
+            path = c.beginPath()
+            for row in range(height):
+                for run in re.finditer(
+                    rb"\xff+", rows[row * (end - start) : (row + 1) * (end - start)]
+                ):
+                    path.rect(
+                        left + (start + run.start()) / TRACE,
+                        PAGE_H - top - (row + 1) / TRACE,
+                        (run.end() - run.start()) / TRACE,
+                        1 / TRACE,
+                    )
+            c.drawPath(path, stroke=0, fill=1)
+    edges = [box for box in found if box]
+    x0, y0 = min(b[0] for b in edges), min(b[1] for b in edges)
+    x1, y1 = max(b[2] for b in edges), max(b[3] for b in edges)
+    return left + x0 / TRACE, top + y0 / TRACE, left + x1 / TRACE, top + y1 / TRACE
+
+
+def write_ink() -> None:
+    """Q4(b) answered in small pen writing on three pages that are not Classkick
+    slides: as vector paths on a white page, the same paths over a worksheet image
+    of low resolution, and the same answer inside a scan of that resolution with a
+    vector frame and page number. `truth.json` holds where it is and what it says."""
+    shutil.rmtree(INK_OUT, ignore_errors=True)
+    INK_OUT.mkdir(parents=True)
+    low = (PAGE_W * LOW_PPI // 72, PAGE_H * LOW_PPI // 72)
+    worksheet = render_pages(OUT / "blank.pdf", low)[1]
+    work = CORRECT["Q4.b"]
+    for name, background in (("pen-on-white", None), ("pen-on-raster", worksheet)):
+        path = INK_OUT / f"{name}.pdf"
+        c = Canvas(str(path), pagesize=(PAGE_W, PAGE_H), invariant=1, pageCompression=1)
+        if background:
+            c.drawImage(ImageReader(background), 0, 0, PAGE_W, PAGE_H)
+        box = ink_paths(c, work.lines, random.Random("pen ink"))
+        c.showPage()
+        c.save()
+    [scanned] = render_pages(INK_OUT / "pen-on-raster.pdf", low)
+    c = Canvas(
+        str(INK_OUT / "scan-with-frame.pdf"),
+        pagesize=(PAGE_W, PAGE_H),
+        invariant=1,
+        pageCompression=1,
+    )
+    c.drawImage(ImageReader(scanned), 0, 0, PAGE_W, PAGE_H)
+    c.rect(18, 18, PAGE_W - 36, PAGE_H - 36)  # the scanning app's frame
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(PAGE_W / 2, 26, "1")
+    c.showPage()
+    c.save()
+    nothing = {"choices": [], "value": None, "unit": None, "expression": None}
+    reading = Reading.model_validate(
+        {
+            "part_id": "Q4.b",
+            "status": "answered",
+            "medium": "handwritten",
+            "lines": work.lines,
+            "final_answer": nothing | work.final,
+            "elements": [],
+            "uncertain": [],
+            "addressed_to_grader": [],
+            "legibility": "clear",
+        }
+    )
+    x0, y0, x1, y1 = box
+    edges = [(x0 - 1) / PAGE_W, (y0 - 1) / PAGE_H, (x1 + 1) / PAGE_W, (y1 + 1) / PAGE_H]
+    truth = {
+        "box": [round(v, 4) for v in edges],
+        "reading": reading.model_dump(mode="json"),
+    }
+    (INK_OUT / "truth.json").write_text(
+        json.dumps(truth, indent=2, ensure_ascii=False) + "\n"
+    )
+
+
 def main() -> None:
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)
@@ -2025,6 +2130,7 @@ def main() -> None:
         )
     write_quiz()
     write_hostile()
+    write_ink()
 
 
 if __name__ == "__main__":
