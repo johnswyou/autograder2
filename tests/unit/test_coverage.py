@@ -294,6 +294,36 @@ def test_a_page_of_another_rendering_is_left_out_and_marked_not_comparable(
         assert holds(patch, spot)
 
 
+@pytest.mark.parametrize("share", [1.5, 0.5])
+def test_a_page_shaded_over_more_than_nearly_all_its_paper_may_allow_is_not_compared(
+    tmp_path: Path, share: float
+) -> None:
+    paper = W * H - 12 * 341 * 9  # all but the printed rules
+    width = 250
+    height = round(share * coverage.NEARLY * paper / width)
+    shaded = slide()
+    ImageDraw.Draw(shaded).rectangle(
+        (60, 420, 60 + width - 1, 420 + height - 1), fill=(150, 150, 220)
+    )
+    pages = {"s1": [shaded], "s2": [slide()], "s3": [slide()], "s4": [slide()]}
+    workspace, students = make_class(tmp_path, pages)
+
+    check_class(workspace, students)
+
+    [page] = stored(workspace, "s1").pages
+    if share > 1:  # counted, under words true for it
+        assert (page.not_compared, page.patches) == ("other rendering", [])
+        assert unclaimed_lines(workspace, students)[5].startswith(
+            "Student pages not compared: 1. On a page with fewer than three comparable"
+            " students, 0; not a Classkick page, 0; of another size than the class's"
+            " page, or differing from it over much of its paper or its print, 1;"
+        )
+    else:  # compared, and its shading is ink no region claims
+        assert page.not_compared is None
+        [patch] = page.patches
+        assert holds(patch, (60, 420, 60 + width - 1, 420 + height - 1))
+
+
 def dense_print() -> Image.Image:
     """A slide of dense print in its upper half, rules 2 px tall every 6 px as lines
     of small type are, and white below."""
@@ -595,8 +625,9 @@ def test_a_page_that_cannot_be_read_or_is_not_its_recorded_size_is_not_compared(
     assert f"- `Student s2` (`s2`), page 1: `a note` {coverage.NO_IMAGE}." in lines
     assert unclaimed_lines(workspace, students)[5] == (
         "Student pages not compared: 2. On a page with fewer than three comparable"
-        " students, 0; not a Classkick page, 0; another rendering than the class's,"
-        " 0; an image that cannot be read at the size ingest recorded, 2; the check"
+        " students, 0; not a Classkick page, 0; of another size than the class's"
+        " page, or differing from it over much of its paper or its print, 0; an"
+        " image that cannot be read at the size ingest recorded, 2; the check"
         " failed, its traceback in run.log, 0; not checked, with no map or a map"
         " changed since the check, 0."
     )
@@ -630,8 +661,9 @@ def test_when_the_check_fails_it_keeps_nothing_and_the_run_report_says_so(
     assert unclaimed_flags(workspace, students) == []
     assert unclaimed_lines(workspace, students)[5] == (
         "Student pages not compared: 6. On a page with fewer than three comparable"
-        " students, 0; not a Classkick page, 0; another rendering than the class's,"
-        " 0; an image that cannot be read at the size ingest recorded, 0; the check"
+        " students, 0; not a Classkick page, 0; of another size than the class's"
+        " page, or differing from it over much of its paper or its print, 0; an"
+        " image that cannot be read at the size ingest recorded, 0; the check"
         " failed, its traceback in run.log, 6; not checked, with no map or a map"
         " changed since the check, 0."
     )
@@ -788,7 +820,8 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         " with dense ink that no region of their map claims (`unclaimed_work`): 3.",
         "",
         "Student pages not compared: 0. On a page with fewer than three comparable"
-        " students, 0; not a Classkick page, 0; another rendering than the class's,"
+        " students, 0; not a Classkick page, 0; of another size than the"
+        " class's page, or differing from it over much of its paper or its print,"
         " 0; an image that cannot be read at the size ingest recorded, 0; the"
         " check failed, its traceback in run.log, 0; not checked, with no map or a"
         " map changed since the check, 0.",
@@ -799,7 +832,8 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         " with dense ink that no region of their map claims (`unclaimed_work`): 3.",
         "",
         "Student pages not compared: 2. On a page with fewer than three comparable"
-        " students, 0; not a Classkick page, 1; another rendering than the class's,"
+        " students, 0; not a Classkick page, 1; of another size than the"
+        " class's page, or differing from it over much of its paper or its print,"
         " 1; an image that cannot be read at the size ingest recorded, 0; the"
         " check failed, its traceback in run.log, 0; not checked, with no map or a"
         " map changed since the check, 0.",
@@ -809,7 +843,8 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         " with dense ink that no region of their map claims (`unclaimed_work`): 0.",
         "",
         "Student pages not compared: 4. On a page with fewer than three comparable"
-        " students, 4; not a Classkick page, 0; another rendering than the class's,"
+        " students, 4; not a Classkick page, 0; of another size than the"
+        " class's page, or differing from it over much of its paper or its print,"
         " 0; an image that cannot be read at the size ingest recorded, 0; the"
         " check failed, its traceback in run.log, 0; not checked, with no map or a"
         " map changed since the check, 0.",

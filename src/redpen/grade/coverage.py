@@ -39,8 +39,9 @@ from redpen.workspace import Workspace, log_failure, read_model, write_model
 # darker than the background's by more than INK is ink.
 INK = 40
 # A page with ink on more than NEARLY of its background's paper (WHITE_LEVEL or more
-# in every channel) is another rendering, not comparable: a photo pasted on a
-# fixture slide covers 0.29 to 0.54 of it, the most ink a student added 0.008.
+# in every channel) differs from the class's over much of it, and is not compared:
+# another rendering, or a large shaded area. A photo pasted on a fixture slide
+# covers 0.29 to 0.54 of it, the most ink a student added 0.008.
 NEARLY = 0.1
 # A page lighter than the background by more than INK on more than LIGHTER of the
 # print, where every other comparable page is dark (a channel under PRINT), is
@@ -81,9 +82,10 @@ COMPARED = (
 )
 NOT_COMPARED = (
     "Student pages not compared: {count}. On a page with fewer than three comparable"
-    " students, {few}; not a Classkick page, {other}; another rendering than the"
-    " class's, {rendering}; an image that cannot be read at the size ingest"
-    " recorded, {unreadable}; the check failed, its traceback in {log}, {failed};"
+    " students, {few}; not a Classkick page, {other}; of another size than the"
+    " class's page, or differing from it over much of its paper or its print,"
+    " {rendering}; an image that cannot be read at the size ingest recorded,"
+    " {unreadable}; the check failed, its traceback in {log}, {failed};"
     " not checked, with no map or a map changed since the check, {unchecked}."
 )
 BLOCKS = (
@@ -204,9 +206,9 @@ def _background(
     read at that size; to keep those with little ink on its paper, whose background
     is the one returned; and to leave out those lighter than it on much of the
     print (the rest read once more when one is). Another rendering (a photo, a
-    scan) is darker than the slide's paper nearly everywhere; one shifted by a
-    pixel is lighter along every printed line. None when fewer than FEWEST are
-    comparable."""
+    scan), like a large shaded area, is darker than much of the slide's paper; one
+    shifted by a pixel is lighter along every printed line. None when fewer than
+    FEWEST are comparable."""
     few: Reason = "few comparable"
     why: dict[str, Reason] = {}
 
