@@ -232,6 +232,10 @@ def keep_out_of_git(workspace: Workspace) -> None:
 
 def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
     """Append `error`'s traceback, under `what` and the time, to the run log."""
+    log_note(workspace, what, "".join(traceback.format_exception(error)))
+
+
+def log_note(workspace: Workspace, what: str, text: str = "") -> None:
+    """Append `text`, under `what` and the time, to the run log."""
     with workspace.run_log.open("a", encoding="utf-8") as log:
-        log.write(f"--- {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {what}\n")
-        log.write("".join(traceback.format_exception(error)))
+        log.write(f"--- {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {what}\n{text}")

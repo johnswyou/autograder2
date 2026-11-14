@@ -501,14 +501,19 @@ def test_damaged_files_are_each_named_in_one_line_and_grade_makes_them_again(
         assert result.exit_code == 1, name
         assert result.exception is None or isinstance(result.exception, SystemExit)
         assert "Traceback" not in result.output, name
-        named = [
-            f"{path} is damaged (not JSON). Delete it and run `redpen grade` again"
-            " to have it made again."
-            for path in sorted(damaged)
-        ]
-        # Before them, only regrade's progress: a line a stage.
-        assert said[-len(named) :] == named, name
-        assert all(re.search(r" \d+/\d+ \$", line) for line in said[: -len(named)])
+        # Counted: a student's key holds the student's name. The run log names them.
+        assert said[-1] == (
+            f"Stored files of students that are damaged (not JSON): {len(damaged)}."
+            f" {workspace.run_log} names them. Delete them and run `redpen grade`"
+            " again to have them made again."
+        ), name
+        assert not any(p.name in result.output for p in (first, second))
+        log = workspace.run_log.read_text().split("\n--- ")[-1].splitlines()
+        assert log[0].endswith(" damaged (not JSON)") and log[1:] == [
+            str(path) for path in sorted(damaged)
+        ], name
+        # Before it, only regrade's progress: a line a stage.
+        assert all(re.search(r" \d+/\d+ \$", line) for line in said[:-1])
 
     healthy = Provider(CHAIN)
     healthy.install(monkeypatch)

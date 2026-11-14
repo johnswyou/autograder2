@@ -137,6 +137,7 @@ from redpen.workspace import (
     Workspace,
     keep_out_of_git,
     log_failure,
+    log_note,
     read_model,
     write_model,
 )
@@ -571,7 +572,8 @@ def _fail(message: str) -> NoReturn:
 def _damaged(ws: Workspace) -> None:
     """Exit naming, a line each, the lock and every stored JSON file of `ws` that does
     not load (cut short or emptied, by a full disk or by hand) and how to have it
-    made again, if there is one."""
+    made again, if there is one. Those of students are only counted, since a
+    student's key holds the student's name: the run log names them."""
     lock, damaged = ws.config_lock_toml, False
     if lock.exists():
         try:
@@ -589,11 +591,20 @@ def _damaged(ws: Workspace) -> None:
             json.loads(path.read_bytes())
         except ValueError:
             found.append(path)
-    for path in found:
+    students = [p for p in found if p.is_relative_to(ws.students_dir)]
+    for path in (p for p in found if p not in students):
         again = "prepare" if path.is_relative_to(ws.root / "key") else "grade"
         typer.echo(
             f"{path} is damaged (not JSON). Delete it and run `redpen {again}` again"
             " to have it made again.",
+            err=True,
+        )
+    if students:
+        log_note(ws, "damaged (not JSON)", "".join(f"{p}\n" for p in students))
+        typer.echo(
+            f"Stored files of students that are damaged (not JSON): {len(students)}."
+            f" {ws.run_log} names them. Delete them and run `redpen grade` again to"
+            " have them made again.",
             err=True,
         )
     if damaged or found:

@@ -408,7 +408,23 @@ def damaged_line(path: Path, again: str = "grade") -> str:
     )
 
 
-def test_a_damaged_coverage_file_is_named_and_stops_the_report(
+def students_damaged(count: int) -> str:
+    return (
+        f"Stored files of students that are damaged (not JSON): {count}. ws/run.log"
+        " names them. Delete them and run `redpen grade` again to have them made"
+        " again."
+    )
+
+
+def logged_damaged(workspace: Workspace) -> list[str]:
+    """The files the run log's last entry names as damaged."""
+    entries = workspace.run_log.read_text().split("\n--- ")
+    [heading, *paths] = entries[-1].removeprefix("--- ").splitlines()
+    assert heading.endswith(" damaged (not JSON)")
+    return paths
+
+
+def test_a_damaged_coverage_file_is_counted_named_in_the_log_and_stops_the_report(
     class_folder: Path,
 ) -> None:
     assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
@@ -418,7 +434,8 @@ def test_a_damaged_coverage_file_is_named_and_stops_the_report(
 
     result = runner.invoke(app, ["report", "--workspace", "ws"])
 
-    assert_one_line(result, damaged_line(coverage))
+    assert_one_line(result, students_damaged(1))
+    assert logged_damaged(WS) == [str(coverage)]
 
 
 def test_a_damaged_audit_file_is_named_and_stops_the_command(
