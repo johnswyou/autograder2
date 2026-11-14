@@ -3,6 +3,7 @@
 
 import asyncio
 import base64
+import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Callable
@@ -15,7 +16,13 @@ import pytest
 
 from redpen import prompts
 from redpen.grade import grade as stage
-from redpen.grade.grade import Grades, grade_student, part_points, problems
+from redpen.grade.grade import (
+    Grades,
+    grade_student,
+    graded_from,
+    part_points,
+    problems,
+)
 from redpen.grade.read import digest
 from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
@@ -870,6 +877,19 @@ def test_dependencies_are_sent_as_context_and_are_not_graded(tmp_path: Path) -> 
     assert not any("grade" in t and t["grade"]["part_id"] == "Q5.a" for t in texts)
     # Q5.a is read blank, so code scored it.
     assert records["Q5.a"].provenance == by_code(PARTS["Q5.a"])
+    # Each record names every reading it was graded from: its own, and its
+    # dependencies', in this problem or another.
+    stored = {
+        r.reading.part_id: r
+        for q in ("Q4", "Q5")
+        for r in read_model(workspace.reading_json(STUDENT, q), ProblemReadings).records
+    }
+    own = digest(stored["Q5.a"])
+    assert records["Q5.a"].reading_digest == graded_from(PARTS["Q5.a"], stored) == own
+    for part in (PARTS["Q5.b"], q5c):
+        digests = " ".join(digest(stored[i]) for i in [part.id, *part.depends_on])
+        made = hashlib.sha256(digests.encode()).hexdigest()[:12]
+        assert records[part.id].reading_digest == graded_from(part, stored) == made
     # Each part's crops follow its reading, each after a line saying what it is.
     # The answer check goes beside the reading of a part that has one.
     url = f"data:image/png;base64,{base64.b64encode(PNG).decode()}"

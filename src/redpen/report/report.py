@@ -21,7 +21,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ValidationError
 
 from redpen.config import read_lock
-from redpen.grade.grade import levels, part_points
+from redpen.grade.grade import graded_from, levels, part_points
 from redpen.grade.read import digest, problem_of, unsure
 from redpen.imaging import render
 from redpen.llm.ledger import Ledger, Usage
@@ -296,8 +296,9 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
     work cannot be read; it is a choice part answered with no option read; it has
     no reading or no grade record; its record was graded under another version of
     the part, which `part_points` would refuse; or its record was graded from
-    another reading than the one stored (a record from before the digest was kept
-    is taken as graded from it)."""
+    other readings than those stored now, its own or its dependencies'
+    (`graded_from`; a record from before the digest was kept is taken as graded
+    from them)."""
     found = stored.readings.get(part.id)
     record = stored.grades.get(part.id)
     if found is not None and found.reading.status == "unreadable":
@@ -313,7 +314,7 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
         return UNGRADED
     if record.provenance.key_part_hash != part_hash(part, key.policies):
         return OTHER_KEY
-    if record.reading_digest not in (None, digest(found)):
+    if record.reading_digest not in (None, graded_from(part, stored.readings)):
         return OTHER_READING
     return None
 

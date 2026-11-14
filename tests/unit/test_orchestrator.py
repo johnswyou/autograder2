@@ -31,6 +31,7 @@ from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
 from redpen.grade.grade import Grades
 from redpen.grade.ingest import IngestSummary
+from redpen.grade.read import digest
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
@@ -1549,3 +1550,77 @@ def test_an_overrides_file_that_cannot_be_used_stops_each_command_with_one_line(
     assert out_files(WS) == out and grade_files() == files
     assert WS.ingest_summary_json.read_bytes() == summary
     assert WS.overrides_yaml.read_text() == text.format(first=first, hashed=hashed)
+
+def detail_rows(name: str) -> dict[str, str]:
+    """`name`'s rationale in scores_detail.csv, by criterion."""
+    with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
+        found = [r for r in csv.DictReader(file) if r["student"] == name]
+    return {r["criterion"]: r["rationale"] for r in found}
+
+
+def test_a_grade_is_withheld_once_a_dependency_it_was_shown_is_read_again(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    first = students()[0]
+    # Q5.b depends on Q4.b too, a part of another problem, given as context.
+    key = load_key(WS.key_yaml)
+    parts = [
+        p.model_copy(update={"depends_on": ["Q4.b", "Q5.a"]}) if p.id == "Q5.b" else p
+        for p in key.parts
+    ]
+    save_key(WS.key_yaml, key.model_copy(update={"parts": parts}))
+    assert regrade().exit_code == 0
+    # The first student's Q4.b read again, differently; their new Q5 grade fails.
+    path = WS.reading_json(first, "Q4")
+    records = read_model(path, ProblemReadings).records
+    at = [r.reading.part_id for r in records].index("Q4.b")
+    read = records[at].reading.model_copy(update={"lines": ["a = 9"]})
+    records[at] = records[at].model_copy(update={"reading": read})
+    write_model(path, ProblemReadings(records=records))
+    q5 = WS.grade_json(first, "Q5").read_bytes()
+
+    def no_q5c_with_the_new_context(body: dict[str, Any]) -> Grades:
+        found = grades(body)
+        if "a = 9" not in json.dumps(body) or "Q5.c" not in json.dumps(body):
+            return found
+        return Grades(grades=[g for g in found.grades if g.part_id != "Q5.c"])
+
+    router.grades = no_q5c_with_the_new_context
+
+    result = regrade()
+
+    assert result.exit_code == 1
+    assert WS.grade_json(first, "Q5").read_bytes() == q5
+    shown = detail_rows(NAMES[0])
+    assert shown["Q5.b.c1"] == shown["Q5.b.c2"] == OTHER_READING
+    assert OTHER_READING not in (shown["Q5.a.c1"], shown["Q5.c.c1"], shown["Q4.b.c1"])
+    assert by_problem(WS)[0]["status"] == "incomplete"
+
+
+def test_a_grade_whose_digest_left_out_its_dependencies_is_graded_again_free(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    assert next(p for p in KEY.parts if p.id == "Q5.b").depends_on == ["Q5.a"]
+    # As a grade stored before the readings of a part's dependencies counted.
+    for student in students():
+        path = WS.grade_json(student, "Q5")
+        read = read_model(WS.reading_json(student, "Q5"), ProblemReadings)
+        own = {r.reading.part_id: digest(r) for r in read.records}
+        records = [
+            r.model_copy(update={"reading_digest": own[r.grade.part_id]})
+            for r in read_model(path, ProblemGrades).records
+        ]
+        write_model(path, ProblemGrades(records=records))
+
+    assert runner.invoke(app, ["report", "--workspace", "ws"]).exit_code == 0
+    assert detail_rows(NAMES[0])["Q5.b.c1"] == OTHER_READING
+    assert detail_rows(NAMES[0])["Q5.a.c1"] != OTHER_READING
+    again = regrade()
+
+    assert again.exit_code == 0, again.output
+    assert router.chats == []
+    assert OTHER_READING not in detail_rows(NAMES[0]).values()
+    assert [r["status"] for r in by_problem(WS)] == ["final"] * len(NAMES)
+

@@ -32,8 +32,7 @@ from pydantic import PositiveInt
 
 from redpen import prompts
 from redpen.grade.check import MATCH, NO_MATCH, OTHER_UNIT, check_answer, converts
-from redpen.grade.grade import PARAMS, ROLE, finals, levels, options
-from redpen.grade.read import digest
+from redpen.grade.grade import PARAMS, ROLE, finals, graded_from, levels, options
 from redpen.llm.client import Gateway, ask_checked
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
@@ -196,7 +195,7 @@ def groups(part: KeyPart, hashed: str, students: Sequence[Stored]) -> list[list[
             record is None
             or read is None
             or record.provenance.key_part_hash != hashed
-            or record.reading_digest not in (None, digest(read))
+            or record.reading_digest not in (None, graded_from(part, student.readings))
             or record.provenance.model_slug is None  # scored by code
             or (record.grade.transcript_dispute or "").strip()
         ):

@@ -17,6 +17,7 @@ import pytest
 
 from redpen.eval.eval import evaluate
 from redpen.grade.audit import audit_class, suspect
+from redpen.grade.grade import graded_from
 from redpen.grade.read import digest, problem_of
 from redpen.llm.client import Gateway
 from redpen.llm.models import ModelInfo
@@ -447,6 +448,29 @@ def test_a_grade_made_from_another_reading_is_left_out(
     audit(workspace, Q4C, Grader())
 
     assert audit_of(workspace, "Q4.c").groups == (1 if read == "the stored" else 0)
+
+
+@pytest.mark.parametrize("read", ["the stored", "another"])
+def test_a_grade_made_with_another_reading_of_its_dependency_is_left_out(
+    tmp_path: Path, read: str
+) -> None:
+    key = key_of("Q5.a", "Q5.b")
+    [q5b] = [p for p in key.parts if p.id == "Q5.b"]
+    assert q5b.depends_on == ["Q5.a"]
+    workspace = new_workspace(tmp_path)
+    q5a = ReadingRecord(provenance=NOBODY, reading=answered("Q5.a"), crops=[])
+    earlier = q5a.model_copy(update={"reading": answered("Q5.a", expression="x")})
+    own = ReadingRecord(provenance=NOBODY, reading=reading("Q5.b"), crops=[])
+    for who, c1 in ((ANN, "1"), (BEN, "0")):
+        made = record(key, graded("Q5.b", {"Q5.b.c1": c1, "Q5.b.c2": "1"}))
+        shown = earlier if who == BEN and read == "another" else q5a
+        readings = {"Q5.a": shown, "Q5.b": own}
+        made = made.model_copy(update={"reading_digest": graded_from(q5b, readings)})
+        store(workspace, who, [answered("Q5.a"), reading("Q5.b")], [made])
+
+    audit(workspace, key, Grader())
+
+    assert audit_of(workspace, "Q5.b").groups == (1 if read == "the stored" else 0)
 
 
 def test_a_carry_forward_criterion_groups_on_its_evidence_with_each_case_s_earlier(

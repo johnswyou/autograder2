@@ -4,6 +4,7 @@ of a top-level problem goes to the grader in one call, with the answer check's
 verdict beside each part that has one, and each award it returns is checked against
 the key and held to that verdict. Code adds up points."""
 
+import hashlib
 import json
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -46,7 +47,8 @@ async def grade_student(
     model: ModelInfo,
 ) -> dict[str, GradeRecord]:
     """Grade `student` from their stored readings and return each graded part's
-    record, by part id, with the digest of the reading it was graded from. A part
+    record, by part id, with the digest of the readings it was graded from
+    (`graded_from`). A part
     read as unreadable gets none, and so does a choice part answered with no option
     read, and a problem with no stored reading is not graded. Each top-level
     problem's file is replaced as soon as it is graded. The
@@ -77,6 +79,15 @@ async def grade_student(
         if not workspace.reading_json(student, problem).exists():
             return
         mine = readings(problem)
+        # Every reading the problem's parts are graded from: their own, and those of
+        # the parts they depend on, which may be another problem's.
+        shown = dict(mine)
+        for d in dict.fromkeys(d for p in parts for d in p.depends_on):
+            if (
+                d not in shown
+                and workspace.reading_json(student, problem_of(d)).exists()
+            ):
+                shown |= readings(problem_of(d))
         records: dict[str, GradeRecord] = {}
         asked: list[KeyPart] = []
         for part in parts:
@@ -96,7 +107,7 @@ async def grade_student(
                     provenance=provenance(part, False),
                     grade=by_code(part, reading),
                     check=None,
-                    reading_digest=digest(mine[part.id]),
+                    reading_digest=graded_from(part, shown),
                 )
             else:
                 asked.append(part)
@@ -176,7 +187,7 @@ async def grade_student(
                     provenance=provenance(by_id[g.part_id], True),
                     grade=kept,
                     check=AnswerCheck(**verdict._asdict()) if verdict else None,
-                    reading_digest=digest(mine[g.part_id]),
+                    reading_digest=graded_from(by_id[g.part_id], shown),
                 )
         file = ProblemGrades(records=[records[p.id] for p in parts if p.id in records])
         write_model(workspace.grade_json(student, problem), file)
@@ -184,6 +195,19 @@ async def grade_student(
 
     await finish_all(grade(problem, parts) for problem, parts in by_problem.items())
     return {p.id: done[p.id] for p in key.parts if p.id in done}
+
+
+def graded_from(part: KeyPart, readings: Mapping[str, ReadingRecord]) -> str:
+    """The digest of the stored reading records `part` is graded from, found by part
+    id in `readings`: its own and, shown to the grader as context, those of the
+    parts it depends on (one with no reading counts as none). With no dependency it
+    is the digest of its own record, as a record made before dependencies counted
+    has it."""
+    own = digest(readings[part.id])
+    if not part.depends_on:
+        return own
+    found = [digest(readings[d]) if d in readings else "none" for d in part.depends_on]
+    return hashlib.sha256(" ".join([own, *found]).encode()).hexdigest()[:12]
 
 
 def by_code(part: KeyPart, reading: Reading) -> Grade:
