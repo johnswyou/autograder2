@@ -7,6 +7,7 @@ function) and grades, on the session's fresh ingest. They are stored and reporte
 once for the module; a test that changes something works on a copy."""
 
 import csv
+import hashlib
 import io
 import json
 import re
@@ -2211,7 +2212,7 @@ def test_the_key_s_entry_links_its_verification_and_gives_the_audit_s_counts(
             undecided=0,
             split=0,
             changes=[],
-            key_suspect=Suspect(shared=8, answered=9),
+            key_suspect=Suspect(shared=8, answered=9, answer=None),
         )
         write_model(workspace.audit_json("Q4.b"), audit)
 
@@ -3358,7 +3359,7 @@ def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
             undecided=0,
             split=0,
             changes=[],
-            key_suspect=Suspect(shared=shared, answered=9),
+            key_suspect=Suspect(shared=shared, answered=9, answer=None),
         )
         write_model(workspace.audit_json("Q4.b"), audit)
 
@@ -3396,6 +3397,40 @@ def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
     }
     for path in (workspace.review_md, workspace.run_report_md):
         assert section(path, "## Reviews out of date") == [OUTDATED, "- The key, Q4.b."]
+
+
+def test_an_audit_stored_before_the_class_s_answer_was_kept_loads_and_reviews_as_before(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    stored = {
+        "part_id": "Q4.b",
+        "part_hash": part_hash(part, KEY.policies),
+        "groups": 0,
+        "changed": 0,
+        "undecided": 0,
+        "split": 0,
+        "changes": [],
+        "key_suspect": {"shared": 8, "answered": 9},
+    }
+    workspace.audit_json("Q4.b").parent.mkdir(parents=True, exist_ok=True)
+    workspace.audit_json("Q4.b").write_text(json.dumps(stored))
+
+    found = read_model(workspace.audit_json("Q4.b"), PartAudit).key_suspect
+
+    assert found is not None
+    assert found == Suspect(shared=8, answered=9, answer=None)
+    # What a review of the key's entry was made for: the earlier shape's digest.
+    assert (
+        digest(found) == hashlib.sha256(b'{"shared":8,"answered":9}').hexdigest()[:12]
+    )
+    write_report(workspace, KEY, [student])
+    assert (
+        "  - Students who answered: 9. Sharing one answer that is not the key's: 8."
+        in workspace.review_md.read_text().splitlines()
+    )
 
 
 def test_the_order_of_the_corrections_in_their_file_keeps_a_review(

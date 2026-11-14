@@ -1135,9 +1135,11 @@ def _entry(
         if unverified and workspace.verification_md.exists():
             files.append(("verification", workspace.verification_md))
         if (audit := class_audit.get(part.id)) and (suspect := audit.key_suspect):
+            said = suspect.answer
             causes[FlagCode.KEY_SUSPECT] = [
                 f"  - Students who answered: {suspect.answered}. Sharing one answer"
                 f" that is not the key's: {suspect.shared}."
+                + ("" if said is None else f" The answer: {code_span(said)}.")
             ]
             files.append(("audit", workspace.audit_json(part.id)))
         return [

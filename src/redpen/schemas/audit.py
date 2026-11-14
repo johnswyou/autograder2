@@ -2,9 +2,9 @@
 `audit/<part>.json`. The grade files are never rewritten; the report stage applies
 each change while the grade it was decided on still stands."""
 
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from redpen.schemas.common import CriterionId, PartId, Points, Schema, StudentKey
 
@@ -21,10 +21,19 @@ class Change(Schema):
 
 
 # The class's most common final answer is not the key's: how many students share
-# it, and how many answered.
+# it, how many answered, and that answer as the first of them stated it. A file
+# stored before `answer` existed has none, and its suspect dumps as it did then.
 class Suspect(Schema):
     shared: int
     answered: int
+    answer: Annotated[str | None, Field(exclude_if=lambda v: v is None)]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stored_before(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        return {"answer": None, **cast(dict[str, Any], data)}
 
 
 # `groups`: groups of cases with the same evidence and differing awards; `changed`:

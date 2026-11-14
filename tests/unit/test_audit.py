@@ -913,19 +913,26 @@ def values(*answers: tuple[float | None, str | None]) -> list[Reading | None]:
         (choices(*["A"] * 4, "D", "D"), None),  # four share it: fewer than five
         (
             choices(*["A"] * 5, *["D"] * 4, "B", "C", "BC"),
-            Suspect(shared=5, answered=12),
+            Suspect(shared=5, answered=12, answer="A"),
         ),
         (choices(*["A"] * 5, *["D"] * 4, "B", "C", "BC", "AB"), None),  # 5 of 13
         (choices(*["A"] * 5, *["D"] * 6), None),  # the key's is the most common
         (choices(*["A"] * 5, *["D"] * 5), None),  # as common as the key's
-        (choices(*["a "] * 5, *["D"] * 4), Suspect(shared=5, answered=9)),
+        # The answer as its first student's options stated it: "a" and " ".
         (
-            choices(*["A"] * 40, *["D"] * 39, *["B"] * 21),
-            Suspect(shared=40, answered=100),
+            choices(*["a "] * 5, *["D"] * 4),
+            Suspect(shared=5, answered=9, answer="a,  "),
+        ),
+        (
+            choices(*["B"] * 21, *["A"] * 40, *["D"] * 39),
+            Suspect(shared=40, answered=100, answer="A"),
         ),
         (choices(*["A"] * 39, *["D"] * 38, *["B"] * 23), None),  # 39%
         # Answered, but no option read: not counted at all, so 5 of 9.
-        (choices(*["A"] * 5, *["D"] * 4, *[""] * 4), Suspect(shared=5, answered=9)),
+        (
+            choices(*["A"] * 5, *["D"] * 4, *[""] * 4),
+            Suspect(shared=5, answered=9, answer="A"),
+        ),
     ],
     ids=[
         "four",
@@ -959,13 +966,17 @@ WRONG, RIGHT = (3.5, "m/s^2"), (2.5, "m/s^2")
     [
         # 250 cm/s^2 is the key's 2.5 m/s^2: the key's side holds six.
         (Q4B, values(*[WRONG] * 5, *[RIGHT] * 3, *[(250, "cm/s^2")] * 3), None),
-        (Q4B, values(*[WRONG] * 5, *[RIGHT] * 3), Suspect(shared=5, answered=8)),
+        (
+            Q4B,
+            values(*[WRONG] * 5, *[RIGHT] * 3),
+            Suspect(shared=5, answered=8, answer="3.5 m/s^2"),
+        ),
         # A missing unit is the key's, against the key and between two students.
         (Q4B, values(*[(2.5, None)] * 5, *[WRONG] * 4), None),
         (
             Q4B,
             values(*[WRONG] * 3, *[(3.5, None)] * 3, RIGHT),
-            Suspect(shared=6, answered=7),
+            Suspect(shared=6, answered=7, answer="3.5 m/s^2"),
         ),
         # The grade stage calls 2.5 a match for 2.45, rounded: the key's side.
         (ROUNDED, values(*[RIGHT] * 5), None),
@@ -973,12 +984,12 @@ WRONG, RIGHT = (3.5, "m/s^2"), (2.5, "m/s^2")
         (
             Q4B,
             values(*[(350, "cm/s^2")] * 6, RIGHT),
-            Suspect(shared=6, answered=7),
+            Suspect(shared=6, answered=7, answer="350 cm/s^2"),
         ),
         (
             Q4B,
             values(*[WRONG] * 4, *[(350, "cm/s^2")] * 2, RIGHT),
-            Suspect(shared=6, answered=7),
+            Suspect(shared=6, answered=7, answer="3.5 m/s^2"),
         ),
         # Another dimension, a unit not read, a one-figure value: neither side.
         (Q4B, values(*[(3.5, "kg")] * 6, RIGHT), None),
@@ -987,13 +998,13 @@ WRONG, RIGHT = (3.5, "m/s^2"), (2.5, "m/s^2")
         (
             Q4B,
             values(*[(3.45, "m/s^2")] * 3, *[WRONG] * 2, RIGHT),
-            Suspect(shared=5, answered=6),
+            Suspect(shared=5, answered=6, answer="3.45 m/s^2"),
         ),
         # Answered with no value: not counted at all, so 5 of 9.
         (
             Q4B,
             values(*[WRONG] * 5, *[RIGHT] * 4, *[(None, None)] * 4),
-            Suspect(shared=5, answered=9),
+            Suspect(shared=5, answered=9, answer="3.5 m/s^2"),
         ),
     ],
     ids=[
@@ -1030,7 +1041,8 @@ def test_blank_and_unreadable_responses_are_not_answers() -> None:
         None,
     ]
 
-    assert suspect(PARTS["Q2"], FULL.policies, found) == Suspect(shared=5, answered=9)
+    want = Suspect(shared=5, answered=9, answer="A")
+    assert suspect(PARTS["Q2"], FULL.policies, found) == want
 
 
 def test_a_part_code_cannot_compare_is_never_suspect() -> None:
@@ -1038,7 +1050,7 @@ def test_a_part_code_cannot_compare_is_never_suspect() -> None:
     assert suspect(PARTS["Q4.c"], FULL.policies, found) is None
 
 
-def test_a_suspect_key_is_flagged_on_no_student_and_listed_without_its_answer(
+def test_a_suspect_key_is_flagged_on_no_student_its_answer_in_the_review_list_only(
     tmp_path: Path,
 ) -> None:
     key = key_of("Q4.b")
@@ -1051,7 +1063,8 @@ def test_a_suspect_key_is_flagged_on_no_student_and_listed_without_its_answer(
     audit(workspace, key, refuse, who)
     raised = write_report(workspace, key, STUDENTS)
 
-    assert audit_of(workspace, "Q4.b").key_suspect == Suspect(shared=5, answered=6)
+    found = audit_of(workspace, "Q4.b").key_suspect
+    assert found == Suspect(shared=5, answered=6, answer="7.25 m/s^2")
     suspects = [f for f in raised if f.code == FlagCode.KEY_SUSPECT]
     assert [(f.part_id, f.student_key, f.severity) for f in suspects] == [
         ("Q4.b", None, "high")
@@ -1059,6 +1072,10 @@ def test_a_suspect_key_is_flagged_on_no_student_and_listed_without_its_answer(
     report = workspace.run_report_md.read_text()
     assert "| Q4.b | 5 | 6 |" in report
     assert "7.25" not in report
+    assert (
+        "  - Students who answered: 6. Sharing one answer that is not the key's: 5."
+        " The answer: `7.25 m/s^2`." in workspace.review_md.read_text().splitlines()
+    )
 
 
 def test_the_parts_of_a_split_group_are_decided_each_on_its_own(tmp_path: Path) -> None:

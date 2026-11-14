@@ -269,9 +269,9 @@ def suspect(
     kind, a missing unit taken as the key's. The answer check, under the
     assignment's policies, puts each on the key's side or the other (see `_side`);
     the other side is grouped by `compare`, two answers being the same when each
-    matches the other. A `Suspect` when its largest group is larger than the key's
-    side and holds at least `SHARE` of those who answered and at least `AT_LEAST`
-    students, else None."""
+    matches the other. A `Suspect`, with the answer of the largest group, when that
+    group is larger than the key's side and holds at least `SHARE` of those who
+    answered and at least `AT_LEAST` students, else None."""
     kind = kind_of(part)
     if kind is None:
         return None
@@ -281,7 +281,8 @@ def suspect(
         for r in readings
         if r is not None and r.status == "answered" and gives(kind, r.final_answer)
     ]
-    ours, others = 0, list[tuple[Answer, int]]()
+    # Each other answer as the first to give it stated it, and how many gave it.
+    ours, others = 0, list[tuple[FinalAnswer, int]]()
     for reading in answered:
         side = _side(part, kind, reading, policies)
         if side == "key":
@@ -291,17 +292,28 @@ def suspect(
             same = [
                 i
                 for i, (first, _) in enumerate(others)
-                if compare(kind, first, said, policies) == AGREE
+                if compare(kind, as_answer(kind, first), said, policies) == AGREE
             ]
             if same:
                 first, n = others[same[0]]
                 others[same[0]] = (first, n + 1)
             else:
-                others.append((said, 1))
-    shared = max((n for _, n in others), default=0)
+                others.append((reading.final_answer, 1))
+    first, shared = max(others, key=lambda o: o[1], default=(None, 0))
     if shared > ours and shared >= AT_LEAST and shared >= SHARE * len(answered):
-        return Suspect(shared=shared, answered=len(answered))
+        said = _written(kind, first) if first else None
+        return Suspect(shared=shared, answered=len(answered), answer=said)
     return None
+
+
+def _written(kind: ResponseType, answer: FinalAnswer) -> str:
+    """`answer`'s final answer of `kind` as one line of text: its options, its
+    value and unit, or its expression."""
+    if kind == "numeric":
+        return " ".join(x for x in (str(answer.value), answer.unit) if x)
+    if kind == "symbolic":
+        return answer.expression or ""
+    return ", ".join(answer.choices)
 
 
 def _side(
