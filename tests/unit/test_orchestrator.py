@@ -863,8 +863,8 @@ def test_a_dry_run_sends_nothing_and_writes_no_output(router: OpenRouter) -> Non
     assert router.requests == []
     assert not (WS.root / "out").exists()
     lines = result.output.splitlines()
-    assert [line.split()[0] for line in lines[2:7]] == [
-        "prepare", "map", "read", "grade", "total"
+    assert [line.split()[0] for line in lines[2:8]] == [
+        "prepare", "map", "read", "grade", "second", "total"
     ]  # fmt: skip
     assert lines[2].split()[1:] == ["0", "0", "0", "0.0000"]  # the key exists
     assert "- The key exists, so prepare makes no call." in lines
@@ -913,9 +913,10 @@ def test_a_dry_run_over_another_folder_leaves_the_stored_class_alone(
     assert out_files(WS) == before
 
 
-def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
-    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def configured_not_pinned(monkeypatch: pytest.MonkeyPatch, settings: str = "") -> None:
+    """A redpen.toml naming one listed model for every role, after `settings`, and
+    the blank beside it, for a dry run of `run` on a new workspace."""
+
     async def fetch_catalog(api_key: str) -> Catalog:
         entry = {
             "id": MAPPER.slug,
@@ -929,9 +930,18 @@ def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
     prepare = ("parser", "solver", "checker", "referee")
     toml = "".join(f'{role} = "{MAPPER.slug}"\n' for role in prepare)
     Path("redpen.toml").write_text(
-        "[models]\n" + toml + "".join(f'{role} = "{MAPPER.slug}"\n' for role in ROLES)
+        settings
+        + "[models]\n"
+        + toml
+        + "".join(f'{role} = "{MAPPER.slug}"\n' for role in ROLES)
     )
     shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+
+
+def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured_not_pinned(monkeypatch)
     args = ["run", "blank.pdf", "subs", "--workspace", "new", "--dry-run"]
 
     result = runner.invoke(app, args)
@@ -1033,9 +1043,9 @@ def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
         **dict.fromkeys(("parser", "solver", "checker", "referee"), READER),
     }
     blank = [(1700, 2200)] * pages
-    with_spec = estimate(models, blank, SPEC, False, [student], 1536)
-    without = estimate(models, blank, None, False, [student], 1536)
-    for stage in ("map", "read", "grade"):
+    with_spec = estimate(models, blank, SPEC, False, [student], 1536, "balanced")
+    without = estimate(models, blank, None, False, [student], 1536, "balanced")
+    for stage in ("map", "read", "grade", "second grade"):
         assert with_spec[stage] == without[stage]
     assert with_spec["prepare"].usd < without["prepare"].usd  # parse is still to do
 
@@ -1047,17 +1057,20 @@ def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> N
     }
     blank = [(1700, 2200)] * 4
 
-    costs = estimate(models, blank, SPEC, False, [], 1536)
+    costs = estimate(models, blank, SPEC, False, [], 1536, "balanced")
 
     # Five problems solved twice, two rubrics, a referee for Q4 and Q5, which have
     # a part code cannot compare (a drawing, an explanation, a graph), and the
     # self-test's grader call for each problem with a part a model grades.
     assert costs["prepare"].calls == 5 + 5 + 2 + 2 + 2
     dearer = GRADER.model_copy(update={"prompt_price": GRADER.prompt_price + 1})
-    priced = estimate({**models, "grader": dearer}, blank, SPEC, False, [], 1536)
+    priced = estimate(
+        {**models, "grader": dearer}, blank, SPEC, False, [], 1536, "balanced"
+    )
     assert priced["prepare"].usd - costs["prepare"].usd == 2 * TOKENS["test"][0]
     assert (shape(SPEC).referees, shape(SPEC).referee_pages) == (2, 4)
-    assert estimate(models, blank, SPEC, True, [], 1536)["prepare"].calls == 0
+    keyed = estimate(models, blank, SPEC, True, [], 1536, "balanced")
+    assert keyed["prepare"].calls == 0
 
 
 def test_an_image_costs_a_token_per_patch_once_fit_to_the_budget() -> None:
@@ -1138,6 +1151,7 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
     for stage in ("map", "read"):
         monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", nothing)
     monkeypatch.setattr("redpen.orchestrator.grade_student", graded)
+    monkeypatch.setattr("redpen.orchestrator.grade_again", nothing)
     router.decides = True
     if gate == "fails":
         router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
@@ -1200,14 +1214,20 @@ def regrade(*options: str) -> Any:
     return runner.invoke(app, ["regrade", "--workspace", "ws", *options])
 
 
-def graded_once(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The class mapped, read and graded with every part earned in full; then the
-    router's requests forgotten and reads refused. Each student's page is their
-    own, so that no student's grade request is another's."""
+def own_pages() -> None:
+    """Each student's page their own, so that no student's grade request is
+    another's."""
     for n, name in enumerate(NAMES, 1):
         pdf = canvas.Canvas(str(Path("subs") / f"HW 1 - {name}.pdf"))
         pdf.drawString(100, 650, f"{n}. x = {n}")
         pdf.save()
+
+
+def graded_once(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The class, each student on a page of their own, mapped, read and graded
+    with every part earned in full; then the router's requests forgotten and reads
+    refused."""
+    own_pages()
     router.reads, router.grades = True, grades
     fast(router, monkeypatch)
     assert grade().exit_code == 0
@@ -1237,7 +1257,8 @@ def edit_criterion(part_id: str) -> None:
 
 
 def grade_files() -> dict[Path, bytes]:
-    return {p: p.read_bytes() for p in WS.students_dir.glob("*/grades/*.json")}
+    """Every first grade's file."""
+    return {p: p.read_bytes() for p in WS.students_dir.glob("*/grades/Q*.json")}
 
 
 def grade_requests(router: OpenRouter) -> list[list[str]]:
@@ -1270,7 +1291,9 @@ def test_regrade_asks_only_for_the_problem_whose_criterion_was_edited(
     result = regrade()
 
     assert result.exit_code == 0, result.output
-    assert grade_requests(router) == [Q4_PARTS] * len(NAMES)
+    # Each asked a second time by the second grade, byte for byte.
+    assert grade_requests(router) == [Q4_PARTS] * 2 * len(NAMES)
+    assert set(Counter(r.content for r in router.chats).values()) == {2}
     assert {p: p.read_bytes() for p in WS.students_dir.glob("*/readings/*")} == read
     others = [r.url.path for r in router.requests if r not in router.chats]
     assert others == ["/api/v1/endpoints/zdr"]
@@ -1351,7 +1374,7 @@ def test_a_student_with_no_stored_reading_of_a_problem_is_skipped_and_named(
     result = regrade()
 
     assert result.exit_code == 0, result.output
-    assert grade_requests(router) == [Q4_PARTS] * (len(NAMES) - 1)
+    assert grade_requests(router) == [Q4_PARTS] * 2 * (len(NAMES) - 1)
     assert WS.grade_json(first, "Q4").read_bytes() == kept
     assert (
         "Problems not graded, with no stored reading: 2, of 1 students."
@@ -1388,7 +1411,9 @@ def test_a_problem_whose_new_grade_fails_keeps_its_file_and_is_logged_and_counte
 
     assert result.exit_code == 1
     asked = ["Q5.a", "Q5.b", "Q5.c"]
-    assert grade_requests(router) == sorted([Q4_PARTS, Q4_PARTS, asked])
+    # Q4 asked and asked again with the problems, and never a second time: its
+    # earlier file is another reading's. Q5 graded, and graded a second time.
+    assert grade_requests(router) == sorted([Q4_PARTS, Q4_PARTS, asked, asked])
     assert WS.grade_json(first, "Q4").read_bytes() == q4
     assert WS.grade_json(first, "Q5").read_bytes() != q5
     assert "grade: 1 of 3 students failed." in result.stderr.splitlines()
@@ -1431,7 +1456,7 @@ def test_a_correction_survives_regrade_and_grade_and_its_removal_restores_the_aw
     assert router.chats == []
     edit_criterion("Q5.a")  # so that the regrade asks the grader again
     again = regrade()
-    assert again.exit_code == 0 and len(router.chats) == len(NAMES)
+    assert again.exit_code == 0 and len(router.chats) == 2 * len(NAMES)
     assert awarded("Q4.b.c1")[NAMES[0]] == "0.5"
     router.reads = True
     assert grade().exit_code == 0
@@ -1814,7 +1839,8 @@ def test_a_dry_run_changes_neither_the_real_cache_nor_its_ledger(
         ),
     )
     assert regrade().exit_code == 0
-    assert len(router.chats) == 2 * len(NAMES)
+    # Twice for the first grade, and twice again for the second.
+    assert len(router.chats) == 4 * len(NAMES)
     cache = WS.cache_sqlite.read_bytes()
     router.requests.clear()
     # Now every cached answer fails its checks, so a grade would drop both from the
@@ -1837,3 +1863,233 @@ def test_a_dry_run_changes_neither_the_real_cache_nor_its_ledger(
     [db] = opened
     assert db.resolve().parent.parent == WS.root.resolve() and db != WS.cache_sqlite
     assert not list(WS.root.glob("dry-run-*"))
+
+
+# --- the second grade ----------------------------------------------------------------
+
+# The awards a model decides for each student here: Q4 (a, b, c) and Q5 (a, b, c).
+AWARDS = 6 + 5
+
+
+def profiled(profile: str) -> None:
+    """The workspace's lock, with `profile`."""
+    lock = read_lock(WS.config_lock_toml)
+    write_lock(WS.config_lock_toml, lock.model_copy(update={"profile": profile}))
+
+
+def chat_kinds(router: OpenRouter) -> list[str]:
+    return [kind(json.loads(r.content)) for r in router.chats]
+
+
+def second_grade_line(compared: int, differ: int, flagged: int, failed: int) -> str:
+    return (
+        "Awards graded a second time, by the same grader with the same request, and"
+        f" compared: {compared}. Different: {differ}. Parts flagged"
+        f" (`graders_disagree`): {flagged}. Problems whose second grade failed:"
+        f" {failed}."
+    )
+
+
+@pytest.mark.parametrize("profile", ["economy", "balanced", "thorough"])
+def test_each_problem_a_model_graded_is_graded_again_under_the_profiles_that_do_it(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    profiled(profile)
+    own_pages()
+    router.reads, router.grades = True, grades
+    fast(router, monkeypatch)
+
+    result = grade()
+
+    assert result.exit_code == 0, result.output
+    asked = [r.content for r in router.chats if kind(json.loads(r.content)) == "Grades"]
+    first = 2 * len(NAMES)  # Q4 and Q5 of each student; the rest is scored by code
+    report = WS.run_report_md.read_text()
+    lines = report.splitlines()
+    if profile == "economy":
+        assert len(asked) == first
+        assert "The second grade is not done under the profile economy." in lines
+        assert not any(WS.second_grade_json(s).exists() for s in students())
+        assert "| second grade |" not in report
+        return
+    # Once the class is graded, each of its grade requests again, byte for byte,
+    # to the grader's endpoints that keep nothing.
+    assert len(asked) == 2 * first
+    assert sorted(asked[first:]) == sorted(asked[:first])
+    assert restricted(router.chats) == {"reader", "grader"}
+    for request in asked:
+        for text in [*NAMES, *students()]:
+            assert text.encode() not in request
+    assert chat_kinds(router)[-first:] == ["Grades"] * first
+    assert second_grade_line(AWARDS * len(NAMES), 0, 0, 0) in lines
+    assert f"Agreement: {AWARDS * 3} of {AWARDS * 3} awards the same (100.0%)." in lines
+    cost = report.split("## Cost")[1].splitlines()
+    assert any(
+        re.fullmatch(r"\| second grade \| \d+ \| \d+ \| [\d.]+ \|", r) for r in cost
+    )
+    assert "second grade 3/3" in result.stderr
+
+
+def second_draw(how: str) -> Callable[[dict[str, Any]], Grades]:
+    """A grader whose first answer to each request earns every criterion, and whose
+    second answer gives Q4.b's first criterion 0 with MARKER as its reason and
+    feedback ("differ"), or leaves a part out every time, MARKER in its reason."""
+    seen: Counter[str] = Counter()
+
+    def answer(body: dict[str, Any]) -> Grades:
+        found = grades(body)
+        text = json.dumps(body, sort_keys=True)
+        seen[text] += 1
+        retry = '"problems"' in body["messages"][1]["content"][-1].get("text", "")
+        if seen[text] == 1 and not retry:
+            return found
+        if how == "differ":
+            for g in found.grades:
+                if g.part_id == "Q4.b":
+                    c = g.criteria[0]
+                    c.awarded, c.rationale, c.feedback = Decimal(0), MARKER, MARKER
+            return found
+        found.grades[0].criteria[0].rationale = MARKER
+        return Grades(grades=found.grades[:-1])
+
+    return answer
+
+
+@pytest.mark.parametrize("how", ["differ", "fails its checks twice"])
+def test_a_second_grade_flags_a_part_or_fails_and_changes_no_score_or_feedback(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    own_pages()
+    router.reads, router.grades = True, second_draw(how)
+    fast(router, monkeypatch)
+
+    result = grade()
+
+    assert result.exit_code == 0, result.output  # the run is not stopped
+    assert MARKER not in result.output + result.stderr
+    log = WS.run_log.read_text() if WS.run_log.exists() else ""
+    assert MARKER not in log
+    review = WS.review_md.read_text()
+    lines = WS.run_report_md.read_text().splitlines()
+    rows = by_problem(WS)
+    if how == "differ":
+        assert second_grade_line(AWARDS * 3, 3, 3, 0) in lines
+        assert review.count("- `graders_disagree`, high: ") == len(NAMES)
+        assert all(r["status"] == "provisional" for r in rows)
+        assert not log
+    else:
+        assert second_grade_line(0, 0, 0, 2 * len(NAMES)) in lines
+        assert "graders_disagree" not in review
+        assert all(r["status"] == "final" for r in rows)
+        heads = [e.split("\n")[0] for e in log.split("--- ")[1:]]
+        assert len(heads) == 2 * len(NAMES)
+        assert all(h.endswith("was not graded a second time") for h in heads)
+    # The first grade is the grade: every score and feedback file is the one with
+    # no second grade stored.
+    out = {
+        p: p.read_bytes()
+        for p in [
+            *WS.feedback_dir.iterdir(),
+            WS.scores_detail_csv,
+            WS.scores_by_page_csv,
+        ]
+    }
+    assert not any(MARKER in v.decode("utf-8-sig") for v in out.values())
+    for student in students():
+        WS.second_grade_json(student).unlink(missing_ok=True)
+    assert runner.invoke(app, ["report", "--workspace", "ws"]).exit_code == 0
+    assert {p: p.read_bytes() for p in out} == out
+
+
+@pytest.mark.parametrize("command", ["regrade", "grade"])
+def test_a_workspace_graded_before_the_second_grade_reports_then_grades_again_for_it(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    profiled("economy")  # graded as before this task: no second grade
+    graded_once(router, monkeypatch)
+    profiled("balanced")
+    out = out_files(WS)
+
+    reported = runner.invoke(app, ["report", "--workspace", "ws"])
+
+    assert reported.exit_code == 0, reported.output
+    assert second_grade_line(0, 0, 0, 0) in WS.run_report_md.read_text().splitlines()
+    assert {p: v for p, v in out_files(WS).items() if p.name != "run_report.md"} == {
+        p: v for p, v in out.items() if p.name != "run_report.md"
+    }
+    if command == "regrade":
+        dry = regrade("--dry-run")
+        assert dry.stdout == (
+            f"Grade requests the call cache would not answer: {2 * len(NAMES)}.\n"
+        )
+    router.reads = True
+
+    again = regrade() if command == "regrade" else grade()
+
+    assert again.exit_code == 0, again.output
+    # The second grade's requests alone: the cache answers everything else.
+    assert chat_kinds(router) == ["Grades"] * 2 * len(NAMES)
+    lines = WS.run_report_md.read_text().splitlines()
+    assert second_grade_line(AWARDS * len(NAMES), 0, 0, 0) in lines
+    router.requests.clear()
+    assert regrade().exit_code == 0 and router.chats == []
+
+
+@pytest.mark.parametrize(
+    ("command", "profile", "priced"),
+    [
+        ("grade", "economy", False),
+        ("grade", "balanced", True),
+        ("grade", "thorough", True),
+        ("run", "--profile economy", False),
+        ("run", "redpen.toml economy", False),
+        ("run", "redpen.toml thorough", True),
+    ],
+)
+def test_the_dry_run_prices_the_second_grade_under_the_profiles_that_do_it(
+    router: OpenRouter,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    profile: str,
+    priced: bool,
+) -> None:
+    if command == "grade":
+        profiled(profile)
+        args = ["grade", "subs", "--workspace", "ws", "--dry-run"]
+    else:
+        configured = profile.split()[-1] if profile.startswith("redpen") else None
+        configured_not_pinned(
+            monkeypatch, f'profile = "{configured}"\n' if configured else ""
+        )
+        args = ["run", "blank.pdf", "subs", "--workspace", "new", "--dry-run"]
+        args += ["--profile", "economy"] if profile.startswith("--") else []
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert router.requests == []
+    table = result.stdout.split("Assumptions:")[0].splitlines()[2:]
+    stages = {line[:15].strip(): line[15:].split() for line in table}
+    assert ("second grade" in stages) == priced
+    if priced:  # the grade stage's requests again
+        assert stages["second grade"] == stages["grade"]
+
+
+@pytest.mark.parametrize("command", ["grade", "regrade"])
+@pytest.mark.parametrize("how", ["dry run", "gate fails"])
+def test_nothing_is_graded_a_second_time_under_a_dry_run_or_past_a_failed_gate(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, command: str, how: str
+) -> None:
+    graded_once(router, monkeypatch)
+    stored = {p: p.read_bytes() for p in WS.students_dir.glob("*/grades/second.json")}
+    assert len(stored) == len(NAMES)
+    WS.cache_sqlite.unlink()  # so that no answer could come from the cache
+    if how == "gate fails":
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+    args = [command, *(["subs"] if command == "grade" else []), "--workspace", "ws"]
+
+    result = runner.invoke(app, [*args, "--dry-run"] if how == "dry run" else args)
+
+    assert result.exit_code == (0 if how == "dry run" else 1), result.output
+    assert router.chats == []
+    assert {p: p.read_bytes() for p in stored} == stored

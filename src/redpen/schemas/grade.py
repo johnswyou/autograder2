@@ -3,8 +3,9 @@
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
 with the provenance, including the key part hash, and the reading it was produced
-from. `ProblemGrades` is one stored file, a top-level problem's records. `Override`
-is one entry of `overrides.yaml`.
+from. `ProblemGrades` is one stored file, a top-level problem's records.
+`SecondGrades` is one student's second grades. `Override` is one entry of
+`overrides.yaml`.
 """
 
 from typing import Any, Literal, cast
@@ -75,6 +76,28 @@ class GradeRecord(Schema):
 # option read: its score is withheld, never zero.
 class ProblemGrades(Schema):
     records: list[GradeRecord]
+
+
+# A part the grader graded a second time, with the same request, and compared with
+# its first grade in code, award by award: "differ" when one award differs, and
+# "failed" when that call failed or its answer failed the grade stage's checks
+# twice, and then `second` is null. What ties the result to the first grade it was
+# compared with: `part_hash`, the key part's hash then; `reading_digest`, the digest
+# of the readings it was graded from (`grade.grade.graded_from`); and `first`, the
+# digest of the first grade's stored record (`grade.read.digest`). A result made for
+# another version of any of them is ignored. The first grade is the grade.
+class SecondGrade(Schema):
+    part_id: PartId
+    part_hash: str
+    reading_digest: str
+    first: str
+    result: Literal["same", "differ", "failed"]
+    second: GradeRecord | None
+
+
+# One student's parts graded a second time: `Workspace.second_grade_json`.
+class SecondGrades(Schema):
+    records: list[SecondGrade]
 
 
 # One of the instructor's corrections: `student` gets `points` on `criterion`, in the

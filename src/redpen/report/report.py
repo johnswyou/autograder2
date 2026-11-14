@@ -20,9 +20,10 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, ValidationError
 
-from redpen.config import read_lock
+from redpen.config import Profile, read_lock
 from redpen.grade.grade import graded_from, levels, part_points
 from redpen.grade.read import digest, problem_of, unsure
+from redpen.grade.second_grade import PROFILES, differing
 from redpen.imaging import render
 from redpen.llm.ledger import Ledger, Usage
 from redpen.prepare.key import (
@@ -43,6 +44,8 @@ from redpen.schemas.grade import (
     GradeRecord,
     Override,
     ProblemGrades,
+    SecondGrade,
+    SecondGrades,
 )
 from redpen.schemas.key import Key, KeyPart
 from redpen.schemas.reading import (
@@ -100,6 +103,9 @@ DETAIL = {
     FlagCode.HARD_TO_READ: "The reader was unsure of some of the writing.",
     FlagCode.READERS_DISAGREE: "A second reader, another vendor's model, read this"
     " part differently. The score comes from the first reading.",
+    FlagCode.GRADERS_DISAGREE: "Graded a second time, by the same grader with the"
+    " same request, this part got another award. The score comes from the first"
+    " grade.",
     FlagCode.LOW_RESOLUTION: "The work was read at the full resolution of the"
     " source and is still hard to read.",
     FlagCode.ADDRESSED_TO_GRADER: "The response holds text addressed to the grader.",
@@ -124,9 +130,9 @@ NO_USE = Usage(0, 0, Decimal(0))
 class Stored:
     """One student's ingest record, and each part's reading and grade record that
     are stored, by part id; the class audit of each part, the same for every
-    student; each part's second reading compared with the stored first; and the
-    instructor's corrections made under the key's current version of their part,
-    by criterion id."""
+    student; each part's second reading compared with the stored first, and its
+    second grade compared with the stored first; and the instructor's corrections
+    made under the key's current version of their part, by criterion id."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
@@ -134,6 +140,9 @@ class Stored:
     audits: Mapping[str, PartAudit] = field(default_factory=dict[str, PartAudit])
     seconds: Mapping[str, SecondReading] = field(
         default_factory=dict[str, SecondReading]
+    )
+    second_grades: Mapping[str, SecondGrade] = field(
+        default_factory=dict[str, SecondGrade]
     )
     overrides: Mapping[str, Override] = field(default_factory=dict[str, Override])
 
@@ -257,8 +266,10 @@ def columns(workspace: Workspace, key: Key) -> tuple[list[str], list[int]]:
 
 def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     """What is stored for `student`: the readings and grade records of each of the
-    key's top-level problems whose file exists, and each second reading made for
-    the first reading stored now and the key's version of its part."""
+    key's top-level problems whose file exists, each second reading made for the
+    first reading stored now and the key's version of its part, and each second
+    grade made for the first grade stored now, the readings it was graded from and
+    the key's version of its part."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -271,7 +282,12 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
         again = _read(workspace.second_json(who), SecondReadings)
     except ValidationError:  # an earlier shape: made for nothing stored now
         again = None
+    try:
+        regraded = _read(workspace.second_grade_json(who), SecondGrades)
+    except ValidationError:  # not a file of this shape: made for nothing stored now
+        regraded = None
     hashes = {p.id: part_hash(p, key.policies) for p in key.parts}
+    parts = {p.id: p for p in key.parts}
     seconds = {
         s.part_id: s
         for s in (again.records if again else [])
@@ -279,7 +295,23 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
         and s.first == digest(readings[s.part_id])
         and s.part_hash == hashes.get(s.part_id)
     }
-    return Stored(student, readings, grades, audits(workspace, key), seconds)
+    second_grades = {
+        s.part_id: s
+        for s in (regraded.records if regraded else [])
+        if s.part_id in grades
+        and s.part_id in readings
+        and s.part_hash == hashes.get(s.part_id)
+        and s.first == digest(grades[s.part_id])
+        and s.reading_digest == graded_from(parts[s.part_id], readings)
+    }
+    return Stored(
+        student,
+        readings,
+        grades,
+        audits(workspace, key),
+        seconds,
+        second_grades,
+    )
 
 
 def audits(workspace: Workspace, key: Key) -> dict[str, PartAudit]:
@@ -510,6 +542,9 @@ def _part_flags(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode,
             raised.append((code, DETAIL[code]))
     if why is None:
         grade = stored.grades[part.id].grade
+        if (again := stored.second_grades.get(part.id)) and again.result == "differ":
+            code = FlagCode.GRADERS_DISAGREE
+            raised.append((code, DETAIL[code]))
         # A reason of only white space is no reason.
         if (grade.transcript_dispute or "").strip():
             code = FlagCode.TRANSCRIPT_DISPUTE
@@ -689,11 +724,14 @@ def _run_report(
     not_ingested: Sequence[str],
     stale: Sequence[Override],
 ) -> str:
-    """The state of every key part, the class audit, the second read's results,
-    each page's maximum and the total, the students with parts not scored and why,
-    the files not ingested, the corrections not applied, the flags by code, the
-    pinned models, and the cost by role from the usage ledger."""
+    """The state of every key part, the class audit, the second read's and the
+    second grade's results, each page's maximum and the total, the students with
+    parts not scored and why, the files not ingested, the corrections not applied,
+    the flags by code, the pinned models, and the cost by role from the usage
+    ledger."""
     maxima = page_points(key)
+    pinned = workspace.config_lock_toml.exists()
+    lock = read_lock(workspace.config_lock_toml) if pinned else None
     lines = ["# Run report", "", "## Key", ""]
     if key.points is not None:
         lines += [
@@ -722,6 +760,10 @@ def _run_report(
         f"The other parts of those units: {others.total()}. The same:"
         f" {others['same']}. Different: {others['differ']}. Not decided:"
         f" {others['not decided']}.",
+        "",
+        "## Second grade",
+        "",
+        *_second_grade_lines(scored, lock.profile if lock else None),
     ]
     lines += ["", "## Pages", "", "| Page | Maximum |", "|---|---|"]
     lines += [f"| {n} | {number(maxima.get(n, Decimal(0)))} |" for n in pages]
@@ -754,9 +796,8 @@ def _run_report(
     else:
         lines.append("No flags.")
     lines += ["", review_line(workspace, raised), "", "## Models", ""]
-    if workspace.config_lock_toml.exists():
+    if lock:
         lines += ["| Role | Model |", "|---|---|"]
-        lock = read_lock(workspace.config_lock_toml)
         lines += [f"| {role} | {m.slug} |" for role, m in lock.models.items()]
         if lock.strict_privacy is False:
             lines += ["", STRICT_OFF_RUN]
@@ -772,6 +813,32 @@ def _run_report(
         cost = number(u.cost)
         lines.append(f"| {role} | {u.prompt_tokens} | {u.completion_tokens} | {cost} |")
     return "\n".join(lines) + "\n"
+
+
+def _second_grade_lines(
+    scored: Sequence[tuple[Stored, list[Score]]], profile: Profile | None
+) -> list[str]:
+    """The second grade's counts, or why there is none: the lock's profile."""
+    if profile is not None and profile not in PROFILES:
+        return [f"The second grade is not done under the profile {profile}."]
+    found = [(s, r) for s, _ in scored for r in s.second_grades.values()]
+    pairs = [(s.grades[r.part_id].grade, r.second.grade) for s, r in found if r.second]
+    awards = sum(len(first.criteria) for first, _ in pairs)
+    differ = sum(len(differing(first, second)) for first, second in pairs)
+    failed = {
+        (s.student.student_key, problem_of(r.part_id))
+        for s, r in found
+        if r.result == "failed"
+    }
+    rate = f" ({(awards - differ) / awards:.1%})" if awards else ""
+    return [
+        "Awards graded a second time, by the same grader with the same request, and"
+        f" compared: {awards}. Different: {differ}. Parts flagged"
+        f" (`graders_disagree`): {sum(r.result == 'differ' for _, r in found)}."
+        f" Problems whose second grade failed: {len(failed)}.",
+        "",
+        f"Agreement: {awards - differ} of {awards} awards the same{rate}.",
+    ]
 
 
 # --- the review list -----------------------------------------------------------------
@@ -865,7 +932,8 @@ def review(
         # The tool's own score: the grade record after the class audit.
         base = None if withheld(key, s.part, stored) else audited(stored, s.part)
         worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
-        lines += [f"### {name}, {part_id}", "", *_flagged(found, _causes(record, base))]
+        causes = _causes(record, base, stored.second_grades.get(part_id))
+        lines += [f"### {name}, {part_id}", "", *_flagged(found, causes)]
         lines.append(
             f"- Proposed score: {worth}."
             + (f" {s.withheld}{_still_open(s)}" if s.withheld else "")
@@ -890,6 +958,8 @@ def review(
         # The grade file holds the awards before the audit; its file, the change.
         if FlagCode.AUDIT_CHANGED in codes:
             files.append(("audit", workspace.audit_json(part_id)))
+        if FlagCode.GRADERS_DISAGREE in codes:
+            files.append(("second grade", workspace.second_grade_json(who)))
         lines += [_files(out, files), ""]
     return "\n".join([*lines[:-1], *_stale(stale), ""])
 
@@ -938,16 +1008,25 @@ def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> lis
 
 
 def _causes(
-    record: GradeRecord | None, after: GradeRecord | None
+    record: GradeRecord | None,
+    after: GradeRecord | None,
+    again: SecondGrade | None = None,
 ) -> dict[FlagCode, list[str]]:
     """What a part's stored grade holds behind the flags it raises: the grader's
-    own sentences, the answer check it overruled, and each award the class audit
-    changed. The changes are the awards `after` the audit (None when the part is
-    withheld) against the stored record's, so a change that no longer holds is
-    never shown."""
+    own sentences, the answer check it overruled, each award the class audit
+    changed, and each award its second grade `again` gave otherwise, with what
+    each grader wrote. The changes are the awards `after` the audit (None when the
+    part is withheld) against the stored record's, so a change that no longer holds
+    is never shown."""
     if record is None or after is None:
         return {}
     grade, check = record.grade, record.check
+    second = again.second.grade if again and again.second else None
+    pairs = [
+        (c, next(x for x in second.criteria if x.id == c.id))
+        for c in grade.criteria
+        if second and c.id in differing(grade, second)
+    ]
     before = {c.id: c.awarded for c in grade.criteria}
     # Null for a part graded before the checks existed.
     checked = (
@@ -963,6 +1042,12 @@ def _causes(
             f" {number(c.awarded)} after."
             for c in after.grade.criteria
             if c.awarded != before[c.id]
+        ],
+        FlagCode.GRADERS_DISAGREE: [
+            f"  - {c.id}, the {which} grade: {number(c.awarded)}. The grader wrote:"
+            f" {code_span(c.rationale)}"
+            for pair in pairs
+            for which, c in zip(("first", "second"), pair, strict=True)
         ],
     }
 

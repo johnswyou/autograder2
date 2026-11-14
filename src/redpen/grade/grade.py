@@ -189,12 +189,18 @@ def request(
 
 
 async def ask_grader(
-    found: Request, key: Key, gateway: Gateway, model: ModelInfo, role: str = ROLE
+    found: Request,
+    key: Key,
+    gateway: Gateway,
+    model: ModelInfo,
+    role: str = ROLE,
+    draw: int = 1,
 ) -> dict[str, GradeRecord]:
     """The record of each part `found` asks about, from `model`'s answer to its
     request (none when it asks about none), checked as design 7.5 says, with one
     more call when the answer fails the checks; `StageError` when it still does.
-    `role` names the calls in the ledger."""
+    `role` names the calls in the ledger, and a `draw` after the first asks for
+    another answer to the same request (`Gateway.call`)."""
     if not found.asked:
         return {}
 
@@ -209,6 +215,7 @@ async def ask_grader(
             found.version,
             params=PARAMS,
             session_id=found.session,
+            draw=draw,
         )
         return result.value
 

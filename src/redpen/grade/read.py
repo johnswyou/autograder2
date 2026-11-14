@@ -14,6 +14,7 @@ from math import floor
 
 import pypdfium2 as pdfium  # pyright: ignore[reportMissingTypeStubs]
 from PIL import Image
+from pydantic import BaseModel
 
 from redpen import prompts
 from redpen.imaging import prep, render
@@ -160,8 +161,9 @@ def unsure(reading: Reading) -> bool:
     )
 
 
-def digest(record: ReadingRecord) -> str:
-    """A short digest of `record` as stored: what a second reading is tied to."""
+def digest(record: BaseModel) -> str:
+    """A short digest of `record` as stored: what a second reading or a second
+    grade is tied to."""
     return hashlib.sha256(record.model_dump_json().encode()).hexdigest()[:12]
 
 

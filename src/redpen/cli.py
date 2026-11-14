@@ -38,6 +38,8 @@ from redpen.eval.eval import GoldError, evaluate, markdown, table
 from redpen.grade.ingest import IngestSummary, ingest
 from redpen.grade.read import problem_of
 from redpen.grade.second import vendor_problem
+from redpen.grade.second_grade import PROFILES
+from redpen.grade.second_grade import ROLE as SECOND_GRADE
 from redpen.imaging import render
 from redpen.llm.client import (
     FatalError,
@@ -209,7 +211,7 @@ def run(
     _constraint(total, page_points)  # a dry run leaves the key as it is
     ws = Workspace.for_blank(blank, workspace)
     if dry_run:
-        _estimate(ws, blank, _dry_ingest(submissions, roster))
+        _estimate(ws, blank, _dry_ingest(submissions, roster), profile)
         return
     prepare(blank, total, page_points, profile, roster, False, workspace)
     _grade(ws, submissions, roster, dry_run=False)
@@ -606,7 +608,9 @@ def grade(
     roster: Roster = None,
     dry_run: DryRun = False,
 ) -> None:
-    """Ingest, map, read, grade and report against the existing key."""
+    """Ingest, map, read, grade and report against the existing key. Under the
+    balanced and thorough profiles each problem a model graded is graded a second
+    time, and an award that differs is flagged."""
     _grade(Workspace(workspace), submissions, roster, dry_run)
 
 
@@ -616,8 +620,8 @@ def _grade(
     """Grade the class in `submissions` against the key in `ws`: the check that the
     second reader is another vendor's model, ingest, the check that the pinned
     endpoints keep nothing, then map, read, read again where the reader was unsure,
-    and grade, and the report. Exit code 0 only when nothing failed; with
-    `dry_run`, an estimate."""
+    grade and, under the lock's profile, grade a second time, and the report. Exit
+    code 0 only when nothing failed; with `dry_run`, an estimate."""
     config, api_key, spec, lock, key = _graded(ws, dry_run)
     if ws.overrides_yaml.exists():  # against the class they were recorded for
         try:
@@ -703,8 +707,11 @@ def _run(
     students: Sequence[IngestRecord],
     stages: Sequence[str],
 ) -> list[tuple[str, str]]:
-    """`grade_class` over `students` with `stages`, each stage's failures counted on
-    stderr; each (stage, student key) that failed."""
+    """`grade_class` over `students` with `stages`, and the second grade after the
+    grade stage under a lock's profile that does it, each stage's failures counted
+    on stderr; each (stage, student key) that failed."""
+    if "grade" in stages and lock.profile in PROFILES:
+        stages = [*stages, SECOND_GRADE]
     run = grade_class(ws, spec, key, lock.models, config, api_key, students, stages)
     try:
         failed = asyncio.run(run)
@@ -780,13 +787,18 @@ def _dry_ingest(submissions: Path, roster: Path | None) -> IngestSummary:
 ESTIMATED = ("parser", "solver", CHECKER, REFEREE, *STAGES.values())
 
 
-def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
+def _estimate(
+    ws: Workspace, blank: Path, summary: IngestSummary, profile: Profile | None = None
+) -> None:
     """Print what preparing (unless the key exists) and grading the ingested class
-    will cost, with the assumptions. No model is asked anything."""
+    will cost, under the lock's profile, else `profile` or the configured one, with
+    the assumptions. No model is asked anything."""
     try:
         config = load_config()
+        profile = profile or config.profile
         if ws.config_lock_toml.exists():
-            models, pinned = read_lock(ws.config_lock_toml).models, True
+            lock = read_lock(ws.config_lock_toml)
+            models, pinned, profile = lock.models, True, lock.profile
         else:  # listing the models is free
             catalog = asyncio.run(fetch_catalog(openrouter_api_key()))
             names = config.models.model_dump()
@@ -810,7 +822,7 @@ def _estimate(ws: Workspace, blank: Path, summary: IngestSummary) -> None:
     if pinned and not keyed:  # the estimate prices a solve and its verification
         _can_verify(ws, models)
     budget = config.image_budget
-    costs = estimate(models, sizes, spec, keyed, summary.students, budget)
+    costs = estimate(models, sizes, spec, keyed, summary.students, budget, profile)
     _print_estimate(costs, models, pinned, sizes, spec, keyed, summary.students, budget)
     if found := vendor_problem(models):  # the run itself would be refused
         source = ws.config_lock_toml if pinned else "redpen.toml"
@@ -837,11 +849,11 @@ def _print_estimate(
     )
     typer.echo("Estimate, with nothing sent to a model:")
     typer.echo(
-        f"  {'stage':<8}{'calls':>7}{'tokens in':>12}{'tokens out':>12}{'USD':>9}"
+        f"  {'stage':<13}{'calls':>7}{'tokens in':>12}{'tokens out':>12}{'USD':>9}"
     )
     for stage, c in [*costs.items(), ("total", total)]:
         typer.echo(
-            f"  {stage:<8}{c.calls:>7.0f}{c.tokens_in:>12,.0f}"
+            f"  {stage:<13}{c.calls:>7.0f}{c.tokens_in:>12,.0f}"
             f"{c.tokens_out:>12,.0f}{c.usd:>9.4f}"
         )
     pages = sum(len(s.pages) for s in students)
@@ -890,9 +902,10 @@ def regrade(
         ),
     ] = False,
 ) -> None:
-    """Grade the latest ingest again from its stored readings, then audit and
-    report: no ingest, map or read. The call cache answers each grade request that
-    did not change, so only what a key edit changed is paid for."""
+    """Grade the latest ingest again from its stored readings, and a second time
+    under the lock's profile, then audit and report: no ingest, map or read. The
+    call cache answers each grade request that did not change, so only what a key
+    edit changed is paid for."""
     ws = Workspace(workspace)
     config, api_key, spec, lock, key = _graded(ws, dry_run)
     try:
@@ -904,7 +917,7 @@ def regrade(
     if dry_run:
         if (grader := lock.models.get("grader")) is None:
             _fail(f"{ws.config_lock_toml}: no model is pinned for grader.")
-        count = asyncio.run(uncached(ws, key, grader, students))
+        count = asyncio.run(uncached(ws, key, grader, students, lock.profile))
         typer.echo(f"Grade requests the call cache would not answer: {count}.")
         return
     lock = _gate(ws, config, lock, api_key)

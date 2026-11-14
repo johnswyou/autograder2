@@ -1,13 +1,14 @@
 """Running a class (design 5, 12 and 14.1).
 
-`grade_class` maps, reads, reads again where the reader was unsure, and grades the
-students of an ingest, one stage over the whole class before the next, the
-students concurrent inside a stage as tasks on one thread: pdfium, which the
-stages open PDFs with, is not safe across threads. A student's failure in a stage,
-or in one unit of a stage, is recorded with its traceback in the run log and the
-class goes on; the later stages run on whatever files that student has. Then the
-class audit runs over every student. Resuming is the call cache's work: nothing is
-skipped because a file exists.
+`grade_class` maps, reads, reads again where the reader was unsure, grades and,
+under a profile that does it, grades a second time the students of an ingest, one
+stage over the whole class before the next, the students concurrent inside a
+stage as tasks on one thread: pdfium, which the stages open PDFs with, is not
+safe across threads. A student's failure in a stage, or in one unit of a stage, is
+recorded with its traceback in the run log and the class goes on; the later stages
+run on whatever files that student has. Then the class audit runs over every
+student. Resuming is the call cache's work: nothing is skipped because a file
+exists.
 
 `privacy_problems` is the gate before the first student page is sent, `estimate`
 is the dry run's cost estimate, and `uncached` counts what a re-grade would ask."""
@@ -28,13 +29,15 @@ import httpx
 from rich.console import Console
 from rich.progress import MofNCompleteColumn, Progress
 
-from redpen.config import Config, Lock
+from redpen.config import Config, Lock, Profile
 from redpen.grade.audit import audit_class
 from redpen.grade.grade import grade_student
 from redpen.grade.map import map_student
 from redpen.grade.read import problem_of, read_student
 from redpen.grade.second import ROLE as SECOND
 from redpen.grade.second import read_again
+from redpen.grade.second_grade import PROFILES, grade_again
+from redpen.grade.second_grade import ROLE as SECOND_GRADE
 from redpen.imaging import render
 from redpen.llm.client import Gateway
 from redpen.llm.ledger import Ledger, Usage
@@ -80,10 +83,10 @@ async def grade_class(
     stages: Sequence[str] = tuple(STAGES),
 ) -> list[tuple[str, str]]:
     """Map, read, read again where the reader was unsure, and grade `students` (the
-    ingest's), or run only the `stages` named, showing each stage's progress and
-    running cost, then audit the class. The earlier audit's files are removed
-    first, so that none can apply to a new grade. Returns each (stage, student
-    key) that failed."""
+    ingest's), or run only the `stages` named (`SECOND_GRADE` among them, after
+    "grade"), showing each stage's progress and running cost, then audit the
+    class. The earlier audit's files are removed first, so that none can apply to
+    a new grade. Returns each (stage, student key) that failed."""
     for old in workspace.audit_dir.glob("*.json"):
         old.unlink()
     keys = [s.student_key for s in students]
@@ -99,6 +102,7 @@ async def grade_class(
             workspace, s, spec, key, g, models[SECOND], budget
         ),
         "grade": lambda g, s: grade_student(workspace, s, key, g, models["grader"]),
+        SECOND_GRADE: lambda g, s: grade_again(workspace, s, key, g, models["grader"]),
     }
     failed: list[tuple[str, str]] = []
     progress = Progress(
@@ -127,7 +131,9 @@ async def grade_class(
                 except Exception as error:  # one student never stops the class
                     failed.append((stage, student))
                     log_failure(workspace, f"{stage} {student}", error)
-                role = STAGES[stage]
+                # The second grade's calls are booked under its own name; its
+                # model is the grader's, which the gate checks for "grade".
+                role = STAGES.get(stage, stage)
                 now = ledger.totals_by_role().get(role, NO_USE).cost
                 spent = now - before.get(role, NO_USE).cost
                 progress.update(tasks[stage], advance=1, cost=f"${spent:.4f}")
@@ -141,12 +147,20 @@ async def grade_class(
 
 @dataclass(frozen=True)
 class _Scratch(Workspace):
-    """A workspace's stored files, with its grade files written to `grades`."""
+    """A workspace's stored files, with its grade files and second grades written
+    to `grades`, and its run log beside it."""
 
     grades: Path
 
     def grade_json(self, student: str, problem: str) -> Path:
         return self.grades / student / f"{problem}.json"
+
+    def second_grade_json(self, student: str) -> Path:
+        return self.grades / student / "second.json"
+
+    @property
+    def run_log(self) -> Path:
+        return self.grades.parent / "run.log"
 
 
 async def uncached(
@@ -154,13 +168,15 @@ async def uncached(
     key: Key,
     model: ModelInfo,
     students: Sequence[IngestRecord],
+    profile: Profile,
 ) -> int:
-    """How many requests the grade stage would make for `students` that the call
-    cache does not answer. The stage runs as it would, but each request that gets
-    past the cache is counted and refused before it leaves, the cache is a copy and
-    the grade files go to a scratch folder, both inside the workspace (they hold
-    text derived from student work), so nothing is sent and nothing stored
-    changes. A request that would follow a refused one is not counted."""
+    """How many requests the grade stage, and the second grade under a `profile`
+    that does it, would make for `students` that the call cache does not answer.
+    The stages run as they would, but each request that gets past the cache is
+    counted and refused before it leaves, the cache is a copy and the grade files,
+    second grades and run log go to a scratch folder, all inside the workspace
+    (they hold text derived from student work), so nothing is sent and nothing
+    stored changes. A request that would follow a refused one is not counted."""
     asked = 0
 
     def refuse(request: httpx.Request) -> httpx.Response:
@@ -191,6 +207,11 @@ async def uncached(
                     await grade_student(
                         scratch, student.student_key, key, gateway, model
                     )
+                if profile in PROFILES:
+                    with contextlib.suppress(Exception):  # as the first grade's
+                        await grade_again(
+                            scratch, student.student_key, key, gateway, model
+                        )
     return asked
 
 
@@ -313,10 +334,12 @@ def estimate(
     keyed: bool,
     students: Sequence[IngestRecord],
     budget: int,
+    profile: Profile,
 ) -> dict[str, Cost]:
-    """What prepare (nothing when `keyed`), map, read and grade will cost, by stage,
-    from the blank's page sizes, the spec (or `PER_PAGE` without one), the students'
-    pages and the models' prices. Nothing is sent."""
+    """What prepare (nothing when `keyed`), map, read, grade and, under a `profile`
+    that does it, the second grade will cost, by stage, from the blank's page
+    sizes, the spec (or `PER_PAGE` without one), the students' pages and the
+    models' prices. Nothing is sent."""
     found = (
         shape(spec)
         if spec
@@ -324,8 +347,10 @@ def estimate(
             **{f.name: getattr(PER_PAGE, f.name) * len(blank) for f in fields(Shape)}
         )
     )
+    # The second grade makes the grade stage's requests again.
+    graded = ["grade", *([SECOND_GRADE] if profile in PROFILES else [])]
     # Not the second read: how many parts a reader will be unsure of is not known.
-    costs = {stage: Cost() for stage in ("prepare", "map", "read", "grade")}
+    costs = {stage: Cost() for stage in ("prepare", "map", "read", *graded)}
 
     def add(stage: str, role: str, kind: str, calls: float, images: float = 0) -> None:
         text, out = TOKENS[kind]
@@ -363,5 +388,6 @@ def estimate(
         overview = sum(mine) / len(mine)
         regions = found.read_pages * overview + found.regions * READ_REGION
         add("read", "reader", "read", found.reads, regions)
-        add("grade", "grader", "grade", found.grades, found.crops * GRADE_CROP)
+        for stage in graded:
+            add(stage, "grader", "grade", found.grades, found.crops * GRADE_CROP)
     return costs

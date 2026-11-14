@@ -132,6 +132,10 @@ class Workspace:
     def grade_json(self, student: str, problem: str) -> Path:
         return self.student_dir(student) / "grades" / f"{problem}.json"
 
+    def second_grade_json(self, student: str) -> Path:
+        """The parts graded a second time, each compared with its first grade."""
+        return self.student_dir(student) / "grades" / "second.json"
+
     # audit/, overrides and cache
 
     @property

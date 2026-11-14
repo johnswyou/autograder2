@@ -15,7 +15,7 @@ import socket
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -26,6 +26,8 @@ from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 from redpen.cli import app
+from redpen.grade import grade as stage
+from redpen.grade.audit import groups
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import digest, problem_of
 from redpen.llm.ledger import Ledger, Usage
@@ -48,6 +50,7 @@ from redpen.report.report import (
     STALE,
     UNGRADED,
     UNREADABLE,
+    Stored,
     code_span,
     flags,
     load,
@@ -69,6 +72,8 @@ from redpen.schemas.grade import (
     GradeRecord,
     Override,
     ProblemGrades,
+    SecondGrade,
+    SecondGrades,
 )
 from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
 from redpen.schemas.reading import (
@@ -806,6 +811,213 @@ def test_a_second_reading_changes_the_part_s_flags_and_never_its_score(
         f"The other parts of those units: {m}. The same: {same2}. Different:"
         f" {differ2}. Not decided: {open2}."
     ) in lines
+
+
+# What a stored second grade of Q4.b does to the flags, and never to a score.
+@dataclass(frozen=True)
+class Regraded:
+    result: Literal["same", "differ", "failed"]
+    codes: set[FlagCode]
+    state: str
+    counts: tuple[int, int, int, int]  # awards compared, different, flagged, failed
+    stale: str = ""  # how the stored result was made for another first grade
+
+
+NONE_COUNTED = (0, 0, 0, 0)
+REGRADED = {
+    "same": Regraded("same", set(), "final", (2, 0, 0, 0)),
+    "differ": Regraded("differ", {F.GRADERS_DISAGREE}, "provisional", (2, 1, 1, 0)),
+    "failed": Regraded("failed", set(), "final", (0, 0, 0, 1)),
+    "made from another reading": Regraded(
+        "differ", set(), "final", NONE_COUNTED, "reading"
+    ),
+    "made for another version of the part": Regraded(
+        "differ", set(), "final", NONE_COUNTED, "hash"
+    ),
+    "made for another first award": Regraded(
+        "differ", set(), "final", NONE_COUNTED, "award"
+    ),
+    "a file of another shape": Regraded(
+        "differ", set(), "final", NONE_COUNTED, "shape"
+    ),
+}
+SECOND_RATIONALE = "The second grader's reason."
+
+
+def second_grade_of_q4b(
+    stored: Stored,
+    result: Literal["same", "differ", "failed"],
+    rationale: str = SECOND_RATIONALE,
+) -> SecondGrade:
+    """A second grade of the stored first grade of Q4.b: the same, or 1 in place
+    of 2 on its first criterion, with `rationale`."""
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    first = stored.grades["Q4.b"]
+    c1, c2 = first.grade.criteria
+    if result == "differ":
+        c1 = c1.model_copy(update={"awarded": Decimal(1), "rationale": rationale})
+    grade = first.grade.model_copy(update={"criteria": [c1, c2]})
+    return SecondGrade(
+        part_id="Q4.b",
+        part_hash=part_hash(part, KEY.policies),
+        reading_digest=stage.graded_from(part, stored.readings),
+        first=digest(first),
+        result=result,
+        second=None
+        if result == "failed"
+        else first.model_copy(update={"grade": grade}),
+    )
+
+
+@pytest.mark.parametrize("case", REGRADED.values(), ids=REGRADED.keys())
+def test_a_second_grade_flags_a_differing_award_and_changes_no_score(
+    built: Built, tmp_path: Path, case: Regraded
+) -> None:
+    workspace = new_workspace(tmp_path)
+    workspace.config_lock_toml.write_text(LOCK)
+    student = copy_student(built, workspace, "typed-in-place")
+    record = second_grade_of_q4b(load(workspace, KEY, student), case.result)
+    if case.stale == "hash":
+        record = record.model_copy(update={"part_hash": "000000000000"})
+    if case.stale == "reading":  # Q4.b read anew since
+
+        def anew(r: ReadingRecord) -> ReadingRecord:
+            lines = [*r.reading.lines, "Read anew."]
+            return r.model_copy(
+                update={"reading": r.reading.model_copy(update={"lines": lines})}
+            )
+
+        change_reading(workspace, student, "Q4.b", anew)
+    if case.stale == "award":  # Q4.b graded anew since, with another award
+
+        def lower_c2(r: GradeRecord) -> GradeRecord:
+            if r.grade.part_id != "Q4.b":
+                return r
+            c1, c2 = r.grade.criteria
+            c2 = c2.model_copy(update={"awarded": Decimal(0)})
+            grade = r.grade.model_copy(update={"criteria": [c1, c2]})
+            return r.model_copy(update={"grade": grade})
+
+        change_grades(workspace, student, "Q4", lower_c2)
+    alone = load(workspace, KEY, student)
+    write_report(workspace, KEY, [student])
+    unflagged = {
+        p: p.read_bytes()
+        for p in (
+            workspace.feedback_md(student.student_key),
+            workspace.scores_by_page_csv,
+            workspace.scores_detail_csv,
+        )
+    }
+    path = workspace.second_grade_json(student.student_key)
+    write_model(path, SecondGrades(records=[record]))
+    if case.stale == "shape":
+        path.write_text(json.dumps({"records": [{"part_id": "Q4.b"}]}))
+
+    stored = load(workspace, KEY, student)
+    raised = flags(KEY, [stored])
+
+    assert {f.code for f in raised} == case.codes
+    assert {f.part_id for f in raised} <= {"Q4.b"}
+    assert all(f.severity == "high" for f in raised if f.code == F.GRADERS_DISAGREE)
+    assert status(KEY, stored, raised) == case.state
+    # The first grade is the grade, and the class audit sees it alone.
+    assert score(KEY, stored) == score(KEY, alone)
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    hashed = part_hash(part, KEY.policies)
+    assert groups(part, hashed, [stored]) == groups(part, hashed, [alone])
+    write_report(workspace, KEY, [student])
+    assert {p: p.read_bytes() for p in unflagged} == unflagged
+    lines = workspace.run_report_md.read_text().splitlines()
+    awards, different, flagged, failed = case.counts
+    assert (
+        "Awards graded a second time, by the same grader with the same request, and"
+        f" compared: {awards}. Different: {different}. Parts flagged"
+        f" (`graders_disagree`): {flagged}. Problems whose second grade failed:"
+        f" {failed}."
+    ) in lines
+    rate = f" ({(awards - different) / awards:.1%})" if awards else ""
+    assert f"Agreement: {awards - different} of {awards} awards the same{rate}." in (
+        lines
+    )
+
+
+def test_an_award_the_instructor_corrected_stays_theirs_whatever_the_second_grade(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    record = second_grade_of_q4b(load(workspace, KEY, student), "differ")
+    write_model(
+        workspace.second_grade_json(student.student_key),
+        SecondGrades(records=[record]),
+    )
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    correction = Override(
+        student=student.student_key,
+        criterion="Q4.b.c1",
+        points=Decimal("0.5"),
+        part_hash=part_hash(part, KEY.policies),
+    )
+
+    stored = replace(load(workspace, KEY, student), overrides={"Q4.b.c1": correction})
+
+    [q4b] = [s for s in score(KEY, stored) if s.part.id == "Q4.b"]
+    assert q4b.awarded == Decimal("1.5")  # the instructor's 0.5, and c2's 1
+    assert F.GRADERS_DISAGREE in {f.code for f in flags(KEY, [stored])}
+
+
+def test_the_review_list_shows_both_awards_and_rationales_as_untrusted_text(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    hostile = "Fine.\n### Someone else, Q1\n- Proposed score: 99 / 3.\n`x` <!-- y"
+    first = load(workspace, KEY, student)
+    record = second_grade_of_q4b(first, "differ", hostile)
+    write_model(
+        workspace.second_grade_json(student.student_key),
+        SecondGrades(records=[record]),
+    )
+
+    write_report(workspace, KEY, [student])
+
+    text = workspace.review_md.read_text()
+    lines = text.splitlines()
+    [c1] = [c for c in first.grades["Q4.b"].grade.criteria if c.id == "Q4.b.c1"]
+    [at] = [n for n, line in enumerate(lines) if "`graders_disagree`" in line]
+    assert lines[at] == f"- `graders_disagree`, high: {DETAIL[F.GRADERS_DISAGREE]}"
+    assert lines[at + 1 : at + 3] == [
+        f"  - Q4.b.c1, the first grade: 2. The grader wrote: {code_span(c1.rationale)}",
+        f"  - Q4.b.c1, the second grade: 1. The grader wrote: {code_span(hostile)}",
+    ]
+    # Every piece of the second grader's text stays inside its code span.
+    for piece in hostile.splitlines():
+        assert [line for line in lines if piece in line] == [lines[at + 2]]
+    who = student.student_key
+    assert f"[second grade](../students/{who}/grades/second.json)" in text
+    for path in (workspace.root / "out").rglob("*"):
+        if path.is_file() and path != workspace.review_md:
+            assert "Someone else" not in path.read_text(encoding="utf-8-sig")
+
+
+@pytest.mark.parametrize("profile", ["economy", "balanced", "thorough"])
+def test_the_run_report_says_when_the_profile_does_no_second_grade(
+    built: Built, tmp_path: Path, profile: str
+) -> None:
+    workspace = new_workspace(tmp_path)
+    workspace.config_lock_toml.write_text(LOCK.replace("balanced", profile))
+    student = copy_student(built, workspace, "typed-in-place")
+
+    write_report(workspace, KEY, [student])
+
+    lines = workspace.run_report_md.read_text().splitlines()
+    at = lines.index("## Second grade")
+    said = lines[at + 2]
+    if profile == "economy":
+        assert said == "The second grade is not done under the profile economy."
+    else:
+        assert said.startswith("Awards graded a second time")
 
 
 NAMES = [
