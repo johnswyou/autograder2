@@ -10,7 +10,7 @@ from typing import Literal, cast
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
-from redpen.llm.models import ModelError, ModelInfo, check, fetch_catalog
+from redpen.llm.models import ModelError, ModelInfo, Secret, check, fetch_catalog
 from redpen.workspace import Workspace
 
 Profile = Literal["economy", "balanced", "thorough"]
@@ -67,13 +67,13 @@ def load_config(path: Path = Path("redpen.toml")) -> Config:
 
 
 def openrouter_api_key() -> str:
-    """Return the OpenRouter API key from the environment."""
-    key = os.environ.get("OPENROUTER_API_KEY")
-    if not key:
+    """Return the OpenRouter API key from the environment, as a `Secret`: its repr
+    is a mask. No plain copy is bound to a name here."""
+    if not os.environ.get("OPENROUTER_API_KEY"):
         raise ConfigError(
             "OPENROUTER_API_KEY is not set. Export your OpenRouter API key in it."
         )
-    return key
+    return Secret(os.environ["OPENROUTER_API_KEY"])
 
 
 class Lock(BaseModel):

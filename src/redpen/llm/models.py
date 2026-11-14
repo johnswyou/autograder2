@@ -12,6 +12,19 @@ from pydantic import BaseModel, ConfigDict
 API_URL = "https://openrouter.ai/api/v1"
 
 
+class Secret(str):
+    """The API key, or text holding it: unchanged as text, but its repr is a fixed
+    mask, so that a traceback, a locals dump or a debugger never shows it."""
+
+    def __repr__(self) -> str:
+        return "'<secret>'"
+
+
+def authorization(api_key: str) -> dict[str, str]:
+    """The header that carries `api_key`, its value masked as the key is."""
+    return {"Authorization": Secret(f"Bearer {api_key}")}
+
+
 class ModelError(Exception):
     """A configured model cannot be used. The message is meant for the user."""
 
@@ -149,7 +162,7 @@ def _client(
 ) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=API_URL,
-        headers={"Authorization": f"Bearer {api_key}"},
+        headers=authorization(api_key),
         timeout=60,
         transport=transport,
     )

@@ -102,7 +102,9 @@ from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, log_failure, read_model, write_model
 
-app = typer.Typer()
+# An unhandled exception prints no local variable: locals hold the API key and
+# student work.
+app = typer.Typer(pretty_exceptions_show_locals=False)
 key_app = typer.Typer(help="Check or render the key.")
 models_app = typer.Typer(help="Inspect the configured models.")
 app.add_typer(key_app, name="key")

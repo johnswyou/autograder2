@@ -18,7 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 from redpen.llm.cache import CallCache, cache_key, image_digest
 from redpen.llm.ledger import Ledger, Usage
-from redpen.llm.models import API_URL, ModelInfo
+from redpen.llm.models import API_URL, ModelInfo, authorization
 from redpen.schemas.strict import strict_problems
 
 MAX_ATTEMPTS = 6
@@ -127,7 +127,7 @@ class Gateway:
         self._ledger = Ledger(self._db)
         self._http = httpx.AsyncClient(
             base_url=API_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers=authorization(api_key),
             timeout=httpx.Timeout(600, connect=10),
             transport=transport,
         )
