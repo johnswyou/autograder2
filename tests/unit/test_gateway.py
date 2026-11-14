@@ -838,6 +838,18 @@ def test_finish_all_raises_the_first_error_noting_every_later_one() -> None:
     )
 
 
+def test_finish_all_raises_a_fault_gathered_with_a_stop_before_the_stop() -> None:
+    async def stopped() -> None:
+        raise StopError(STOPS[401])
+
+    async def fault() -> None:
+        raise LookupError("a fault")
+
+    with pytest.raises(LookupError) as raised:  # a stop is logged once, a fault not
+        asyncio.run(finish_all([stopped(), fault()]))
+    assert "also failed: StopError" in "".join(traceback.format_exception(raised.value))
+
+
 # --- task 5.4a: rate limits, a provider that fails, and failures no retry cures ----
 
 
