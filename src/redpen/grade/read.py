@@ -351,7 +351,8 @@ def _region(
     """`box` grown by `MARGIN` and clamped to the page, rendered to fill `budget`
     but never past the ceiling of design 7.7: twice the page's native resolution.
     `render_region` keeps to it on a slide export; on another page with a raster
-    image it is rendered once more at the size that keeps to it."""
+    image it is rendered once more at the size that keeps to it, unless the region
+    holds ink drawn as vectors, which has no ceiling."""
     x0, y0, x1, y1 = box
     grown = [
         max(x0 - MARGIN, 0),

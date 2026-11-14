@@ -36,6 +36,13 @@ SLIDE_BOX = (200.0, 8.88, 591.56, 792.0)
 SIDEBAR_X = 15.0  # where every sidebar line starts, in points
 TOLERANCE = 1.0  # points
 MAX_ENLARGEMENT = 2.0  # past native resolution (export-notes decision 4)
+# How many path or visible text objects wholly inside a region make it hold ink drawn
+# as vectors, which has no ceiling. A scanning app adds a handful: on the scan
+# fixture a frame and a page number, 2 in a box of the whole page and none in the
+# answer's; a word drawn as glyph outlines, about one per letter. Pen ink is many: 64
+# marks in the fixture's three short lines, and at least 32 objects in every mapped
+# region of the instructor's pen-annotated solutions.
+VECTOR_MARKS = 16
 
 
 @dataclass(frozen=True)
@@ -70,8 +77,8 @@ class Page:
 class Region:
     image: Image.Image  # RGB
     box: list[float]  # the box rendered, widened to whole slide pixels on Classkick
-    # Image pixels per native pixel, so above 1 holds no new detail. None on a page
-    # with no image, whose vector content has no ceiling.
+    # Image pixels per native pixel, so above 1 holds no new detail. None where the
+    # region holds ink drawn as vectors or the page has no image: no ceiling.
     scale: float | None
 
 
@@ -168,8 +175,40 @@ def render_region(
     cut = (x0 * width, (1 - y1) * height, (1 - x1) * width, y0 * height)
     bitmap = page.render(scale=scale, crop=cut)  # pyright: ignore[reportArgumentType]
     image = bitmap.to_pil().convert("RGB")
-    ppi = _native_ppi(_images(page))
+    ppi = None if _drawn(page, box) else _native_ppi(_images(page))
     return Region(image, list(box), scale * 72 / ppi if ppi else None)
+
+
+def _drawn(page: pdfium.PdfPage, box: Sequence[float]) -> bool:
+    """Whether `box` of the page as displayed holds `VECTOR_MARKS` path or visible
+    text objects wholly inside it."""
+    width, height = page.get_size()
+    # Page space to the page as displayed, after /Rotate and the crop box, in
+    # hundredths of a point.
+    shown = pdfium.PdfPosConv(page, (0, 0, round(width * 100), round(height * 100), 0))
+    sides = (width, height) * 2
+    x0, y0, x1, y1 = (100 * v * s for v, s in zip(box, sides, strict=True))
+    found = 0
+    kinds = [pdfium_c.FPDF_PAGEOBJ_PATH, pdfium_c.FPDF_PAGEOBJ_TEXT]
+    invisible = pdfium_c.FPDF_TEXTRENDERMODE_INVISIBLE
+    for obj in page.get_objects(filter=kinds):
+        # Invisible text, such as a scan's OCR layer, draws nothing.
+        if (
+            isinstance(obj, pdfium.PdfTextObj)
+            and pdfium_c.FPDFTextObj_GetTextRenderMode(obj) == invisible
+        ):
+            continue
+        left, bottom, right, top = obj.get_bounds()
+        corners = [(left, bottom), (left, top), (right, bottom), (right, top)]
+        form = obj.container
+        while form is not None:  # bounds inside a Form XObject are in its own space
+            corners = [form.get_matrix().on_point(x, y) for x, y in corners]
+            form = form.container
+        xs, ys = zip(*(shown.to_bitmap(x, y) for x, y in corners), strict=True)
+        found += x0 <= min(xs) and max(xs) <= x1 and y0 <= min(ys) and max(ys) <= y1
+        if found >= VECTOR_MARKS:
+            return True
+    return False
 
 
 def _images(page: pdfium.PdfPage) -> list[pdfium.PdfImage]:
