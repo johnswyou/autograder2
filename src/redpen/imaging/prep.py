@@ -76,7 +76,7 @@ def crop(
     every side, and the box actually used: clamped to the image and widened to
     whole pixels."""
     width, height = image.size
-    left, top, right, bottom = _pixels(image.size, box, margin)
+    left, top, right, bottom = pixels(image.size, box, margin)
     used = [left / width, top / height, right / width, bottom / height]
     return image.crop((left, top, right, bottom)), used
 
@@ -90,13 +90,13 @@ def reduced_png(
     small = image.copy()
     small.thumbnail((budget, budget))
     for box in blanked:
-        small.paste(BLANKED, _pixels(small.size, box))
+        small.paste(BLANKED, pixels(small.size, box))
     buffer = io.BytesIO()
     small.save(buffer, "PNG")
     return buffer.getvalue()
 
 
-def _pixels(
+def pixels(
     size: tuple[int, int], box: Sequence[float], margin: float = 0.0
 ) -> tuple[int, int, int, int]:
     """The whole pixels `box` grown by `margin` touches, clamped to an image of
