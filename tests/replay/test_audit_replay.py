@@ -101,6 +101,7 @@ def seed(workspace: Workspace, summary: IngestSummary) -> None:
                         ),
                         grade=g.model_copy(update={"criteria": criteria}),
                         check=AnswerCheck(**check._asdict()) if check else None,
+                        reading_digest=None,
                     )
                 )
             write_model(

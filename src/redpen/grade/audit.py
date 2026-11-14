@@ -33,6 +33,7 @@ from pydantic import PositiveInt
 from redpen import prompts
 from redpen.grade.check import MATCH, NO_MATCH, OTHER_UNIT, check_answer, converts
 from redpen.grade.grade import PARAMS, ROLE, finals, levels, options
+from redpen.grade.read import digest
 from redpen.llm.client import Gateway, ask_checked
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
@@ -180,8 +181,9 @@ def groups(part: KeyPart, hashed: str, students: Sequence[Stored]) -> list[list[
     """The groups of cases of `part` whose awards differ though they are on the same
     criterion and cite the same evidence: the text of the line and of the element
     cited, white space and letter case folded. A group keeps the order of
-    `students`. Left out: a student with no reading or grade of the part, or a
-    grade under another version of it (`hashed` is the current one); a part scored
+    `students`. Left out: a student with no reading or grade of the part, a grade
+    under another version of it (`hashed` is the current one) or from another
+    reading than the one stored; a part scored
     by code; a grade that disputes the reading, since the audit sees only the
     reading; a case that cites nothing; and a final-answer criterion held to a
     decided answer check, as the grade stage holds a part with exactly one (code
@@ -194,6 +196,7 @@ def groups(part: KeyPart, hashed: str, students: Sequence[Stored]) -> list[list[
             record is None
             or read is None
             or record.provenance.key_part_hash != hashed
+            or record.reading_digest not in (None, digest(read))
             or record.provenance.model_slug is None  # scored by code
             or (record.grade.transcript_dispute or "").strip()
         ):

@@ -35,6 +35,7 @@ from redpen.report.report import (
     NOT_INGESTED,
     NOTHING_TO_REVIEW,
     OTHER_KEY,
+    OTHER_READING,
     UNGRADED,
     UNREADABLE,
     code_span,
@@ -107,7 +108,9 @@ def graded(grade: Grade, key: Key = KEY) -> GradeRecord:
         prompt_version=None,
         model_slug=None,
     )
-    return GradeRecord(provenance=provenance, grade=grade, check=None)
+    return GradeRecord(
+        provenance=provenance, grade=grade, check=None, reading_digest=None
+    )
 
 
 def feedback_on(criterion: str) -> str:
@@ -457,6 +460,39 @@ def other_key(workspace: Workspace, student: IngestRecord) -> None:
     change_grades(workspace, student, "Q4", stale)
 
 
+def graded_from(
+    workspace: Workspace,
+    student: IngestRecord,
+    reading: Callable[[ReadingRecord], str | None],
+    **provenance: str,
+) -> None:
+    """Q4.b's grade record made from `reading` of the stored reading record (its
+    digest, or None as before digests were kept), with `provenance` changed."""
+    path = workspace.reading_json(student.student_key, "Q4")
+    [stored] = [
+        r
+        for r in read_model(path, ProblemReadings).records
+        if r.reading.part_id == "Q4.b"
+    ]
+
+    def made(r: GradeRecord) -> GradeRecord:
+        if r.grade.part_id != "Q4.b":
+            return r
+        old = r.provenance.model_copy(update=provenance)
+        return r.model_copy(
+            update={"provenance": old, "reading_digest": reading(stored)}
+        )
+
+    change_grades(workspace, student, "Q4", made)
+
+
+def other_reading(workspace: Workspace, student: IngestRecord) -> None:
+    def earlier(r: ReadingRecord) -> str:
+        return digest(r.model_copy(update={"crops": []}))
+
+    graded_from(workspace, student, earlier)
+
+
 def no_grade_file(workspace: Workspace, student: IngestRecord) -> None:
     workspace.grade_json(student.student_key, "Q5").unlink()
 
@@ -470,10 +506,17 @@ def no_reading_file(workspace: Workspace, student: IngestRecord) -> None:
     [
         (no_option, ["Q1"], NO_OPTION),
         (other_key, ["Q4.b"], OTHER_KEY),
+        (other_reading, ["Q4.b"], OTHER_READING),
         (no_grade_file, ["Q5.a", "Q5.b", "Q5.c"], UNGRADED),
         (no_reading_file, ["Q4.a", "Q4.b", "Q4.c"], UNGRADED),
     ],
-    ids=["choice with no option", "another key", "no grade file", "no reading file"],
+    ids=[
+        "choice with no option",
+        "another key",
+        "another reading",
+        "no grade file",
+        "no reading file",
+    ],
 )
 def test_a_withheld_part_has_an_empty_cell_an_incomplete_flag_and_its_reason(
     built: Built, tmp_path: Path, change: Change, withheld: list[str], reason: str
@@ -507,6 +550,32 @@ def test_a_withheld_part_has_an_empty_cell_an_incomplete_flag_and_its_reason(
             assert r["awarded"] != ""
     scored = sum((cell(r["awarded"]) for r in detail), Decimal(0))
     assert Decimal(by_problem["total"]) == scored
+
+
+@pytest.mark.parametrize(
+    ("reading", "provenance"),
+    [
+        (digest, {}),
+        (lambda r: None, {}),
+        (digest, {"prompt_version": "older", "model_slug": "example/older"}),
+    ],
+    ids=["the stored reading", "kept before digests", "an earlier prompt"],
+)
+def test_a_grade_made_from_the_stored_reading_is_shown_under_any_prompt(
+    built: Built,
+    tmp_path: Path,
+    reading: Callable[[ReadingRecord], str | None],
+    provenance: dict[str, str],
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    graded_from(workspace, student, reading, **provenance)
+
+    [q4b] = [
+        s for s in score(KEY, load(workspace, KEY, student)) if s.part.id == "Q4.b"
+    ]
+
+    assert q4b.withheld is None and q4b.awarded is not None
 
 
 F = FlagCode

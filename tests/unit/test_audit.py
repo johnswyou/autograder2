@@ -17,7 +17,7 @@ import pytest
 
 from redpen.eval.eval import evaluate
 from redpen.grade.audit import audit_class, suspect
-from redpen.grade.read import problem_of
+from redpen.grade.read import digest, problem_of
 from redpen.llm.client import Gateway
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import part_hash
@@ -140,7 +140,9 @@ def record(
         model_slug=model,
     )
     stored = AnswerCheck(verdict=check, reason="r.") if check else None
-    return GradeRecord(provenance=provenance, grade=grade, check=stored)
+    return GradeRecord(
+        provenance=provenance, grade=grade, check=stored, reading_digest=None
+    )
 
 
 def store(
@@ -426,6 +428,25 @@ def test_a_grade_that_disputes_the_reading_is_left_out(tmp_path: Path) -> None:
     audit(workspace, Q4C, refuse)
 
     assert audit_of(workspace, "Q4.c").groups == 0
+
+
+@pytest.mark.parametrize("read", ["the stored", "another"])
+def test_a_grade_made_from_another_reading_is_left_out(
+    tmp_path: Path, read: str
+) -> None:
+    workspace = new_workspace(tmp_path)
+    # As `store` writes it, and as the reader might have read it before.
+    stored = ReadingRecord(provenance=NOBODY, reading=reading("Q4.c"), crops=[])
+    earlier = stored.model_copy(update={"reading": reading("Q4.c", ["It stops."])})
+    for who, c1 in ((ANN, "1"), (BEN, "0")):
+        made = record(Q4C, graded("Q4.c", {"Q4.c.c1": c1, "Q4.c.c2": "1"}))
+        source = earlier if who == BEN and read == "another" else stored
+        made = made.model_copy(update={"reading_digest": digest(source)})
+        store(workspace, who, [reading("Q4.c")], [made])
+
+    audit(workspace, Q4C, Grader())
+
+    assert audit_of(workspace, "Q4.c").groups == (1 if read == "the stored" else 0)
 
 
 def test_a_carry_forward_criterion_groups_on_its_evidence_with_each_case_s_earlier(

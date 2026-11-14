@@ -49,10 +49,13 @@ from redpen.workspace import Workspace, read_model
 
 type Status = Literal["incomplete", "provisional", "final"]
 
-# The four reasons a part is withheld, never scored zero (design 9), in fixed words.
+# The five reasons a part is withheld, never scored zero (design 9), in fixed words.
 UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
+OTHER_READING = (
+    "It was graded from another reading of the work and is to be graded again."
+)
 UNGRADED = "No reading or no grade was recorded for it."
 # Before the requirement of a criterion the class audit lowered from its full
 # points, in place of whatever the grader wrote then (often praise): the student's
@@ -248,8 +251,10 @@ def audits(workspace: Workspace, key: Key) -> dict[str, PartAudit]:
 def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
     """Why `part` is not scored for the stored student, or None when it is: its
     work cannot be read; it is a choice part answered with no option read; it has
-    no reading or no grade record; or its record was graded under another version
-    of the part, which `part_points` would refuse."""
+    no reading or no grade record; its record was graded under another version of
+    the part, which `part_points` would refuse; or its record was graded from
+    another reading than the one stored (a record from before the digest was kept
+    is taken as graded from it)."""
     found = stored.readings.get(part.id)
     record = stored.grades.get(part.id)
     if found is not None and found.reading.status == "unreadable":
@@ -265,6 +270,8 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
         return UNGRADED
     if record.provenance.key_part_hash != part_hash(part, key.policies):
         return OTHER_KEY
+    if record.reading_digest not in (None, digest(found)):
+        return OTHER_READING
     return None
 
 

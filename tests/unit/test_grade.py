@@ -16,6 +16,7 @@ import pytest
 from redpen import prompts
 from redpen.grade import grade as stage
 from redpen.grade.grade import Grades, grade_student, part_points, problems
+from redpen.grade.read import digest
 from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
@@ -493,7 +494,9 @@ def test_a_violation_is_asked_again_once_then_raises_and_writes_nothing(
 ) -> None:
     workspace = Workspace(tmp_path / "ws")
     store(workspace, [*ASKED.values(), blank("Q5.a")])
-    write_model(workspace.grade_json(STUDENT, "Q4"), ProblemGrades(records=[]))
+    earlier = workspace.grade_json(STUDENT, "Q4")
+    write_model(earlier, ProblemGrades(records=[]))
+    before = earlier.read_bytes()
     grader = Grader(SMALL, lambda ids, n: bad)
 
     with pytest.raises(StageError) as raised:
@@ -505,7 +508,7 @@ def test_a_violation_is_asked_again_once_then_raises_and_writes_nothing(
     assert len(grader.requests) == 2
     last = grader.requests[1]["json"]["messages"][1]["content"][-1]
     assert last == {"type": "text", "text": json.dumps({"problems": wrong})}
-    assert not workspace.grade_json(STUDENT, "Q4").exists()
+    assert earlier.read_bytes() == before
 
 
 def test_a_violation_put_right_on_the_second_answer_is_stored(tmp_path: Path) -> None:
@@ -799,7 +802,9 @@ def test_an_award_is_stored_as_the_key_writes_its_level(tmp_path: Path) -> None:
 def test_a_part_s_points_are_summed_by_code_from_the_record_and_the_key() -> None:
     grade = full(KEY, "Q4.b")
     grade.criteria[0].awarded = Decimal(1)
-    record = GradeRecord(provenance=by_code(PARTS["Q4.b"]), grade=grade, check=None)
+    record = GradeRecord(
+        provenance=by_code(PARTS["Q4.b"]), grade=grade, check=None, reading_digest=None
+    )
 
     assert part_points(record, KEY) == (Decimal(2), Decimal(3))
 
@@ -826,7 +831,10 @@ C1_EDITED = changed(
 )
 def test_a_record_graded_under_another_key_is_never_summed(edited: Key) -> None:
     record = GradeRecord(
-        provenance=by_code(PARTS["Q4.b"]), grade=full(KEY, "Q4.b"), check=None
+        provenance=by_code(PARTS["Q4.b"]),
+        grade=full(KEY, "Q4.b"),
+        check=None,
+        reading_digest=None,
     )
 
     with pytest.raises(ValueError) as raised:
@@ -947,9 +955,30 @@ def test_grades_are_stored_per_problem_with_their_provenance(tmp_path: Path) -> 
     for problem, ids in (("Q1", ["Q1"]), ("Q4", ["Q4.a", "Q4.b", "Q4.c"])):
         stored = read_model(workspace.grade_json(STUDENT, problem), ProblemGrades)
         assert stored.records == [records[i] for i in ids]
+        # Each record names the reading it was graded from, by code or by model.
+        read = read_model(workspace.reading_json(STUDENT, problem), ProblemReadings)
+        assert [r.reading_digest for r in stored.records] == [
+            digest(r) for r in read.records
+        ]
 
 
-def test_a_problem_that_fails_twice_leaves_no_file_and_the_others_are_written(
+def test_a_record_stored_before_the_reading_s_digest_or_the_check_loads() -> None:
+    record = GradeRecord(
+        provenance=by_code(PARTS["Q1"]),
+        grade=full(KEY, "Q1"),
+        check=None,
+        reading_digest="0123456789ab",
+    )
+    stored = record.model_dump(mode="json")
+    del stored["reading_digest"], stored["check"]
+
+    old = GradeRecord.model_validate_json(json.dumps(stored))
+
+    assert (old.reading_digest, old.check) == (None, None)
+    assert old.grade == record.grade
+
+
+def test_a_problem_that_fails_twice_keeps_its_earlier_file_and_the_others_are_replaced(
     tmp_path: Path,
 ) -> None:
     key = key_of(PARTS["Q1"], *Q4.parts, PARTS["Q5.a"])
@@ -960,8 +989,19 @@ def test_a_problem_that_fails_twice_leaves_no_file_and_the_others_are_written(
         [reading("Q1", final_answer=chosen), *ASKED.values(), reading("Q5.a")],
     )
     earlier = ProblemGrades(records=[])
-    for problem in ("Q1", "Q4", "Q5"):
+    for problem in ("Q1", "Q5"):
         write_model(workspace.grade_json(STUDENT, problem), earlier)
+    # A grade made before, under an older prompt: the only one Q4 has.
+    old = GradeRecord(
+        provenance=by_code(PARTS["Q4.a"]).model_copy(
+            update={"prompt_version": "older", "model_slug": MODEL.slug}
+        ),
+        grade=full(key, "Q4.a"),
+        check=None,
+        reading_digest=None,
+    )
+    write_model(workspace.grade_json(STUDENT, "Q4"), ProblemGrades(records=[old]))
+    before = workspace.grade_json(STUDENT, "Q4").read_bytes()
 
     def answer(ids: list[str], n: int) -> Grades:
         return Grades(grades=[full(key, i) for i in ids if i != "Q4.c"])
@@ -975,7 +1015,7 @@ def test_a_problem_that_fails_twice_leaves_no_file_and_the_others_are_written(
     assert str(raised.value) == (
         f"the grade of Q4 of {STUDENT} fails its checks: Q4.c has no grade"
     )
-    assert not workspace.grade_json(STUDENT, "Q4").exists()
+    assert workspace.grade_json(STUDENT, "Q4").read_bytes() == before
     for problem in ("Q1", "Q5"):
         stored = read_model(workspace.grade_json(STUDENT, problem), ProblemGrades)
         assert stored != earlier

@@ -1113,7 +1113,14 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
         write_model(
             workspace.grade_json(student, "Q4"),
             ProblemGrades(
-                records=[GradeRecord(provenance=provenance, grade=grade_, check=None)]
+                records=[
+                    GradeRecord(
+                        provenance=provenance,
+                        grade=grade_,
+                        check=None,
+                        reading_digest=None,
+                    )
+                ]
             ),
         )
 

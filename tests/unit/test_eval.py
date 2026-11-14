@@ -101,6 +101,7 @@ def store_class(workspace: Workspace, key: Key, summary: IngestSummary) -> None:
                     ),
                     grade=g,
                     check=None,
+                    reading_digest=None,
                 )
                 for g in truth.grades
                 if problem_of(g.part_id) == q

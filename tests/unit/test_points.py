@@ -553,6 +553,7 @@ def stored(key: Key, earned: Mapping[str, Sequence[Decimal]]) -> Stored:
                 code_overruled=None,
             ),
             check=None,
+            reading_digest=None,
         )
         for p in key.parts
     }

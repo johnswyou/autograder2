@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from redpen import prompts
 from redpen.grade.check import MATCH, UNSURE, Check, check_answer
-from redpen.grade.read import problem_of
+from redpen.grade.read import digest, problem_of
 from redpen.llm.client import Gateway, ask_checked, finish_all
 from redpen.llm.client import Part as Content
 from redpen.llm.models import ModelInfo
@@ -46,16 +46,15 @@ async def grade_student(
     model: ModelInfo,
 ) -> dict[str, GradeRecord]:
     """Grade `student` from their stored readings and return each graded part's
-    record, by part id. A part read as unreadable gets none, and so does a choice
-    part answered with no option read. Each top-level problem's file is written as
-    soon as it is graded. The problems run concurrently; when one still fails its
-    checks after one more call, `StageError` is raised once every other problem has
-    finished, and that problem is left with no file, not even an earlier one."""
+    record, by part id, with the digest of the reading it was graded from. A part
+    read as unreadable gets none, and so does a choice part answered with no option
+    read. Each top-level problem's file is replaced as soon as it is graded. The
+    problems run concurrently; when one still fails its checks after one more call,
+    `StageError` is raised once every other problem has finished, and that
+    problem's earlier file, if any, is left as it was."""
     by_problem: defaultdict[str, list[KeyPart]] = defaultdict(list)
     for part in key.parts:
         by_problem[problem_of(part.id)].append(part)
-    for problem in by_problem:
-        workspace.grade_json(student, problem).unlink(missing_ok=True)
     system, version = prompts.load("grade", "problem")
     # As `part_hash` digests them, so that the hash covers what the grader is sent.
     policies = json.dumps(key.policies.model_dump(), default=number)
@@ -94,6 +93,7 @@ async def grade_student(
                     provenance=provenance(part, False),
                     grade=by_code(part, reading),
                     check=None,
+                    reading_digest=digest(mine[part.id]),
                 )
             else:
                 asked.append(part)
@@ -173,6 +173,7 @@ async def grade_student(
                     provenance=provenance(by_id[g.part_id], True),
                     grade=kept,
                     check=AnswerCheck(**verdict._asdict()) if verdict else None,
+                    reading_digest=digest(mine[g.part_id]),
                 )
         file = ProblemGrades(records=[records[p.id] for p in parts if p.id in records])
         write_model(workspace.grade_json(student, problem), file)

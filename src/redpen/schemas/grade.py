@@ -1,8 +1,8 @@
 """The grader's decisions on a part (design 7.5).
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
-with the provenance, including the key part hash, it was produced under.
-`ProblemGrades` is one stored file, a top-level problem's records.
+with the provenance, including the key part hash, and the reading it was produced
+from. `ProblemGrades` is one stored file, a top-level problem's records.
 """
 
 from typing import Any, Literal, cast
@@ -48,14 +48,18 @@ class GradeRecord(Schema):
     # None for a part with no check, decided by code, or graded before checks.
     # Required, so that the schema passes the strict lint like every other.
     check: AnswerCheck | None
+    # The digest of the stored reading record graded (`grade.read.digest`); None in a
+    # record stored before it existed.
+    reading_digest: str | None
 
     @model_validator(mode="before")
     @classmethod
-    def _graded_before_checks(cls, data: Any) -> Any:
-        """A record stored before `check` existed has none: it loads with None."""
-        if not isinstance(data, dict) or "check" in data:
-            return cast(Any, data)
-        return {**cast(dict[str, Any], data), "check": None}
+    def _stored_before(cls, data: Any) -> Any:
+        """A record stored before `check` or `reading_digest` existed has none: it
+        loads with None."""
+        if not isinstance(data, dict):
+            return data
+        return {"check": None, "reading_digest": None, **cast(dict[str, Any], data)}
 
 
 # A part read as unreadable has no record, nor has a choice part answered with no
