@@ -29,6 +29,7 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Lock, write_lock
+from redpen.grade.coverage import COMPARED
 from redpen.grade.ingest import IngestSummary
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
@@ -106,6 +107,12 @@ def test_three_students_are_graded_end_to_end_and_again_for_nothing(
         " compared: 22. Different: 0. Parts flagged (`graders_disagree`): 0."
         " Problems whose second grade failed: 0."
     ) in workspace.run_report_md.read_text().splitlines()
+    # The recorded maps leave no dense ink unclaimed. Pages 2 and 3 are photos for
+    # one of the three students, which leaves two to compare there: too few.
+    assert COMPARED.format(compared=6, pages=12, flagged=0) in (
+        workspace.run_report_md.read_text().splitlines()
+    )
+    assert "unclaimed_work" not in workspace.review_md.read_text()
     students = read_model(workspace.ingest_summary_json, IngestSummary).students
     assert len(students) == len(CLASSES)
     out = workspace.root / "out"

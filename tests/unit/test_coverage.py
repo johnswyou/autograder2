@@ -426,13 +426,23 @@ def test_the_stored_file_ties_to_the_map_and_each_patch_is_cut_from_the_page(
 ) -> None:
     page = scribble(scribble(slide(), SPOTS[0]), SPOTS[1])
     pages = {"s1": [page, slide()], "s2": [slide()] * 2, "s3": [slide()] * 2}
-    record = mapped(pages=2)
+    record = mapped(pages=2, unanswered=["Q1"])
     workspace, students = make_class(tmp_path, pages, {"s1": record})
+    folder = workspace.student_dir("s1")
+    before = {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
 
     check_class(workspace, students)
 
     found = stored(workspace, "s1")
     assert found.map_digest == digest(record)
+    # The map, the ingest record and the pages are as they were: only its own new.
+    after = {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    assert {p: after[p] for p in before} == before
+    assert sorted(p.relative_to(folder).as_posix() for p in after.keys() - before) == [
+        "coverage.json",
+        "unclaimed/p01-1.png",
+        "unclaimed/p01-2.png",
+    ]
     assert [(p.number, p.not_compared, len(p.patches)) for p in found.pages] == [
         (1, None, 2),
         (2, None, 0),
