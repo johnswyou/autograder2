@@ -1065,6 +1065,36 @@ def test_the_parts_of_a_split_group_are_decided_each_on_its_own(tmp_path: Path) 
     assert sorted(c.after for c in found.changes) == [0] * 15 + [1] * 15
 
 
+@pytest.mark.parametrize("failing", [{1}, {0, 1}], ids=["one part", "both parts"])
+def test_a_split_group_with_a_part_not_decided_is_counted_once_as_undecided(
+    tmp_path: Path, failing: set[int]
+) -> None:
+    workspace = new_workspace(tmp_path)
+    who = [f"S{n:03d}" for n in range(60)]
+    for n, student in enumerate(who):
+        grade = graded("Q4.c", {"Q4.c.c1": str(n % 2), "Q4.c.c2": "1"})
+        store(workspace, student, [reading("Q4.c")], [record(Q4C, grade)])
+    grader, seen = Grader(everyone(1)), []
+
+    def model(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if len(seen) - 1 in failing:  # the request of that part fails, not retried
+            return httpx.Response(400, json={"error": {"code": 400}})
+        return grader(request)
+
+    [found] = audit(workspace, Q4C, model, who)
+
+    assert (found.groups, found.split, found.changed, found.undecided) == (1, 1, 0, 1)
+    assert len(found.changes) == (15 if failing == {1} else 0)  # the others' stand
+    write_report(workspace, Q4C, [record_of(s) for s in who])
+    report = workspace.run_report_md.read_text().splitlines()
+    assert (
+        "Groups of the same evidence with differing awards: 1. Decided again: 0."
+        " Changed: 0. Could not be decided: 1. Groups too large for one request,"
+        " decided in parts that may differ: 1." in report
+    )
+
+
 def test_an_audit_stored_before_split_reports_as_one_that_split_nothing(
     tmp_path: Path,
 ) -> None:

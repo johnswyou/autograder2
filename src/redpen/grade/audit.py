@@ -165,15 +165,16 @@ async def audit_class(
         # Each group in parts of at most MAX_CASES, in its order: (group, cases).
         asked = [(n, c) for n, cases in enumerate(found) for c in _parts(cases)]
         decided = await asyncio.gather(*(settle(part, hashed, c) for _, c in asked))
+        pairs = list(zip(asked, decided, strict=True))
+        # A group with a part not decided again is undecided, and not changed.
+        undecided = {n for (n, _), d in pairs if d is None}
         readings = [s.readings.get(part.id) for s in stored.values()]
         audit = PartAudit(
             part_id=part.id,
             part_hash=hashed,
             groups=len(found),
-            changed=len({n for (n, _), d in zip(asked, decided, strict=True) if d}),
-            undecided=len(
-                {n for (n, _), d in zip(asked, decided, strict=True) if d is None}
-            ),
+            changed=len({n for (n, _), d in pairs if d} - undecided),
+            undecided=len(undecided),
             split=sum(len(cases) > MAX_CASES for cases in found),
             changes=[c for d in decided if d for c in d],
             key_suspect=suspect(
