@@ -958,6 +958,8 @@ def regrade(
         count = asyncio.run(uncached(ws, key, grader, students, lock.profile))
         typer.echo(f"Grade requests the call cache would not answer: {count}.")
         return
+    # No map or read: the images it sends are as the grade run masked them.
+    config = config.model_copy(update={"mask_names": bool(lock.mask_names)})
     lock = _gate(ws, config, lock, api_key)
     problems = dict.fromkeys(problem_of(p.id) for p in key.parts)
     unread = [

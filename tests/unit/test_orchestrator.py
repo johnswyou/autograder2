@@ -1035,11 +1035,9 @@ MASKED = (
 )
 
 
-@pytest.mark.parametrize("masked", [False, True], ids=["off", "on"])
-def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_report(
-    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, masked: bool
-) -> None:
-    asked: list[bool] = []
+def masked_map(asked: list[bool]) -> Callable[..., Any]:
+    """A map stage that finds no work, and with names masked a name to blank and one
+    left whole on page 1; each call's setting kept in `asked`."""
 
     async def fake(workspace: Workspace, student: str, spec: Spec, *args: Any) -> None:
         *_, mask_names = args
@@ -1054,7 +1052,15 @@ def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_repor
             MapRecord(provenance=NOBODY, pages=[page], map=found),
         )
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", fake)
+    return fake
+
+
+@pytest.mark.parametrize("masked", [False, True], ids=["off", "on"])
+def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_report(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, masked: bool
+) -> None:
+    asked: list[bool] = []
+    monkeypatch.setattr("redpen.orchestrator.map_student", masked_map(asked))
     if masked:
         Path("redpen.toml").write_text("mask_names = true\n")
 
@@ -1069,6 +1075,24 @@ def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_repor
     assert (MASKED in report.splitlines()) is masked
     if not masked:  # the run report as it was before the setting existed
         assert "mask" not in report.lower() and "name region" not in report.lower()
+
+
+@pytest.mark.parametrize("graded", [True, False], ids=["on then off", "off then on"])
+def test_regrade_keeps_the_masking_of_the_grade_run_whatever_the_setting_says(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, graded: bool
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", masked_map([]))
+    Path("redpen.toml").write_text(f"mask_names = {str(graded).lower()}\n")
+    assert grade().exit_code == 0
+    Path("redpen.toml").write_text(f"mask_names = {str(not graded).lower()}\n")
+
+    again = regrade()
+
+    assert again.exit_code == 0, again.output
+    lock = WS.config_lock_toml.read_text()
+    assert ("mask_names = true" in lock.splitlines()) is graded
+    assert ("mask_names" in lock) is graded
+    assert (MASKED in WS.run_report_md.read_text().splitlines()) is graded
 
 
 def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
