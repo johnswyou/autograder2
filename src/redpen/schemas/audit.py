@@ -25,13 +25,15 @@ class Suspect(Schema):
 
 # `groups`: groups of cases with the same evidence and differing awards; `changed`:
 # those decided again with an award changed; `undecided`: those whose call failed
-# or whose answer failed its checks twice. `part_hash` is the key part's when the
-# audit ran.
+# or whose answer failed its checks twice, in any part; `split`: those too large
+# for one request, decided in parts that may differ. `part_hash` is the key part's
+# when the audit ran.
 class PartAudit(Schema):
     part_id: PartId
     part_hash: str
     groups: int
     changed: int
     undecided: int
+    split: int = 0  # absent from an audit stored before the limit
     changes: list[Change]
     key_suspect: Suspect | None

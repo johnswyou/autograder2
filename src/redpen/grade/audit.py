@@ -23,6 +23,7 @@ and the award it was decided on."""
 import asyncio
 import hashlib
 import json
+import math
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from decimal import Decimal
@@ -53,6 +54,10 @@ AT_LEAST = 5  # students
 # Output tokens allowed per case of a group, above the grade stage's own limit:
 # the longest answers measured took about 150 a case (task 4.7 report).
 PER_CASE = 160
+# The most cases one request decides: at PER_CASE tokens a case the answer stays in
+# the grade stage's own token limit (8000), and no request grows with the class. A
+# larger group is decided in parts of about the same size.
+MAX_CASES = 50
 
 type Case = tuple[str, CriterionGrade]  # a student key and their grade of a criterion
 
@@ -157,16 +162,20 @@ async def audit_class(
     for part in key.parts:
         hashed = part_hash(part, key.policies)
         found = groups(part, hashed, list(stored.values()))
-        decided = await asyncio.gather(*(settle(part, hashed, c) for c in found))
-        done = [d for d in decided if d is not None]
+        # Each group in parts of at most MAX_CASES, in its order: (group, cases).
+        asked = [(n, c) for n, cases in enumerate(found) for c in _parts(cases)]
+        decided = await asyncio.gather(*(settle(part, hashed, c) for _, c in asked))
         readings = [s.readings.get(part.id) for s in stored.values()]
         audit = PartAudit(
             part_id=part.id,
             part_hash=hashed,
             groups=len(found),
-            changed=sum(1 for d in done if d),
-            undecided=len(decided) - len(done),
-            changes=[c for d in done for c in d],
+            changed=len({n for (n, _), d in zip(asked, decided, strict=True) if d}),
+            undecided=len(
+                {n for (n, _), d in zip(asked, decided, strict=True) if d is None}
+            ),
+            split=sum(len(cases) > MAX_CASES for cases in found),
+            changes=[c for d in decided if d for c in d],
             key_suspect=suspect(
                 part, key.policies, [r.reading if r else None for r in readings]
             ),
@@ -214,6 +223,12 @@ def groups(part: KeyPart, hashed: str, students: Sequence[Stored]) -> list[list[
                 continue
             found[criterion.id, cited].append((student.student.student_key, grade))
     return [cases for cases in found.values() if len({g.awarded for _, g in cases}) > 1]
+
+
+def _parts(cases: list[Case]) -> list[list[Case]]:
+    """`cases` in as few runs of at most MAX_CASES as can be, of about one size."""
+    size = math.ceil(len(cases) / math.ceil(len(cases) / MAX_CASES))
+    return [cases[i : i + size] for i in range(0, len(cases), size)]
 
 
 def problems(criterion: Criterion, cases: int, found: Decisions) -> list[str]:

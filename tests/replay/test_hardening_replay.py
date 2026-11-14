@@ -4,6 +4,8 @@ run as the instructor runs it over the three fixture students whose calls
 `run_chain.jsonl` chains (see test_run_replay), with a cold call cache and a mock
 OpenRouter that answers from the recording (`tests/provider.py`)."""
 
+import asyncio
+import itertools
 import json
 import os
 import re
@@ -15,7 +17,9 @@ import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -23,14 +27,21 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Lock, write_lock
-from redpen.llm.client import MAX_ATTEMPTS, STOPS
+from redpen.grade.audit import MAX_CASES, audit_class
+from redpen.grade.ingest import IngestSummary
+from redpen.llm.client import MAX_ATTEMPTS, STOPS, Gateway
 from redpen.prepare.key import save_key
 from redpen.prepare.parse import render_blank
+from redpen.report.report import write_report
+from redpen.schemas.audit import PartAudit
+from redpen.schemas.grade import ProblemGrades
 from redpen.schemas.key import Key
-from redpen.workspace import Workspace
+from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
-from tests.pinned import GRADE_MODELS, KEY_MODELS
+from tests.pinned import GRADE_MODELS, GRADER, KEY_MODELS
 from tests.provider import Provider, recorded
+from tests.replay.test_audit_replay import SEEDED, layouts
+from tests.replay.test_audit_replay import seed as audit_seed
 
 CLASSES = ("typed-in-place", "all-on-foreign-pages", "blank")
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
@@ -530,3 +541,77 @@ def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
         assert answers
         for key, response in answers:  # each answer is there whole
             assert json.loads(response)["n"] == int(key.split()[1])
+
+
+# --- rule 8: a class audit request has an upper size -----------------------------
+
+
+def decide_as_awarded(requests: list[list[dict[str, Any]]]) -> httpx.MockTransport:
+    """A grader that decides each case of an audit request as it was awarded, and
+    keeps each request's cases in `requests`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        cases = json.loads(body["messages"][1]["content"][2]["text"])["cases"]
+        requests.append(cases)
+        found = [
+            {"case": c["case"], "reason": "r", "awarded": c["awarded"]} for c in cases
+        ]
+        content = json.dumps({"decisions": found})
+        return httpx.Response(
+            200,
+            json={
+                "model": body["model"],
+                "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0},
+            },
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def test_an_audit_group_too_large_for_one_request_is_split_recorded_and_reported(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    _, eleven = fixture_workspace
+    # 150 students: the eleven fixture students' truth, each stored under new keys.
+    copies = [
+        s.model_copy(update={"student_key": f"Copy_{n:03d}-{n:06x}"})
+        for n, s in zip(range(150), itertools.cycle(eleven.students), strict=False)
+    ]
+    summary = eleven.model_copy(update={"students": copies})
+    workspace = Workspace(tmp_path / "ws")
+    audit_seed(workspace, summary)
+    for copy in copies:  # the seeded disagreement, in every copy of its student
+        if layouts(summary)[copy.student_key] == SEEDED[0]:
+            path = workspace.grade_json(copy.student_key, "Q4")
+            stored = read_model(path, ProblemGrades)
+            for record in stored.records:
+                for c in record.grade.criteria:
+                    if c.id == SEEDED[1]:
+                        c.awarded = Decimal(0)
+            write_model(path, stored)
+    requests: list[list[dict[str, Any]]] = []
+
+    async def main() -> list[PartAudit]:
+        db = tmp_path / "cache.sqlite"
+        transport = decide_as_awarded(requests)
+        async with Gateway(db, "made-up", transport=transport) as gateway:
+            return await audit_class(workspace, KEY, copies, gateway, GRADER)
+
+    audits = {a.part_id: a for a in asyncio.run(main())}
+
+    largest = max(map(len, requests))
+    assert largest <= MAX_CASES
+    split = {p: a.split for p, a in audits.items() if a.split}
+    assert split  # the seeded group of Q4.c, past MAX_CASES at 150
+    sizes = sorted(len(c) for c in requests)
+    assert len(requests) > sum(a.groups for a in audits.values())
+    assert sizes[0] * 2 >= sizes[-1]  # a group's parts are about the same size
+    workspace.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    write_report(workspace, KEY, copies, [])
+    assert (
+        f"Groups too large for one request, decided in parts that may differ:"
+        f" {sum(split.values())}."
+    ) in workspace.run_report_md.read_text()

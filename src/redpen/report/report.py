@@ -836,10 +836,17 @@ def _audit_lines(found: Mapping[str, PartAudit]) -> list[str]:
     groups = sum(a.groups for a in found.values())
     undecided = sum(a.undecided for a in found.values())
     changed = sum(a.changed for a in found.values())
+    split = sum(a.split for a in found.values())
     lines = [
         f"Groups of the same evidence with differing awards: {groups}. Decided"
         f" again: {groups - undecided}. Changed: {changed}. Could not be decided:"
-        f" {undecided}.",
+        f" {undecided}."
+        + (
+            f" Groups too large for one request, decided in parts that may differ:"
+            f" {split}."
+            if split
+            else ""
+        ),
         "",
     ]
     suspects = [(p, a.key_suspect) for p, a in found.items() if a.key_suspect]
