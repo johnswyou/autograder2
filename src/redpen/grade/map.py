@@ -7,7 +7,7 @@ import hashlib
 import io
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -306,6 +306,21 @@ def to_map(found: Resolution, blocks: Mapping[str, PageBlock]) -> Map:
             for a in aside.values()
         ],
     )
+
+
+def name_counts(workspace: Workspace, students: Iterable[str]) -> tuple[int, int, int]:
+    """Over the maps stored for `students`: the names blanked, the pages they are
+    on, and the names left whole because they overlap a response. A map that is
+    missing or does not load counts nothing."""
+    pages: list[MapPage] = []
+    for student in students:
+        try:
+            pages += read_model(workspace.map_json(student), MapRecord).pages
+        except (OSError, ValidationError):
+            continue
+    blanked = sum(len(p.names) for p in pages)
+    left = sum(len(p.names_on_responses) for p in pages)
+    return blanked, sum(1 for p in pages if p.names), left
 
 
 def _names(found: Inventory) -> list[list[float]]:

@@ -93,7 +93,7 @@ async def grade_class(
     budget = config.image_budget
     runs: dict[str, Callable[[Gateway, str], Awaitable[object]]] = {
         "map": lambda g, s: map_student(
-            workspace, s, spec, g, models["mapper"], budget
+            workspace, s, spec, g, models["mapper"], budget, config.mask_names
         ),
         "read": lambda g, s: read_student(
             workspace, s, spec, g, models["reader"], budget

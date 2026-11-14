@@ -27,14 +27,23 @@ from redpen.grade.map import (
     PageInventory,
     Resolution,
     map_student,
+    name_counts,
     problems,
     to_map,
 )
 from redpen.imaging.prep import rotate
 from redpen.llm.client import FatalError, Gateway, StageError
 from redpen.llm.models import ModelInfo
+from redpen.schemas.common import Provenance
 from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import IngestPage, IngestRecord, MapRecord, Role
+from redpen.schemas.submission import (
+    IngestPage,
+    IngestRecord,
+    Map,
+    MapPage,
+    MapRecord,
+    Role,
+)
 from redpen.workspace import Workspace, read_model, write_model
 
 MODEL = ModelInfo(
@@ -423,6 +432,27 @@ def test_a_map_stored_before_names_were_masked_loads_with_no_name_regions() -> N
     [loaded] = MapRecord.model_validate_json(json.dumps(data)).pages
 
     assert loaded.names == [] and loaded.names_on_responses == []
+
+
+def test_names_are_counted_over_the_stored_maps_that_load(tmp_path: Path) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    box = [0.1, 0.1, 0.2, 0.2]
+    pages = [
+        MapPage(number=1, rotation=0, photo=False, names=[box, box]),
+        MapPage(number=2, rotation=0, photo=False, names_on_responses=[box]),
+        MapPage(number=3, rotation=0, photo=False, names=[box]),
+    ]
+    found = Map(entries=[], unanswered=[], set_aside=[])
+    nobody = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
+    for student in ("a", "b"):
+        write_model(
+            workspace.map_json(student),
+            MapRecord(provenance=nobody, pages=pages, map=found),
+        )
+    workspace.map_json("broken").parent.mkdir(parents=True)
+    workspace.map_json("broken").write_text('{"pages": "not a map"}')
+
+    assert name_counts(workspace, ["a", "b", "broken", "missing"]) == (6, 4, 2)
 
 
 def test_a_map_that_fails_its_checks_is_resolved_once_more_with_the_failures(

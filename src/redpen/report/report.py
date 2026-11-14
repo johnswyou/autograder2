@@ -22,6 +22,7 @@ from pydantic import BaseModel, ValidationError
 
 from redpen.config import Profile, read_lock
 from redpen.grade.grade import graded_from, levels, part_points
+from redpen.grade.map import name_counts
 from redpen.grade.read import digest, problem_of, unsure
 from redpen.grade.second_grade import PROFILES, differing
 from redpen.imaging import render
@@ -807,6 +808,16 @@ def _run_report(
         lines += [f"| {role} | {m.slug} |" for role, m in lock.models.items()]
         if lock.strict_privacy is False:
             lines += ["", STRICT_OFF_RUN]
+        if lock.mask_names:
+            who = [s.student.student_key for s, _ in scored]
+            blanked, named, left = name_counts(workspace, who)
+            lines += [
+                "",
+                "Names masked (`mask_names`). Name regions blanked in the images sent"
+                f" after the map: {blanked}, on {named} pages. Left whole because they"
+                f" overlap a response: {left}. The mapper sees each page whole, before"
+                " it is blanked.",
+            ]
     else:
         lines.append("No model is pinned in this workspace.")
     usage: dict[str, Usage] = {}

@@ -1023,6 +1023,49 @@ def test_strict_privacy_once_off_stays_recorded(
     assert STRICT_OFF_RUN in WS.run_report_md.read_text().splitlines()
 
 
+MASKED = (
+    "Names masked (`mask_names`). Name regions blanked in the images sent after the"
+    " map: 3, on 3 pages. Left whole because they overlap a response: 3. The mapper"
+    " sees each page whole, before it is blanked."
+)
+
+
+@pytest.mark.parametrize("masked", [False, True], ids=["off", "on"])
+def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_report(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, masked: bool
+) -> None:
+    asked: list[bool] = []
+
+    async def fake(workspace: Workspace, student: str, spec: Spec, *args: Any) -> None:
+        *_, mask_names = args
+        asked.append(mask_names)
+        names = [[0.1, 0.05, 0.3, 0.1]] if mask_names else []
+        page = MapPage(
+            number=1, rotation=0, photo=False, names=names, names_on_responses=names
+        )
+        found = Map(entries=[], unanswered=[p.id for p in spec.parts], set_aside=[])
+        write_model(
+            workspace.map_json(student),
+            MapRecord(provenance=NOBODY, pages=[page], map=found),
+        )
+
+    monkeypatch.setattr("redpen.orchestrator.map_student", fake)
+    if masked:
+        Path("redpen.toml").write_text("mask_names = true\n")
+
+    result = grade()
+
+    assert result.exit_code == 0, result.output
+    assert asked == [masked] * len(NAMES)
+    lock = WS.config_lock_toml.read_text()
+    assert ("mask_names = true" in lock.splitlines()) is masked
+    assert ("mask_names" in lock) is masked  # off, the lock is as it was
+    report = WS.run_report_md.read_text()
+    assert (MASKED in report.splitlines()) is masked
+    if not masked:  # the run report as it was before the setting existed
+        assert "mask" not in report.lower() and "name region" not in report.lower()
+
+
 def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
     found, pages = shape(SPEC), 4
     assert {f.name: getattr(found, f.name) for f in fields(found)} == {

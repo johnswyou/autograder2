@@ -709,7 +709,9 @@ def _gate(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Lock:
     # Recorded only now, as pages are about to go. Once off it stays off: stored
     # answers may still come from that run, and only a fresh workspace clears it.
     kept = strict and lock.strict_privacy is not False
-    lock = _with_prompts(ws, lock.model_copy(update={"strict_privacy": kept}))
+    masked = config.mask_names or None  # off, the lock holds no line for it
+    update = {"strict_privacy": kept, "mask_names": masked}
+    lock = _with_prompts(ws, lock.model_copy(update=update))
     if not strict:
         typer.echo(
             "strict_privacy is off: the endpoints are not checked, and student pages"
