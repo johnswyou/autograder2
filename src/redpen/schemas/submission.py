@@ -7,7 +7,7 @@ the map, the facts found about each page, and the provenance.
 
 from typing import Annotated, Literal
 
-from pydantic import Field, PositiveFloat, PositiveInt
+from pydantic import ConfigDict, Field, PositiveFloat, PositiveInt
 
 from redpen.schemas.common import Box, PartId, Provenance, Schema, StudentKey
 
@@ -74,6 +74,12 @@ class Map(Schema):
 
 # What the mapper found about one page of the submission as a whole.
 class MapPage(Schema):
+    # A map stored before names could be masked leaves `names` out.
+    model_config = ConfigDict(
+        json_schema_mode_override="serialization",
+        json_schema_serialization_defaults_required=True,
+    )
+
     number: PositiveInt
     # Clockwise degrees that turn the student's work upright.
     rotation: Literal[0, 90, 180, 270]
