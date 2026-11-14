@@ -8,7 +8,10 @@ every chat request, and the map stage is a fake that finds no work."""
 import asyncio
 import functools
 import shutil
+import sqlite3
 import zipfile
+from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +25,7 @@ from typer.testing import CliRunner
 from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
 from redpen.llm.client import STOPS, Gateway, StopError
+from redpen.llm.ledger import Ledger, Usage
 from redpen.llm.models import Catalog, fetch_catalog, recheck_providers
 from redpen.prepare.key import save_key
 from redpen.prepare.parse import render_blank
@@ -477,7 +481,7 @@ def test_two_submissions_of_one_student_are_said_in_one_line(
     result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
 
     assert result.exit_code == 0  # said, and not a failure: the newest is graded
-    assert said(result)[-1] == (
+    assert said(result)[-2] == (
         f"Students with more than one PDF: 1. The newest of each was graded, and"
         f" {WS.ingest_summary_json} names the others; remove those not meant to be"
         " graded."
@@ -823,3 +827,75 @@ def test_a_page_image_of_the_blank_cut_short_stays_as_it_was(
     assert workspace.key_page(1).read_bytes() == before
     render_blank(workspace)  # the next render takes the `.partial` left behind
     assert workspace.key_page(1).read_bytes() == before
+
+
+# --- what a paid command spent (final fix round) -------------------------------------
+
+
+def booking(cost: str, stop: bool = False) -> Any:
+    """A map stage that books `cost` in the ledger for the first student it maps
+    and finds no work; with `stop`, that student's map then meets a 402 and the
+    others' wait for it and book nothing."""
+    booked: list[str] = []
+
+    async def fake(
+        workspace: Workspace, student: str, spec: Spec, gateway: Gateway, *_: object
+    ) -> None:
+        if not booked:
+            booked.append(student)
+            with closing(sqlite3.connect(workspace.cache_sqlite)) as db:
+                Ledger(db).record("mapper", "m", Usage(1, 1, Decimal(cost)))
+                db.commit()
+            if stop:
+                gateway.stopped = StopError(STOPS[402])
+                raise gateway.stopped
+        elif stop:
+            while gateway.stopped is None:
+                await asyncio.sleep(0)
+            return
+        await no_work(workspace, student, spec)
+
+    return fake
+
+
+SPENT = "Spent by this command: ${}.{}"
+IN_REPORT = " ws/out/run_report.md has the cost by role."
+
+
+def test_a_paid_command_ends_by_saying_what_it_spent(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blank = str(FIXTURES / "blank.pdf")
+
+    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.125"))
+    graded = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
+    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.125"))
+    again = runner.invoke(app, ["run", blank, "subs", "--workspace", "ws"])
+    prepared = runner.invoke(app, ["prepare", blank, "--workspace", "ws"])
+
+    assert graded.exit_code == again.exit_code == prepared.exit_code == 0
+    assert said(graded)[-1] == SPENT.format("0.1250", IN_REPORT)
+    # The ledger keeps every row: a second run says only its own.
+    assert said(again)[-1] == SPENT.format("0.1250", IN_REPORT)
+    assert said(prepared)[-1] == SPENT.format("0.0000", "")
+    # A dry run is not paid for, and a refusal before any call says nothing more.
+    dry = runner.invoke(app, ["grade", "subs", "--dry-run", "--workspace", "ws"])
+    assert not any(line.startswith("Spent") for line in said(dry))
+    assert_one_line(
+        runner.invoke(app, ["grade", "subs", "--workspace", "none"]),
+        no_prepared_key("none"),
+    )
+
+
+def test_a_paid_command_stopped_after_a_call_says_what_it_spent(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.5", stop=True))
+
+    result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert said(result)[-2:] == [
+        STOPS[402],
+        SPENT.format("0.5000", ""),
+    ]  # no report yet

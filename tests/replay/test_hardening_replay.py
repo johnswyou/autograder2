@@ -223,7 +223,9 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
     stopped = runner.invoke(app, grade(workspace, submissions))
 
     assert stopped.exit_code == 1
-    assert lines(stopped.output)[-1] == STOPS[code]
+    # The stop, then what the calls made before it cost.
+    assert lines(stopped.output)[-2] == STOPS[code]
+    assert lines(stopped.output)[-1].startswith("Spent by this command: $")
     assert sum(STOPS[code] in line for line in lines(stopped.output)) == 1
     assert len(provider.asked) == at  # nothing sent after it
     kept = cached(workspace)

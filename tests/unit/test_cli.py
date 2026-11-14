@@ -245,7 +245,14 @@ def key_of(spec: Spec) -> Key:
 @pytest.mark.parametrize(
     ("parts", "exit_code", "lines"),
     [
-        (5, 0, ["ws/key/key.yaml has no problem and is left as it is."]),
+        (
+            5,
+            0,
+            [
+                "ws/key/key.yaml has no problem and is left as it is.",
+                "Spent by this command: $0.0000.",
+            ],
+        ),
         (
             4,
             1,
@@ -614,10 +621,11 @@ def test_a_fresh_prepare_writes_the_points_given_into_the_key(
     assert key.points == PointConstraint(total=Decimal(4))
     assert key.model_copy(update={"points": None}) == key_of(spec)
     # 16 steps of 0.25 for two parts of one point each: 2 and 2.
-    assert result.output.splitlines()[-3:] == [
+    assert result.output.splitlines()[-4:] == [
         "Total points: 4",
         "  page 1: 2",
         "  page 2: 2",
+        "Spent by this command: $0.0000.",  # the stages are fakes that book nothing
     ]
     assert "## Q1: 1, page 1, 2 points\n" in workspace.rubric_md.read_text()
 
@@ -642,7 +650,9 @@ def test_on_an_existing_key_only_the_points_change_and_its_comments_stay(
         )
         assert result.exit_code == 0, result.output
         assert hashes_of(workspace) == hashes
-        return result.output.splitlines()
+        *lines, spent = result.output.splitlines()
+        assert spent == "Spent by this command: $0.0000."  # no model call
+        return lines
 
     lines = prepare("--page-points", "3,1,0,0")
 

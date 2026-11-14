@@ -10,6 +10,7 @@ import contextlib
 import json
 import logging
 import re
+import sqlite3
 import tempfile
 import zipfile
 from collections import Counter
@@ -58,6 +59,7 @@ from redpen.llm.client import (
     StageError,
     StopError,
 )
+from redpen.llm.ledger import Ledger
 from redpen.llm.models import (
     ModelError,
     ModelInfo,
@@ -147,16 +149,21 @@ from redpen.workspace import (
 
 # Where `--workspace` records the workspace a command works in, for `Commands`.
 WORKSPACE = "redpen.workspace"
+# A paid command's workspace, its ledger's total when it began, and whether it
+# writes the run report: noted by `_paid`, said by `Commands` once it ends.
+_began: list[tuple[Workspace, Decimal, bool]] = []
 
 
 class Commands(TyperGroup):
     """The command group: a workspace that cannot be written to is said in one line
     that names the workspace only, since a path below it may hold a student key,
-    which holds the student's name."""
+    which holds the student's name; and a paid command ends by saying what it
+    spent, or, stopped, what it spent if anything."""
 
     def invoke(self, ctx: Any) -> Any:
+        _began.clear()
         try:
-            return super().invoke(ctx)
+            done = super().invoke(ctx)
         except PermissionError as error:
             root = ctx.meta.get(WORKSPACE)
             if root is None or not Path(str(error.filename)).is_relative_to(root):
@@ -165,6 +172,44 @@ class Commands(TyperGroup):
                 f"{root} cannot be written to (permission denied). Make it and the"
                 " files in it writable, and run the same command again."
             )
+        except BaseException:  # a refusal, a failure, an interrupt
+            _spent(stopped=True)
+            raise
+        _spent(stopped=False)
+        return done
+
+
+def _paid(ws: Workspace, report: bool) -> None:
+    """Note, unless an earlier step of the command did, what the ledger of `ws` holds
+    now, so that the command ends by saying what it spent since."""
+    if not _began:
+        _began.append((ws, _ledger_total(ws), report))
+
+
+def _ledger_total(ws: Workspace) -> Decimal:
+    """What the usage ledger of `ws` has booked in all, in USD."""
+    if not ws.cache_sqlite.exists():
+        return Decimal(0)
+    try:
+        with contextlib.closing(sqlite3.connect(ws.cache_sqlite)) as db:
+            booked = Ledger(db).totals_by_role().values()
+    except sqlite3.Error:  # damaged: the step that opens the cache says so
+        return Decimal(0)
+    return sum((u.cost for u in booked), Decimal(0))
+
+
+def _spent(stopped: bool) -> None:
+    """Say what the paid command spent, pointing to the run report where it writes
+    one; a command stopped says it only if it spent something."""
+    if not _began:
+        return
+    ws, before, report = _began.pop()
+    spent = _ledger_total(ws) - before
+    if stopped and not spent:
+        return
+    shown = report and ws.run_report_md.exists()
+    where = f" {ws.run_report_md} has the cost by role." if shown else ""
+    typer.echo(f"Spent by this command: ${spent:.4f}.{where}", err=True)
 
 
 # An unhandled exception prints no local variable: locals hold the API key and
@@ -299,6 +344,7 @@ def run(
     if dry_run:
         _estimate(ws, blank, _dry_ingest(submissions, roster), profile)
         return
+    _paid(ws, report=True)
     try:  # before a key is paid for
         given = pdfs(submissions)
     except (OSError, ValueError, zipfile.BadZipFile) as error:
@@ -331,6 +377,7 @@ def prepare(
             "prepare has no dry run. `redpen run BLANK.pdf SUBMISSIONS --dry-run`"
             " estimates the key and the grading, and sends nothing."
         )
+    _paid(ws, report=False)
     # Opened before anything is copied, so a bad file leaves the workspace free.
     try:
         data = blank.read_bytes()
@@ -785,6 +832,7 @@ def key_verify(workspace: KeyWorkspace) -> None:
     """Solve each problem again with another vendor's model and set each part's
     state. Nothing in key.yaml changes but `state`, and nobody is re-graded."""
     ws = Workspace(workspace)
+    _paid(ws, report=False)
     try:
         config = load_config()
         api_key = openrouter_api_key()
@@ -882,6 +930,7 @@ def _grade(
     if dry_run:
         _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
         return
+    _paid(ws, report=True)
     if found := vendor_problem(lock.models):  # before anything is sent
         _fail(f"{ws.config_lock_toml}: {found}.")
     summary = _ingest(ws, submissions, roster)
@@ -1223,6 +1272,7 @@ def regrade(
             " retry; prompt caching, not counted, costs less."
         )
         return
+    _paid(ws, report=True)
     # No map or read: the images it sends are as the grade run masked them.
     config = config.model_copy(update={"mask_names": bool(lock.mask_names)})
     lock = _gate(ws, config, lock, api_key)
