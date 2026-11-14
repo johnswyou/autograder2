@@ -12,8 +12,10 @@ import hashlib
 import json
 import re
 import shutil
+import sqlite3
 from collections import Counter
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import fields
 from decimal import Decimal
 from pathlib import Path
@@ -1255,6 +1257,10 @@ def test_regrade_asks_only_for_the_problem_whose_criterion_was_edited(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     graded_once(router, monkeypatch)
+    # Read again, the class would ask the reader: no answer is kept for it.
+    with closing(sqlite3.connect(WS.cache_sqlite, autocommit=True)) as db:
+        db.execute("DELETE FROM calls WHERE response LIKE '%readings%'")
+    read = {p: p.read_bytes() for p in WS.students_dir.glob("*/readings/*")}
     before = grade_files()
     shutil.rmtree(WS.root / "out")
     edit_criterion("Q4.b")
@@ -1263,6 +1269,7 @@ def test_regrade_asks_only_for_the_problem_whose_criterion_was_edited(
 
     assert result.exit_code == 0, result.output
     assert grade_requests(router) == [Q4_PARTS] * len(NAMES)
+    assert {p: p.read_bytes() for p in WS.students_dir.glob("*/readings/*")} == read
     others = [r.url.path for r in router.requests if r not in router.chats]
     assert others == ["/api/v1/endpoints/zdr"]
     after = grade_files()
