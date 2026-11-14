@@ -3,6 +3,7 @@
 Attribute names follow the file names, with the dot replaced by an underscore.
 """
 
+import contextlib
 import traceback
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,6 +37,10 @@ class Workspace:
     @property
     def config_lock_toml(self) -> Path:
         return self.root / "config.lock.toml"
+
+    @property
+    def gitignore(self) -> Path:
+        return self.root / ".gitignore"
 
     # key/
 
@@ -196,6 +201,16 @@ class Workspace:
     @property
     def eval_json(self) -> Path:
         return self.root / "out" / "eval.json"
+
+
+def keep_out_of_git(workspace: Workspace) -> None:
+    """Give a workspace, a folder holding a blank, a `.gitignore` holding `*` when
+    it has none: it holds student work and scores (design 14.1). An existing one,
+    or anything else of that name, is left as it is."""
+    if not workspace.blank_pdf.exists():
+        return
+    with contextlib.suppress(FileExistsError), workspace.gitignore.open("x") as file:
+        file.write("*\n")
 
 
 def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:

@@ -1,7 +1,15 @@
+import shutil
 from pathlib import Path
+from typing import NoReturn
 
+import pytest
+from typer.testing import CliRunner
+
+from redpen.cli import app
+from redpen.llm.models import ModelError
 from redpen.schemas.submission import IngestPage, IngestRecord
 from redpen.workspace import Workspace, read_model, write_model
+from tests.fixture_truth import FIXTURES
 
 
 def test_paths_follow_the_design_layout() -> None:
@@ -55,3 +63,78 @@ def test_a_model_written_to_json_reads_back_equal(tmp_path: Path) -> None:
 
     assert read_model(path, IngestRecord) == record
     assert [p.name for p in path.parent.iterdir()] == ["ingest.json"]
+
+
+# --- the workspace is kept out of git (design 14.1) ----------------------------------
+
+runner = CliRunner()
+
+
+def refused(*args: object, **kwargs: object) -> NoReturn:
+    raise ModelError("the catalog is not reachable in this test")
+
+
+def test_prepare_gives_the_workspace_it_makes_a_gitignore_holding_everything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("redpen.config.fetch_catalog", refused)
+    blank = tmp_path / "blank.pdf"
+    shutil.copyfile(FIXTURES / "blank.pdf", blank)
+
+    result = runner.invoke(app, ["prepare", str(blank), "--workspace", "ws"])
+
+    assert result.exit_code == 1  # it stops at the catalog, the folder made
+    assert Workspace(Path("ws")).gitignore.read_text() == "*\n"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["report"],
+        ["regrade"],
+        ["key", "check"],
+        ["key", "render"],
+        ["key", "verify"],
+        ["grade", "subs"],
+        ["eval", "--gold", "gold.csv"],
+        ["override", "x", "Q1.c1", "1"],
+        ["models", "check"],
+    ],
+)
+def test_any_command_that_finds_a_workspace_with_no_gitignore_writes_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    workspace = Workspace(Path("ws"))
+    workspace.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+
+    runner.invoke(app, [*args, "--workspace", "ws"])
+
+    assert workspace.gitignore.read_text() == "*\n"
+
+
+def test_an_existing_gitignore_is_never_changed_and_a_folder_with_no_blank_gets_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    kept = Workspace(Path("kept"))
+    kept.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", kept.blank_pdf)
+    kept.gitignore.write_text("out/\n")
+    linked = Workspace(Path("linked"))
+    linked.blank_pdf.parent.mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "blank.pdf", linked.blank_pdf)
+    linked.gitignore.symlink_to(tmp_path / "nowhere")
+    Path("other").mkdir()
+
+    for folder in ("kept", "linked", "other"):
+        runner.invoke(app, ["report", "--workspace", folder])
+
+    assert kept.gitignore.read_text() == "out/\n"
+    assert linked.gitignore.is_symlink() and not (tmp_path / "nowhere").exists()
+    assert list(Path("other").iterdir()) == []

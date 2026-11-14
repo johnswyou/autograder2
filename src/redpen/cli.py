@@ -107,7 +107,13 @@ from redpen.schemas.grade import Override
 from redpen.schemas.key import Key, PointConstraint, Policies
 from redpen.schemas.spec import Spec
 from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, log_failure, read_model, write_model
+from redpen.workspace import (
+    Workspace,
+    keep_out_of_git,
+    log_failure,
+    read_model,
+    write_model,
+)
 
 # An unhandled exception prints no local variable: locals hold the API key and
 # student work.
@@ -172,8 +178,23 @@ WorkspaceDir = Annotated[
         metavar="DIR", help="Workspace. Default: <blank stem>.redpen beside BLANK.pdf."
     ),
 ]
+
+
+def _found(ctx: typer.Context, workspace: Path | None) -> Path | None:
+    """A workspace option's value, the workspace first kept out of git."""
+    if workspace is not None and not ctx.resilient_parsing:
+        keep_out_of_git(Workspace(workspace))
+    return workspace
+
+
 KeyWorkspace = Annotated[
-    Path, typer.Option("--workspace", metavar="DIR", help="The assignment's workspace.")
+    Path,
+    typer.Option(
+        "--workspace",
+        metavar="DIR",
+        help="The assignment's workspace.",
+        callback=_found,
+    ),
 ]
 
 
@@ -252,6 +273,7 @@ def prepare(
             _fail(f"{ws.root} holds the key of another blank. Use another --workspace.")
         ws.blank_pdf.parent.mkdir(parents=True, exist_ok=True)
         ws.blank_pdf.write_bytes(data)
+        keep_out_of_git(ws)
         if ws.config_lock_toml.exists():
             try:
                 read_lock(ws.config_lock_toml)
@@ -1085,6 +1107,7 @@ def models_check(
         typer.Option(
             metavar="DIR",
             help="Also re-verify the endpoints pinned in this workspace's lock.",
+            callback=_found,
         ),
     ] = None,
 ) -> None:
