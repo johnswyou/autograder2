@@ -8,6 +8,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
 from redpen import prompts
@@ -55,146 +56,201 @@ async def grade_student(
     problems run concurrently; when one still fails its checks after one more call,
     `StageError` is raised once every other problem has finished, and that
     problem's earlier file, if any, is left as it was."""
-    by_problem: defaultdict[str, list[KeyPart]] = defaultdict(list)
+    done: dict[str, GradeRecord] = {}
+
+    async def grade(problem: str, parts: list[KeyPart]) -> None:
+        if (found := request(workspace, student, key, parts)) is None:
+            return
+        records = found.by_code | await ask_grader(found, key, gateway, model)
+        file = ProblemGrades(records=[records[p.id] for p in parts if p.id in records])
+        write_model(workspace.grade_json(student, problem), file)
+        done.update(records)
+
+    await finish_all(grade(problem, parts) for problem, parts in by_problem(key))
+    return {p.id: done[p.id] for p in key.parts if p.id in done}
+
+
+def by_problem(key: Key) -> list[tuple[str, list[KeyPart]]]:
+    """The key's parts by top-level problem, in key order."""
+    found: defaultdict[str, list[KeyPart]] = defaultdict(list)
     for part in key.parts:
-        by_problem[problem_of(part.id)].append(part)
+        found[problem_of(part.id)].append(part)
+    return list(found.items())
+
+
+@dataclass(frozen=True)
+class Request:
+    """The grade stage's request for one top-level problem of a student, the same
+    however often it is made: the records of the parts code scores, the parts the
+    grader is asked about, and what it is sent. `shown` holds every reading the
+    parts are graded from: their own, and those of the parts they depend on."""
+
+    problem: str
+    student: str
+    shown: dict[str, ReadingRecord]
+    by_code: dict[str, GradeRecord]
+    asked: list[KeyPart]
+    wanted: dict[str, Reading]
+    checks: dict[str, Check | None]
+    system: str
+    version: str
+    session: str
+    shared: list[str]
+    items: list[Content]
+
+
+def request(
+    workspace: Workspace, student: str, key: Key, parts: list[KeyPart]
+) -> Request | None:
+    """The request for `parts`, one top-level problem of `student`, from the stored
+    readings; None when the problem has no stored reading. A part read as
+    unreadable is neither scored nor asked about, nor is a choice part answered
+    with no option read. Nothing is sent."""
+    problem = problem_of(parts[0].id)
+    if not workspace.reading_json(student, problem).exists():
+        return None
     system, version = prompts.load("grade", "problem")
     # As `part_hash` digests them, so that the hash covers what the grader is sent.
     policies = json.dumps(key.policies.model_dump(), default=number)
-    session = f"{workspace.root.name}:grade"
-    done: dict[str, GradeRecord] = {}
 
     def readings(problem: str) -> dict[str, ReadingRecord]:
         file = read_model(workspace.reading_json(student, problem), ProblemReadings)
         return {r.reading.part_id: r for r in file.records}
 
-    def provenance(part: KeyPart, by_model: bool) -> Provenance:
-        return Provenance(
-            key_part_hash=part_hash(part, key.policies),
-            prompt_version=version if by_model else None,
-            model_slug=model.slug if by_model else None,
-        )
-
-    async def grade(problem: str, parts: list[KeyPart]) -> None:
-        if not workspace.reading_json(student, problem).exists():
-            return
-        mine = readings(problem)
-        # Every reading the problem's parts are graded from: their own, and those of
-        # the parts they depend on, which may be another problem's.
-        shown = dict(mine)
-        for d in dict.fromkeys(d for p in parts for d in p.depends_on):
-            if (
-                d not in shown
-                and workspace.reading_json(student, problem_of(d)).exists()
-            ):
-                shown |= readings(problem_of(d))
-        records: dict[str, GradeRecord] = {}
-        asked: list[KeyPart] = []
-        for part in parts:
-            reading = mine[part.id].reading
-            choice = part.response_type in CHOICE_TYPES
-            # Withheld, never zero (design 9): work that cannot be read, and a choice
-            # part answered with no option read, which no grader that knows the key
-            # may settle (design 7.3).
-            if reading.status == "unreadable" or (
-                choice
-                and reading.status == "answered"
-                and not reading.final_answer.choices
-            ):
-                continue
-            if reading.status == "blank" or choice:
-                records[part.id] = GradeRecord(
-                    provenance=provenance(part, False),
-                    grade=by_code(part, reading),
-                    check=None,
-                    reading_digest=graded_from(part, shown),
-                )
-            else:
-                asked.append(part)
-        if asked:
-            # The same for every student, so that it is cached as a prefix.
-            shared = [
-                *(
-                    grading_content(p)
-                    for p in parts
-                    if p.response_type not in CHOICE_TYPES
+    mine = readings(problem)
+    # Every reading the problem's parts are graded from: their own, and those of
+    # the parts they depend on, which may be another problem's.
+    shown = dict(mine)
+    for d in dict.fromkeys(d for p in parts for d in p.depends_on):
+        if d not in shown and workspace.reading_json(student, problem_of(d)).exists():
+            shown |= readings(problem_of(d))
+    records: dict[str, GradeRecord] = {}
+    asked: list[KeyPart] = []
+    for part in parts:
+        reading = mine[part.id].reading
+        choice = part.response_type in CHOICE_TYPES
+        # Withheld, never zero (design 9): work that cannot be read, and a choice
+        # part answered with no option read, which no grader that knows the key
+        # may settle (design 7.3).
+        if reading.status == "unreadable" or (
+            choice and reading.status == "answered" and not reading.final_answer.choices
+        ):
+            continue
+        if reading.status == "blank" or choice:
+            records[part.id] = GradeRecord(
+                provenance=Provenance(
+                    key_part_hash=part_hash(part, key.policies),
+                    prompt_version=None,
+                    model_slug=None,
                 ),
-                policies,
-            ]
-            wanted = {p.id: mine[p.id].reading for p in asked}
-            checks = {p.id: check_answer(p, wanted[p.id], key.policies) for p in asked}
-            items: list[Content] = []
-            for d in dict.fromkeys(d for p in asked for d in p.depends_on):
-                if d not in wanted:
-                    record = mine.get(d) or readings(problem_of(d))[d]
-                    items.append(json.dumps({"context": _json(record.reading)}))
-            for part in asked:
-                record = mine[part.id]
-                item = {"grade": _json(record.reading)}
-                if verdict := checks[part.id]:
-                    item["check"] = verdict._asdict()
-                items.append(json.dumps(item))
-                # shortcut: a region the map gave to two parts is sent once for each;
-                # send it once when real maps share boxes often.
-                for n in range(1, len(record.crops) + 1):
-                    png = workspace.crop_png(student, part.id, n).read_bytes()
-                    items += [json.dumps({"crop": n, "part": part.id}), png]
-
-            async def ask(extra: Sequence[Content]) -> Grades:
-                result = await gateway.call(
-                    ROLE,
-                    model,
-                    system,
-                    shared,
-                    [*items, *extra],
-                    Grades,
-                    version,
-                    params=PARAMS,
-                    session_id=session,
-                )
-                return result.value
-
-            found = await ask_checked(
-                ask,
-                lambda g: problems(key, wanted, g),
-                f"the grade of {problem} of {student}",
+                grade=by_code(part, reading),
+                check=None,
+                reading_digest=graded_from(part, shown),
             )
-            by_id = {p.id: p for p in asked}
-            for g in found.grades:
-                allowed = {c.id: levels(c) for c in by_id[g.part_id].criteria}
-                # Each award as the key writes the level the checks matched it to.
-                criteria = [
-                    c.model_copy(
-                        update={
-                            "awarded": next(x for x in allowed[c.id] if x == c.awarded)
-                        }
-                    )
-                    for c in g.criteria
-                ]
-                # A reason that overrules no verdict is not an overrule.
-                verdict = checks[g.part_id]
-                # On a part with several final-answer criteria, a reason is kept,
-                # unasked, only when every one of them goes against the check.
-                against = _against(by_id[g.part_id], verdict, g)
-                overruled = bool(against) and len(against) == finals(by_id[g.part_id])
-                kept = g.model_copy(
-                    update={
-                        "criteria": criteria,
-                        "code_overruled": g.code_overruled if overruled else None,
-                    }
-                )
-                records[g.part_id] = GradeRecord(
-                    provenance=provenance(by_id[g.part_id], True),
-                    grade=kept,
-                    check=AnswerCheck(**verdict._asdict()) if verdict else None,
-                    reading_digest=graded_from(by_id[g.part_id], shown),
-                )
-        file = ProblemGrades(records=[records[p.id] for p in parts if p.id in records])
-        write_model(workspace.grade_json(student, problem), file)
-        done.update(records)
+        else:
+            asked.append(part)
+    # The same for every student, so that it is cached as a prefix.
+    shared = [
+        *(grading_content(p) for p in parts if p.response_type not in CHOICE_TYPES),
+        policies,
+    ]
+    wanted = {p.id: mine[p.id].reading for p in asked}
+    checks = {p.id: check_answer(p, wanted[p.id], key.policies) for p in asked}
+    items: list[Content] = []
+    for d in dict.fromkeys(d for p in asked for d in p.depends_on):
+        if d not in wanted:
+            record = mine.get(d) or readings(problem_of(d))[d]
+            items.append(json.dumps({"context": _json(record.reading)}))
+    for part in asked:
+        record = mine[part.id]
+        item = {"grade": _json(record.reading)}
+        if verdict := checks[part.id]:
+            item["check"] = verdict._asdict()
+        items.append(json.dumps(item))
+        # shortcut: a region the map gave to two parts is sent once for each;
+        # send it once when real maps share boxes often.
+        for n in range(1, len(record.crops) + 1):
+            png = workspace.crop_png(student, part.id, n).read_bytes()
+            items += [json.dumps({"crop": n, "part": part.id}), png]
+    return Request(
+        problem=problem,
+        student=student,
+        shown=shown,
+        by_code=records,
+        asked=asked,
+        wanted=wanted,
+        checks=checks,
+        system=system,
+        version=version,
+        session=f"{workspace.root.name}:grade",
+        shared=shared,
+        items=items,
+    )
 
-    await finish_all(grade(problem, parts) for problem, parts in by_problem.items())
-    return {p.id: done[p.id] for p in key.parts if p.id in done}
+
+async def ask_grader(
+    found: Request, key: Key, gateway: Gateway, model: ModelInfo, role: str = ROLE
+) -> dict[str, GradeRecord]:
+    """The record of each part `found` asks about, from `model`'s answer to its
+    request (none when it asks about none), checked as design 7.5 says, with one
+    more call when the answer fails the checks; `StageError` when it still does.
+    `role` names the calls in the ledger."""
+    if not found.asked:
+        return {}
+
+    async def ask(extra: Sequence[Content]) -> Grades:
+        result = await gateway.call(
+            role,
+            model,
+            found.system,
+            found.shared,
+            [*found.items, *extra],
+            Grades,
+            found.version,
+            params=PARAMS,
+            session_id=found.session,
+        )
+        return result.value
+
+    answer = await ask_checked(
+        ask,
+        lambda g: problems(key, found.wanted, g),
+        f"the grade of {found.problem} of {found.student}",
+    )
+    by_id = {p.id: p for p in found.asked}
+    records: dict[str, GradeRecord] = {}
+    for g in answer.grades:
+        allowed = {c.id: levels(c) for c in by_id[g.part_id].criteria}
+        # Each award as the key writes the level the checks matched it to.
+        criteria = [
+            c.model_copy(
+                update={"awarded": next(x for x in allowed[c.id] if x == c.awarded)}
+            )
+            for c in g.criteria
+        ]
+        # A reason that overrules no verdict is not an overrule.
+        verdict = found.checks[g.part_id]
+        # On a part with several final-answer criteria, a reason is kept,
+        # unasked, only when every one of them goes against the check.
+        against = _against(by_id[g.part_id], verdict, g)
+        overruled = bool(against) and len(against) == finals(by_id[g.part_id])
+        kept = g.model_copy(
+            update={
+                "criteria": criteria,
+                "code_overruled": g.code_overruled if overruled else None,
+            }
+        )
+        records[g.part_id] = GradeRecord(
+            provenance=Provenance(
+                key_part_hash=part_hash(by_id[g.part_id], key.policies),
+                prompt_version=found.version,
+                model_slug=model.slug,
+            ),
+            grade=kept,
+            check=AnswerCheck(**verdict._asdict()) if verdict else None,
+            reading_digest=graded_from(by_id[g.part_id], found.shown),
+        )
+    return records
 
 
 def graded_from(part: KeyPart, readings: Mapping[str, ReadingRecord]) -> str:
