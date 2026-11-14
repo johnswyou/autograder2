@@ -24,6 +24,7 @@ from redpen.grade.grade import (
     problems,
 )
 from redpen.grade.read import digest
+from redpen.llm import client
 from redpen.llm.client import Gateway, ResponseValidationError, StageError
 from redpen.llm.models import ModelInfo
 from redpen.prepare.key import grading_content, number, part_hash
@@ -45,6 +46,7 @@ from redpen.schemas.reading import (
 )
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
+from tests.unit.test_gateway import base_cache_key
 
 MODEL = ModelInfo(
     slug="vendor/vision-1",
@@ -980,6 +982,27 @@ def test_grades_are_stored_per_problem_with_their_provenance(tmp_path: Path) -> 
         assert [r.reading_digest for r in stored.records] == [
             digest(r) for r in read.records
         ]
+
+
+def test_a_grade_request_keeps_the_cache_key_it_had_before_draws_existed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    store(workspace, list(ASKED.values()), crops=1)
+    keyed: list[tuple[tuple[Any, ...], str]] = []
+    real = client.cache_key
+
+    def kept(*args: Any) -> str:
+        keyed.append((args, found := real(*args)))
+        return found
+
+    monkeypatch.setattr(client, "cache_key", kept)
+
+    run(workspace, Q4, Grader(Q4))
+
+    [(args, key)] = keyed
+    *material, draw = args
+    assert draw == 1 and key == base_cache_key(*material)
 
 
 def test_a_record_stored_before_the_reading_s_digest_or_the_check_loads() -> None:

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import math
@@ -16,7 +17,7 @@ import pytest
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from redpen.llm.cache import CallCache
+from redpen.llm.cache import CallCache, cache_key
 from redpen.llm.client import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
@@ -116,6 +117,7 @@ def ask(
     response_model: type[BaseModel] = Answer,
     prompt_version: str = "v1",
     params: dict[str, Any] | None = None,
+    draw: int = 1,
 ) -> Callable[[Gateway], Awaitable[Result[BaseModel]]]:
     def scenario(gateway: Gateway) -> Awaitable[Result[BaseModel]]:
         return gateway.call(
@@ -128,6 +130,7 @@ def ask(
             prompt_version,
             params={"temperature": 0} if params is None else params,
             session_id="assignment:Q1",
+            draw=draw,
         )
 
     return scenario
@@ -276,6 +279,48 @@ def test_changing_one_input_misses_the_cache(
 
     assert not result.from_cache
     assert len(server.requests) == 2
+
+
+def test_a_second_draw_is_sent_as_the_first_and_kept_apart_in_the_cache(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cache.sqlite"
+    server = Server('{"letter": "A"}', '{"letter": "B"}')
+
+    found = [run(db, server, ask(draw=d)) for d in (1, 2, 1, 2)]
+
+    assert [r.value for r in found] == [Answer(letter=x) for x in "ABAB"]
+    assert [r.from_cache for r in found] == [False, False, True, True]
+    # The draw is in nothing that is sent.
+    [first, second] = server.requests
+    assert first == second
+
+
+def base_cache_key(
+    slug: str,
+    messages: list[dict[str, Any]],
+    schema: dict[str, Any],
+    params: dict[str, Any],
+    prompt_version: str,
+) -> str:
+    """`cache_key` as it was before draws existed (7a62abd), verbatim."""
+    material = [slug, messages, schema, params, prompt_version]
+    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def test_a_first_draw_keeps_the_key_it_had_before_draws_existed() -> None:
+    material = (
+        MODEL.slug,
+        [{"role": "user", "content": [{"type": "text", "text": "x"}]}],
+        Answer.model_json_schema(),
+        {"temperature": 0},
+        "v1",
+    )
+
+    assert cache_key(*material) == cache_key(*material, 1) == base_cache_key(*material)
+    assert cache_key(*material, 2) != base_cache_key(*material)
+    assert cache_key(*material, 2) != cache_key(*material, 3)
 
 
 def encoded(image: Image.Image, format: str, **options: Any) -> bytes:

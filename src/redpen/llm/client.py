@@ -159,11 +159,14 @@ class Gateway:
         *,
         params: Mapping[str, Any] | None = None,
         session_id: str | None = None,
+        draw: int = 1,
     ) -> Result[T]:
         """A validated `response_model`, from the cache or from `model`.
 
         The cache breakpoint sits between `shared` and `items`. A parameter in
         `params` is sent only if `model` supports it. `role` labels the ledger rows.
+        `draw` numbers independent answers to the same request: it is part of the
+        cache key and is never sent.
         """
         name = response_model.__name__
         schema = response_model.model_json_schema()
@@ -185,7 +188,7 @@ class Gateway:
             k: v for k, v in (params or {}).items() if k in model.supported_parameters
         }
         keyed = _messages(system, shared, items, digest=True)
-        key = cache_key(model.slug, keyed, schema, sent, prompt_version)
+        key = cache_key(model.slug, keyed, schema, sent, prompt_version, draw)
         if (asked := _asked.get()) is not None:
             asked.append((self, key))
         if (raw := self._cache.get(key)) is not None:

@@ -41,9 +41,14 @@ def cache_key(
     schema: dict[str, Any],
     params: dict[str, Any],
     prompt_version: str,
+    draw: int = 1,
 ) -> str:
-    """Hash of everything that decides a response. `messages` carry image digests."""
-    material = [slug, messages, schema, params, prompt_version]
+    """Hash of everything that decides a response. `messages` carry image digests.
+    A `draw` after the first keeps another answer to the same request apart; the
+    first's key is the one kept before draws existed."""
+    material: list[Any] = [slug, messages, schema, params, prompt_version]
+    if draw != 1:
+        material.append(draw)
     canonical = json.dumps(material, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
