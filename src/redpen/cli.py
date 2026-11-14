@@ -543,7 +543,12 @@ def _no_blank(blank: Path, error: Exception | None) -> NoReturn:
         why = "is a folder"
     elif not blank.exists():
         why = "does not exist"
-    elif getattr(error, "err_code", None) == FPDF_ERR_PASSWORD:
+    # pdfium's error code is its last, which may be another file's: the blank's own
+    # encryption dictionary decides.
+    elif (
+        getattr(error, "err_code", None) == FPDF_ERR_PASSWORD
+        and b"/Encrypt" in blank.read_bytes()
+    ):
         why = "is encrypted"
     else:
         why = "is not a PDF, or is damaged or cut short"

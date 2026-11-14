@@ -205,6 +205,21 @@ def test_a_blank_that_cannot_be_opened_stops_the_command_in_one_line(
     assert not Path("new").exists() or not Workspace(Path("new")).blank_pdf.exists()
 
 
+def test_the_blank_s_reason_is_its_own_after_an_encrypted_pdf(
+    class_folder: Path,
+) -> None:
+    found = blanks(Path("blanks"))
+    with pytest.raises(pdfium.PdfiumError):  # pdfium's last error: a password
+        pdfium.PdfDocument(found["encrypted"])
+    blank = found["no pages"]
+
+    result = runner.invoke(app, ["prepare", str(blank), "--workspace", "new"])
+
+    assert_one_line(
+        result, f"{blank} cannot be opened as a PDF: it {DAMAGED}. {GIVE_BLANK}"
+    )
+
+
 # pdfium opens no PDF of no pages: one saved with none fails as a damaged file.
 DAMAGED = "is not a PDF, or is damaged or cut short"
 WHY = {
