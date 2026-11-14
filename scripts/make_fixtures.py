@@ -1644,7 +1644,7 @@ def quiz_students() -> list[Student]:
         Student(
             "name-in-corner", "Rowan Mockley", {"Q1": q1("B"), "Q2": per_muffin}, {}
         ),
-        Student("no-name", "Sage Examplar", {"Q1": q1("C"), "Q2": added}, {}),
+        Student("no-name", "Tatum Examplar", {"Q1": q1("C"), "Q2": added}, {}),
     ]
 
 
