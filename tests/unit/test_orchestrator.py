@@ -30,12 +30,20 @@ from typer.testing import CliRunner
 import redpen.prompts
 from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
+from redpen.grade.audit import MAX_CASES
 from redpen.grade.grade import Grades
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import digest
 from redpen.llm.client import Gateway
-from redpen.llm.models import Catalog, recheck_providers
-from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
+from redpen.llm.models import Catalog, ModelInfo, recheck_providers
+from redpen.orchestrator import (
+    PER_PAGE,
+    TOKENS,
+    Cost,
+    estimate,
+    image_tokens,
+    shape,
+)
 from redpen.prepare.key import load_key, part_hash, save_key, yaml_reader
 from redpen.report.report import (
     NOTHING_TO_REVIEW,
@@ -1169,6 +1177,44 @@ def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> N
     assert (shape(SPEC).referees, shape(SPEC).referee_pages) == (2, 4)
     keyed = estimate(models, blank, SPEC, True, [], 1536, "balanced")
     assert keyed["prepare"].calls == 0
+
+
+def test_the_estimate_prices_the_second_reader_and_the_audit_by_the_class() -> None:
+    models = {
+        **ROLES,
+        **dict.fromkeys(("parser", "solver", "checker", "referee"), READER),
+    }
+    blank = [(1700, 2200)] * 4
+    slides = [
+        IngestPage(
+            number=n, width_px=1004, height_px=2008, slide_number=n, native_ppi=None
+        )
+        for n in range(1, 5)
+    ]
+
+    def priced(size: int, **pinned: ModelInfo) -> dict[str, Cost]:
+        students = [
+            IngestRecord(
+                student_name=f"S{n}",
+                student_key=f"S{n}",
+                source_kind="classkick",
+                pages=slides,
+            )
+            for n in range(size)
+        ]
+        found = {**models, **pinned}
+        return estimate(found, blank, SPEC, True, students, 1536, "balanced")
+
+    one = priced(1)
+    assert one["audit"] == Cost()  # a class of one forms no group
+    stages = ("map", "read", "second", "grade", "second grade")
+    assert all(one[stage].calls > 0 for stage in stages)
+    dearer = SECOND.model_copy(update={"prompt_price": SECOND.prompt_price + 1})
+    again = priced(1, second=dearer)["second"].usd - one["second"].usd
+    assert again == round(one["second"].tokens_in)  # at the second reader's price
+    two, full, over = priced(2), priced(MAX_CASES), priced(MAX_CASES + 1)
+    assert two["audit"].calls == full["audit"].calls > 0  # once up to MAX_CASES
+    assert over["audit"].calls == 2 * full["audit"].calls  # then once more a part
 
 
 def test_an_image_costs_a_token_per_patch_once_fit_to_the_budget() -> None:

@@ -507,6 +507,16 @@ def test_a_damaged_coverage_file_is_counted_named_in_the_log_and_stops_the_repor
     assert logged_damaged(WS) == [str(coverage)]
 
 
+def test_a_damaged_file_of_the_key_is_made_again_by_prepare(
+    class_folder: Path,
+) -> None:
+    WS.spec_json.write_text("")
+
+    result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
+
+    assert_one_line(result, damaged_line(WS.spec_json, "prepare"))
+
+
 def test_a_damaged_audit_file_is_named_and_stops_the_command(
     class_folder: Path,
 ) -> None:

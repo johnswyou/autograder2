@@ -1,7 +1,9 @@
 import asyncio
 import base64
+import contextlib
 import hashlib
 import io
+import itertools
 import json
 import math
 import sqlite3
@@ -1114,3 +1116,43 @@ def test_one_model_told_to_wait_holds_no_request_to_another(
     assert len(answered) == len(set(answered)) == 31
     hits = sum(code == 429 for *_, code in posted)
     assert hits - 1 <= 7  # after the first, at most those in flight, once each
+
+
+def test_a_wait_told_to_one_request_moves_no_turn_already_taken_earlier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock(monkeypatch)
+    starts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        starts.append(clock.now)
+        if len(starts) == 1:  # turns are taken until 5 s; the wait ends at 3 s
+            return limited(429, "3")
+        return completion('{"letter": "B"}')
+
+    calls = [ask(items=(f"item {n}",)) for n in range(20)]
+    clock.run(
+        tmp_path / "cache.sqlite",
+        handler,
+        concurrently(*calls),
+        max_concurrency=20,
+        requests_per_second=4,
+    )
+
+    assert len(starts) == 21
+    gaps = [b - a for a, b in itertools.pairwise(sorted(starts))]
+    assert min(gaps) >= 0.24  # still 4 a second
+
+
+def test_another_error_leaving_a_stopped_gateway_is_raised_and_not_the_stop(
+    tmp_path: Path,
+) -> None:
+    server = Server(limited(401, None))
+
+    async def scenario(gateway: Gateway) -> None:
+        with contextlib.suppress(StopError):
+            await ask()(gateway)
+        raise LookupError("a fault of the caller")
+
+    with pytest.raises(LookupError):
+        run(tmp_path / "cache.sqlite", server, scenario)

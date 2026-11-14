@@ -325,9 +325,9 @@ def test_the_same_evidence_given_different_awards_is_decided_again_in_one_call(
     assert f"**{PARTS['Q4.c'].label}: 2 / 2**" in feedback
     assert "Feedback on Q4.c.c1." not in feedback  # full points after: nothing lost
     report = workspace.run_report_md.read_text()
-    assert (
+    assert (  # the whole line: no group was split
         "Groups of the same evidence with differing awards: 1. Decided again: 1."
-        " Changed: 1. Could not be decided: 0." in report
+        " Changed: 1. Could not be decided: 0." in report.splitlines()
     )
     assert "| audit_changed | low | 1 |" in report
 
