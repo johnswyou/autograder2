@@ -12,7 +12,6 @@ from redpen.schemas.key import Key, KeyPart, Policies
 from redpen.schemas.reading import Reading, ReadingRecord
 from redpen.schemas.spec import Part, Spec
 from redpen.schemas.submission import (
-    Fingerprint,
     IngestRecord,
     Map,
     MapEntry,
@@ -219,26 +218,6 @@ INSTANCES: list[BaseModel] = [
                     "native_ppi": 183.6,
                 }
             ],
-        }
-    ),
-    Fingerprint.model_validate(
-        {
-            "pages": [
-                {
-                    "number": 1,
-                    "kind": "template",
-                    "blank_page": 1,
-                    "added_fraction": 0.12,
-                    "added_regions": [[0.06, 0.41, 0.94, 0.63]],
-                },
-                {
-                    "number": 2,
-                    "kind": "foreign",
-                    "blank_page": None,
-                    "added_fraction": 1.0,
-                    "added_regions": [],
-                },
-            ]
         }
     ),
     Map.model_validate(MAP),

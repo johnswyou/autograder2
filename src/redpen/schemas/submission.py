@@ -1,11 +1,10 @@
-"""One student's submission: the ingest record, the fingerprint and the map
-(design 7.1 to 7.3).
+"""One student's submission: the ingest record and the map (design 7.1 and 7.3).
 
 `Map` is built from what the resolve call returns. `MapRecord` is what is stored:
 the map, the facts found about each page, and the provenance.
 """
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import ConfigDict, Field, PositiveFloat, PositiveInt
 
@@ -26,20 +25,6 @@ class IngestRecord(Schema):
     student_key: StudentKey
     source_kind: Literal["classkick", "other"]
     pages: list[IngestPage]
-
-
-class FingerprintPage(Schema):
-    number: PositiveInt
-    kind: Literal["template", "foreign"]
-    # The blank page this page is a copy of; null on a foreign page.
-    blank_page: PositiveInt | None
-    # Share of the page image the student added to.
-    added_fraction: Annotated[float, Field(ge=0, le=1)]
-    added_regions: list[Box]
-
-
-class Fingerprint(Schema):
-    pages: list[FingerprintPage]
 
 
 # What a map entry's part was attributed by, strongest first (design 7.3).

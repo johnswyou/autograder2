@@ -13,7 +13,6 @@ from redpen.schemas.spec import Spec
 from redpen.schemas.strict import strict_problems
 from redpen.schemas.submission import (
     Coverage,
-    Fingerprint,
     IngestRecord,
     Map,
     MapRecord,
@@ -24,7 +23,6 @@ MODELS: list[type[BaseModel]] = [
     Spec,
     Key,
     IngestRecord,
-    Fingerprint,
     Map,
     MapRecord,
     Coverage,

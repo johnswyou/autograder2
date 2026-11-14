@@ -85,10 +85,6 @@ class Workspace:
     def verification_json(self) -> Path:
         return self.root / "key" / "verification.json"
 
-    @property
-    def key_report_json(self) -> Path:
-        return self.root / "key" / "key_report.json"
-
     # students/<student_key>/
 
     @property
@@ -116,9 +112,6 @@ class Workspace:
 
     def ingest_json(self, student: str) -> Path:
         return self.student_dir(student) / "ingest.json"
-
-    def fingerprint_json(self, student: str) -> Path:
-        return self.student_dir(student) / "fingerprint.json"
 
     def map_json(self, student: str) -> Path:
         return self.student_dir(student) / "map.json"
