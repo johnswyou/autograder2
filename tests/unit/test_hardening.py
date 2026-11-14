@@ -27,7 +27,7 @@ from redpen.schemas.spec import Spec
 from redpen.schemas.submission import Map, MapPage, MapRecord
 from redpen.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
-from tests.pinned import GRADE_MODELS, ZDR
+from tests.pinned import GRADE_MODELS, KEY_MODELS, ZDR
 
 runner = CliRunner()
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
@@ -286,6 +286,34 @@ def test_submissions_with_no_pdf_stop_the_command_in_one_line_with_nothing_sent(
     assert line.startswith(("No student PDF", f"{path} cannot be read")), line
     assert line.endswith(GIVE_SUBMISSIONS), line
     assert not WS.students_dir.exists()
+
+
+@pytest.mark.parametrize("kind", ["missing", "an empty folder"])
+def test_run_checks_the_submissions_before_it_pays_for_a_key(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    asked: list[httpx.Request] = []
+
+    def chat(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        return openrouter(request)
+
+    transport = httpx.MockTransport(chat)
+    monkeypatch.setattr(
+        "redpen.cli.Gateway", functools.partial(Gateway, transport=transport)
+    )
+    WS.key_yaml.unlink()  # prepare would solve one
+    lock = Lock(profile="balanced", models={**KEY_MODELS, **GRADE_MODELS})
+    write_lock(WS.config_lock_toml, lock)
+    path = submissions(Path("given"))[kind]
+    blank = str(FIXTURES / "blank.pdf")
+
+    result = runner.invoke(app, ["run", blank, str(path), "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert len(said(result)) == 1, said(result)
+    assert said(result)[0].endswith(GIVE_SUBMISSIONS)
+    assert asked == [] and not WS.key_yaml.exists()
 
 
 @pytest.mark.parametrize("kind", ["encrypted", "corrupt", "truncated", "no pages"])

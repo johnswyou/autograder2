@@ -42,7 +42,7 @@ from redpen.config import (
 )
 from redpen.eval.eval import GoldError, evaluate, markdown, table
 from redpen.grade.audit import MAX_CASES
-from redpen.grade.ingest import IngestSummary, ingest
+from redpen.grade.ingest import IngestSummary, ingest, pdfs
 from redpen.grade.read import problem_of
 from redpen.grade.second import vendor_problem
 from redpen.grade.second_grade import PROFILES
@@ -257,6 +257,12 @@ def run(
     if dry_run:
         _estimate(ws, blank, _dry_ingest(submissions, roster), profile)
         return
+    try:  # before a key is paid for
+        given = pdfs(submissions)
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
+        _unreadable(submissions, error)
+    if not given:
+        _no_pdf(submissions)
     prepare(blank, total, page_points, profile, roster, False, workspace)
     _grade(ws, submissions, roster, dry_run=False)
 
@@ -924,20 +930,27 @@ def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSumm
     try:
         summary = ingest(submissions, ws, roster)
     except (OSError, ValueError, zipfile.BadZipFile) as error:
-        _fail(
-            f"{submissions} cannot be read as a folder or ZIP of PDFs, or the roster"
-            f" cannot be read ({type(error).__name__}). {GIVE_SUBMISSIONS}"
-        )
+        _unreadable(submissions, error)
     if not summary.students:  # the stored class stays as it was
-        failed = len(summary.failed)
-        _fail(
-            f"No student PDF could be ingested from {submissions}: {failed} could"
-            " not be read."
-            if failed
-            else f"No student PDF was found in {submissions}. {GIVE_SUBMISSIONS}"
-        )
+        if failed := len(summary.failed):
+            _fail(
+                f"No student PDF could be ingested from {submissions}: {failed} could"
+                " not be read."
+            )
+        _no_pdf(submissions)
     write_model(ws.ingest_summary_json, summary)
     return summary
+
+
+def _unreadable(submissions: Path, error: Exception) -> NoReturn:
+    _fail(
+        f"{submissions} cannot be read as a folder or ZIP of PDFs, or the roster"
+        f" cannot be read ({type(error).__name__}). {GIVE_SUBMISSIONS}"
+    )
+
+
+def _no_pdf(submissions: Path) -> NoReturn:
+    _fail(f"No student PDF was found in {submissions}. {GIVE_SUBMISSIONS}")
 
 
 def _dry_ingest(submissions: Path, roster: Path | None) -> IngestSummary:

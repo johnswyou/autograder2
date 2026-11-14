@@ -141,6 +141,13 @@ def ingest(
     )
 
 
+def pdfs(source: Path) -> int:
+    """The number of PDFs in the folder or ZIP `source`, readable or not; raises as
+    `ingest` does on a path that is neither."""
+    found, _, _, failed = _read(source)
+    return len(found) + len(failed)
+
+
 # A PDF's path inside the folder or ZIP (with "/"), its bytes, and when it was last
 # modified: an mtime from a folder, the member's date fields from a ZIP. They are
 # only compared within one source, so a ZIP's zeroed dates need no conversion.
