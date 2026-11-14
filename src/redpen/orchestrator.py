@@ -9,12 +9,14 @@ class goes on; the later stages run on whatever files that student has. Then the
 class audit runs over every student. Resuming is the call cache's work: nothing is
 skipped because a file exists.
 
-`privacy_problems` is the gate before the first student page is sent, and
-`estimate` is the dry run's cost estimate."""
+`privacy_problems` is the gate before the first student page is sent, `estimate`
+is the dry run's cost estimate, and `uncached` counts what a re-grade would ask."""
 
 import asyncio
+import contextlib
 import math
 import sqlite3
+import tempfile
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import closing
@@ -22,6 +24,7 @@ from dataclasses import dataclass, fields
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 from rich.console import Console
 from rich.progress import MofNCompleteColumn, Progress
 
@@ -74,11 +77,13 @@ async def grade_class(
     config: Config,
     api_key: str,
     students: Sequence[IngestRecord],
+    stages: Sequence[str] = tuple(STAGES),
 ) -> list[tuple[str, str]]:
     """Map, read, read again where the reader was unsure, and grade `students` (the
-    ingest's), showing each stage's progress and running cost, then audit the
-    class. The earlier audit's files are removed first, so that none can apply to a
-    new grade. Returns each (stage, student key) that failed."""
+    ingest's), or run only the `stages` named, showing each stage's progress and
+    running cost, then audit the class. The earlier audit's files are removed
+    first, so that none can apply to a new grade. Returns each (stage, student
+    key) that failed."""
     for old in workspace.audit_dir.glob("*.json"):
         old.unlink()
     keys = [s.student_key for s in students]
@@ -104,7 +109,7 @@ async def grade_class(
     )
     tasks = {
         stage: progress.add_task(stage, total=len(students), cost="$0")
-        for stage in runs
+        for stage in stages
     }
     strict = config.strict_privacy
     async with Gateway(workspace.cache_sqlite, api_key, strict_privacy=strict) as gw:
@@ -127,11 +132,65 @@ async def grade_class(
                 spent = now - before.get(role, NO_USE).cost
                 progress.update(tasks[stage], advance=1, cost=f"${spent:.4f}")
 
-            for stage in runs:
+            for stage in stages:
                 await asyncio.gather(*(one(stage, s) for s in keys))
             # On the same gateway: a reading is student work, sent only past the gate.
             await audit_class(workspace, key, students, gw, models["grader"])
     return failed
+
+
+@dataclass(frozen=True)
+class _Scratch(Workspace):
+    """A workspace's stored files, with its grade files written to `grades`."""
+
+    grades: Path
+
+    def grade_json(self, student: str, problem: str) -> Path:
+        return self.grades / student / f"{problem}.json"
+
+
+async def uncached(
+    workspace: Workspace,
+    key: Key,
+    model: ModelInfo,
+    students: Sequence[IngestRecord],
+) -> int:
+    """How many requests the grade stage would make for `students` that the call
+    cache does not answer. The stage runs as it would, but each request that gets
+    past the cache is counted and refused before it leaves, the cache is a copy and
+    the grade files go to a scratch folder, so nothing is sent and nothing stored
+    changes. A request that would follow a refused one is not counted."""
+    asked = 0
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        nonlocal asked
+        asked += 1
+        return httpx.Response(400)
+
+    with tempfile.TemporaryDirectory() as folder:
+        copy = Path(folder) / "cache.sqlite"
+        if workspace.cache_sqlite.exists():
+            stored = workspace.cache_sqlite.resolve().as_uri() + "?mode=ro"
+            with (
+                closing(sqlite3.connect(stored, uri=True)) as db,
+                closing(sqlite3.connect(copy)) as to,
+            ):
+                db.backup(to)
+        scratch = _Scratch(workspace.root, Path(folder) / "grades")
+        # No endpoint is needed: every request is refused here.
+        async with Gateway(
+            copy,
+            "",
+            strict_privacy=False,
+            requests_per_second=math.inf,
+            transport=httpx.MockTransport(refuse),
+        ) as gateway:
+            for student in students:
+                with contextlib.suppress(Exception):  # a refusal fails its problem
+                    await grade_student(
+                        scratch, student.student_key, key, gateway, model
+                    )
+    return asked
 
 
 # --- the dry run's estimate ----------------------------------------------------------

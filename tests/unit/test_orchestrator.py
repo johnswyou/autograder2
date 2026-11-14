@@ -27,12 +27,13 @@ from typer.testing import CliRunner
 import redpen.prompts
 from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
+from redpen.grade.grade import Grades
 from redpen.grade.ingest import IngestSummary
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
-from redpen.prepare.key import part_hash, save_key
-from redpen.report.report import STRICT_OFF_RUN, UNGRADED
+from redpen.prepare.key import load_key, part_hash, save_key
+from redpen.report.report import OTHER_READING, STRICT_OFF_RUN, UNGRADED
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
 from redpen.schemas.key import Key
@@ -48,6 +49,7 @@ from redpen.schemas.submission import (
 )
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
+from tests.grader import grades
 from tests.pinned import (
     GRADE_MODELS,
     GRADER,
@@ -69,8 +71,9 @@ class OpenRouter:
     """A mock OpenRouter that keeps every request: the ZDR listing answers as
     `zdr` says; with `reads`, a read request gets a valid reading of each part it
     names, handwritten with its line marked uncertain when `unsure`; with
-    `decides`, the class audit's request gets full points for every case; every
-    other chat request is refused with HTTP 400."""
+    `decides`, the class audit's request gets full points for every case; with
+    `grades`, a grade request gets what it gives; every other chat request is
+    refused with HTTP 400."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
@@ -80,6 +83,7 @@ class OpenRouter:
         self.reads = False
         self.unsure = False
         self.decides = False
+        self.grades: Callable[[dict[str, Any]], Grades] | None = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -94,6 +98,9 @@ class OpenRouter:
             cases = json.loads(body["messages"][1]["content"][2]["text"])["cases"]
             found = [{"case": c["case"], "reason": "r", "awarded": 1} for c in cases]
             return httpx.Response(200, json=answer(body, {"decisions": found}))
+        if self.grades and kind(body) == "Grades":
+            found = self.grades(body).model_dump(mode="json")
+            return httpx.Response(200, json=answer(body, found))
         return httpx.Response(400, json={"error": {"message": "refused by the test"}})
 
     @property
@@ -345,19 +352,19 @@ def test_one_student_s_failure_is_recorded_and_the_class_goes_on(
     result = grade()
 
     assert result.exit_code == 1
+    # The grade stage finds no reading of Ben's to grade: nothing more fails.
     assert [line for line in result.stderr.splitlines() if "failed" in line] == [
-        f"{stage}: 1 of 3 students failed." for stage in ("map", "read", "grade")
+        f"{stage}: 1 of 3 students failed." for stage in ("map", "read")
     ]
     assert "Ben" not in result.output + result.stderr
     entries = WS.run_log.read_text().split("--- ")[1:]
     assert [e.split("\n")[0].split()[1:] for e in entries] == [
         [stage, next(s for s in students() if s.startswith("Ben"))]
-        for stage in ("map", "read", "grade")
+        for stage in ("map", "read")
     ]
     assert all("Traceback (most recent call last)" in e for e in entries)
     assert "RuntimeError: the map broke" in entries[0]
     assert "FileNotFoundError" in entries[1] and "map.json" in entries[1]
-    assert "FileNotFoundError" in entries[2] and "readings" in entries[2]
     rows = {row["student"]: row for row in by_problem(WS)}
     for name in ("Ann Example", "Cal Example"):
         assert (rows[name]["total"], rows[name]["status"]) == ("0", "final")
@@ -456,8 +463,8 @@ def test_the_failures_are_named_even_when_the_report_cannot_be_written(
     result = grade()
 
     quiet(result)
-    assert result.stderr.splitlines()[-5:] == [  # after the progress lines
-        *(f"{stage}: 1 of 3 students failed." for stage in ("map", "read", "grade")),
+    assert result.stderr.splitlines()[-4:] == [  # after the progress lines
+        *(f"{stage}: 1 of 3 students failed." for stage in ("map", "read")),
         f"Each traceback is in {WS.run_log}.",
         f"The report could not be written. The traceback is in {WS.run_log}.",
     ]
@@ -1180,3 +1187,202 @@ def test_an_earlier_audit_is_removed_only_once_pages_may_be_sent(
 
     assert result.exit_code == (0 if how == "dry run" else 1)
     assert earlier.exists() == (how != "dies before the audit")
+
+
+# --- redpen regrade ------------------------------------------------------------------
+
+
+def regrade(*options: str) -> Any:
+    return runner.invoke(app, ["regrade", "--workspace", "ws", *options])
+
+
+def graded_once(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The class mapped, read and graded with every part earned in full; then the
+    router's requests forgotten and reads refused. Each student's page is their
+    own, so that no student's grade request is another's."""
+    for n, name in enumerate(NAMES, 1):
+        pdf = canvas.Canvas(str(Path("subs") / f"HW 1 - {name}.pdf"))
+        pdf.drawString(100, 650, f"{n}. x = {n}")
+        pdf.save()
+    router.reads, router.grades = True, grades
+    fast(router, monkeypatch)
+    assert grade().exit_code == 0
+    crops = {WS.crop_png(s, "Q4.b", 1).read_bytes() for s in students()}
+    assert len(crops) == len(NAMES)
+    router.reads = False
+    router.requests.clear()
+
+
+def edit_criterion(part_id: str) -> None:
+    """Edit the requirement of the first criterion of `part_id` in key.yaml."""
+    key = load_key(WS.key_yaml)
+    parts = [
+        p.model_copy(
+            update={
+                "criteria": [
+                    p.criteria[0].model_copy(update={"requirement": "Edited."}),
+                    *p.criteria[1:],
+                ]
+            }
+        )
+        if p.id == part_id
+        else p
+        for p in key.parts
+    ]
+    save_key(WS.key_yaml, key.model_copy(update={"parts": parts}))
+
+
+def grade_files() -> dict[Path, bytes]:
+    return {p: p.read_bytes() for p in WS.students_dir.glob("*/grades/*.json")}
+
+
+def grade_requests(router: OpenRouter) -> list[list[str]]:
+    """The part ids each chat request asks to grade, every one a grade request."""
+    found: list[list[str]] = []
+    for request in router.chats:
+        body = json.loads(request.content)
+        assert kind(body) == "Grades"
+        content = body["messages"][1]["content"]
+        texts = [json.loads(c["text"]) for c in content if c["type"] == "text"]
+        found.append([t["grade"]["part_id"] for t in texts if "grade" in t])
+    return sorted(found)
+
+
+Q4_PARTS = ["Q4.a", "Q4.b", "Q4.c"]
+
+
+def test_regrade_asks_only_for_the_problem_whose_criterion_was_edited(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    before = grade_files()
+    shutil.rmtree(WS.root / "out")
+    edit_criterion("Q4.b")
+
+    result = regrade()
+
+    assert result.exit_code == 0, result.output
+    assert grade_requests(router) == [Q4_PARTS] * len(NAMES)
+    others = [r.url.path for r in router.requests if r not in router.chats]
+    assert others == ["/api/v1/endpoints/zdr"]
+    after = grade_files()
+    assert sorted(after) == sorted(before)
+    assert {p for p in after if after[p] != before[p]} == {
+        p for p in before if p.name == "Q4.json"
+    }
+    assert {p.name for p in out_files(WS)} >= {"scores_detail.csv", "review.md"}
+    assert result.stdout.splitlines()[-2] == f"Wrote {WS.root / 'out'}"
+
+
+def test_regrade_with_nothing_changed_asks_nothing_and_writes_the_same(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    files, out = grade_files(), out_files(WS)
+
+    dry = regrade("--dry-run")
+    result = regrade()
+
+    assert dry.stdout == "Grade requests the call cache would not answer: 0.\n"
+    assert result.exit_code == 0, result.output
+    assert router.chats == []
+    assert grade_files() == files
+    assert out_files(WS) == out
+
+
+@pytest.mark.parametrize("how", ["gate fails", "key with problems", "dry run"])
+def test_regrade_sends_nothing_past_a_failed_gate_or_a_bad_key_or_in_a_dry_run(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    graded_once(router, monkeypatch)
+    edit_criterion("Q4.b")  # so that each student's Q4 would be asked again
+    files, out = grade_files(), out_files(WS)
+    cache = WS.cache_sqlite.read_bytes()
+    if how == "gate fails":
+        router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
+    if how == "key with problems":
+        text = WS.key_yaml.read_text()
+        WS.key_yaml.write_text(text.replace("points: 2", "points: 2.1", 1))
+
+    result = regrade("--dry-run") if how == "dry run" else regrade()
+
+    assert router.chats == []
+    assert grade_files() == files and out_files(WS) == out
+    if how == "dry run":
+        assert result.exit_code == 0, result.output
+        assert router.requests == []
+        assert result.stdout.splitlines() == [
+            f"Grade requests the call cache would not answer: {len(NAMES)}."
+        ]
+        assert WS.cache_sqlite.read_bytes() == cache
+        assert not WS.run_log.exists()
+        return
+    quiet(result)
+    last = result.stderr.splitlines()[-1]
+    if how == "gate fails":
+        assert last.startswith("Nothing was sent")
+    else:
+        assert last == f"{WS.key_yaml} has problems, so nothing was graded."
+
+
+def test_a_student_with_no_stored_reading_of_a_problem_is_skipped_and_named(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    first = students()[0]
+    WS.reading_json(first, "Q4").unlink()
+    kept = WS.grade_json(first, "Q4").read_bytes()
+    edit_criterion("Q4.b")
+
+    result = regrade()
+
+    assert result.exit_code == 0, result.output
+    assert grade_requests(router) == [Q4_PARTS] * (len(NAMES) - 1)
+    assert WS.grade_json(first, "Q4").read_bytes() == kept
+    assert (
+        "Problems not graded, with no stored reading: 1, of 1 students."
+        f" {WS.run_report_md} names them."
+    ) in result.stderr.splitlines()
+    assert "Example" not in result.output + result.stderr
+    named = f"- `{first}`: Q4.a, Q4.b, Q4.c. {UNGRADED}"
+    assert named in WS.run_report_md.read_text().splitlines()
+
+
+def test_a_problem_whose_new_grade_fails_keeps_its_file_and_is_logged_and_counted(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    first = students()[0]
+    # The first student's Q4.a and Q5.a read again, differently.
+    for problem in ("Q4", "Q5"):
+        path = WS.reading_json(first, problem)
+        records = read_model(path, ProblemReadings).records
+        read = records[0].reading.model_copy(update={"lines": ["y = 5"]})
+        records[0] = records[0].model_copy(update={"reading": read})
+        write_model(path, ProblemReadings(records=records))
+    q4, q5 = (WS.grade_json(first, q).read_bytes() for q in ("Q4", "Q5"))
+
+    def no_q4c_for_the_new_reading(body: dict[str, Any]) -> Grades:
+        found = grades(body)
+        if "y = 5" not in json.dumps(body):
+            return found
+        return Grades(grades=[g for g in found.grades if g.part_id != "Q4.c"])
+
+    router.grades = no_q4c_for_the_new_reading
+
+    result = regrade()
+
+    assert result.exit_code == 1
+    asked = ["Q5.a", "Q5.b", "Q5.c"]
+    assert grade_requests(router) == sorted([Q4_PARTS, Q4_PARTS, asked])
+    assert WS.grade_json(first, "Q4").read_bytes() == q4
+    assert WS.grade_json(first, "Q5").read_bytes() != q5
+    assert "grade: 1 of 3 students failed." in result.stderr.splitlines()
+    [entry] = WS.run_log.read_text().split("--- ")[1:]
+    assert entry.split("\n")[0].split()[1:] == ["grade", first]
+    assert "StageError" in entry and "y = 5" not in entry
+    with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
+        mine = [r for r in csv.DictReader(file) if r["student"] == NAMES[0]]
+    shown = {r["part"]: r["rationale"] for r in mine}
+    assert shown["Q4.a"] == OTHER_READING
+    assert shown["Q4.b"] != OTHER_READING

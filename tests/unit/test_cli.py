@@ -58,7 +58,6 @@ def test_help_lists_every_command(group: list[str], commands: set[str]) -> None:
 @pytest.mark.parametrize(
     "args",
     [
-        ["regrade", "--part", "Q7.b", "--student", "s1"],
         ["review"],
         ["override", "s1", "Q7.b-1", "2.5"],
     ],

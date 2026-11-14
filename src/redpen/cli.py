@@ -36,6 +36,7 @@ from redpen.config import (
 )
 from redpen.eval.eval import GoldError, evaluate, markdown, table
 from redpen.grade.ingest import IngestSummary, ingest
+from redpen.grade.read import problem_of
 from redpen.grade.second import vendor_problem
 from redpen.imaging import render
 from redpen.llm.client import (
@@ -62,6 +63,7 @@ from redpen.orchestrator import (
     estimate,
     grade_class,
     privacy_problems,
+    uncached,
 )
 from redpen.prepare.assemble import assemble
 from redpen.prepare.key import (
@@ -613,6 +615,30 @@ def _grade(
     endpoints keep nothing, then map, read, read again where the reader was unsure,
     and grade, and the report. Exit code 0 only when nothing failed; with
     `dry_run`, an estimate."""
+    config, api_key, spec, lock, key = _graded(ws, dry_run)
+    if dry_run:
+        _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
+        return
+    if found := vendor_problem(lock.models):  # before anything is sent
+        _fail(f"{ws.config_lock_toml}: {found}.")
+    summary = _ingest(ws, submissions, roster)
+    lock = _gate(ws, config, lock, api_key)
+    failed = _run(ws, spec, key, lock, config, api_key, summary.students, [*STAGES])
+    _report(ws, key, summary)
+    if summary.failed:
+        typer.echo(
+            f"Files not ingested: {len(summary.failed)}. {ws.run_report_md} lists"
+            " them.",
+            err=True,
+        )
+    if failed or summary.failed:
+        raise typer.Exit(code=1)
+
+
+def _graded(ws: Workspace, dry_run: bool) -> tuple[Config, str, Spec, Lock, Key]:
+    """What grading in `ws` needs, or exit with one line before anything is written
+    or sent: the configuration, the API key ("" for a dry run), the spec, the lock
+    and a key with no problem."""
     try:
         config = load_config()
         api_key = "" if dry_run else openrouter_api_key()
@@ -631,12 +657,12 @@ def _grade(
         typer.echo(problem, err=True)
     if problems:
         _fail(f"{ws.key_yaml} has problems, so nothing was graded.")
-    if dry_run:
-        _estimate(ws, ws.blank_pdf, _dry_ingest(submissions, roster))
-        return
-    if found := vendor_problem(lock.models):  # before anything is sent
-        _fail(f"{ws.config_lock_toml}: {found}.")
-    summary = _ingest(ws, submissions, roster)
+    return config, api_key, spec, lock, key
+
+
+def _gate(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Lock:
+    """Exit, with nothing sent, unless the pinned endpoints keep nothing; then the
+    lock, written with the prompt versions and the strict privacy of this run."""
     strict = config.strict_privacy
     gate = privacy_problems(lock, api_key, strict)
     if found := asyncio.run(gate):
@@ -655,21 +681,41 @@ def _grade(
             " may go to providers that keep them.",
             err=True,
         )
-    students = summary.students
-    run = grade_class(ws, spec, key, lock.models, config, api_key, students)
+    return lock
+
+
+def _run(
+    ws: Workspace,
+    spec: Spec,
+    key: Key,
+    lock: Lock,
+    config: Config,
+    api_key: str,
+    students: Sequence[IngestRecord],
+    stages: Sequence[str],
+) -> list[tuple[str, str]]:
+    """`grade_class` over `students` with `stages`, each stage's failures counted on
+    stderr; each (stage, student key) that failed."""
+    run = grade_class(ws, spec, key, lock.models, config, api_key, students, stages)
     try:
         failed = asyncio.run(run)
     except Exception as error:  # outside any one student: the cache or the ledger
         log_failure(ws, "grade", error)
         _fail(f"The class could not be graded. The traceback is in {ws.run_log}.")
     # Named before the report is tried, so that a report that fails hides none.
-    for stage in STAGES:
+    for stage in stages:
         if count := sum(1 for done, _ in failed if done == stage):
             typer.echo(
                 f"{stage}: {count} of {len(students)} students failed.", err=True
             )
     if failed:
         typer.echo(f"Each traceback is in {ws.run_log}.", err=True)
+    return failed
+
+
+def _report(ws: Workspace, key: Key, summary: IngestSummary) -> None:
+    """Rebuild `out/` for the ingest's students, and say where and how long the
+    review list is."""
     try:
         raised = write_report(
             ws, key, summary.students, [f.file for f in summary.failed]
@@ -677,16 +723,8 @@ def _grade(
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
-    if summary.failed:
-        typer.echo(
-            f"Files not ingested: {len(summary.failed)}. {ws.run_report_md} lists"
-            " them.",
-            err=True,
-        )
     typer.echo(f"Wrote {ws.root / 'out'}")
     typer.echo(review_line(ws, raised))
-    if failed or summary.failed:
-        raise typer.Exit(code=1)
 
 
 def _ingest(ws: Workspace, submissions: Path, roster: Path | None) -> IngestSummary:
@@ -821,12 +859,41 @@ def _print_estimate(
 
 
 @app.command()
-def regrade(
-    part: Annotated[str | None, typer.Option(help="Only this part.")] = None,
-    student: Annotated[str | None, typer.Option(help="Only this student.")] = None,
-) -> None:
-    """Re-grade whatever a key edit has invalidated."""
-    _not_implemented()
+def regrade(workspace: KeyWorkspace, dry_run: DryRun = False) -> None:
+    """Grade the latest ingest again from its stored readings, then audit and
+    report: no ingest, map or read. The call cache answers each grade request that
+    did not change, so only what a key edit changed is paid for."""
+    ws = Workspace(workspace)
+    config, api_key, spec, lock, key = _graded(ws, dry_run)
+    try:
+        summary = read_model(ws.ingest_summary_json, IngestSummary)
+    except (OSError, ValueError) as error:
+        _fail(f"{ws.root} holds no ingest to grade again ({type(error).__name__}).")
+    students = summary.students
+    if dry_run:
+        if (grader := lock.models.get("grader")) is None:
+            _fail(f"{ws.config_lock_toml}: no model is pinned for grader.")
+        count = asyncio.run(uncached(ws, key, grader, students))
+        typer.echo(f"Grade requests the call cache would not answer: {count}.")
+        return
+    lock = _gate(ws, config, lock, api_key)
+    problems = dict.fromkeys(problem_of(p.id) for p in key.parts)
+    unread = [
+        s.student_key
+        for s in students
+        for q in problems
+        if not ws.reading_json(s.student_key, q).exists()
+    ]
+    failed = _run(ws, spec, key, lock, config, api_key, students, ["grade"])
+    if unread:
+        typer.echo(
+            f"Problems not graded, with no stored reading: {len(unread)}, of"
+            f" {len(set(unread))} students. {ws.run_report_md} names them.",
+            err=True,
+        )
+    _report(ws, key, summary)
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -843,15 +910,7 @@ def report(workspace: KeyWorkspace) -> None:
         )
     if found := _point_problems(ws, key):
         _fail("\n".join(found))
-    try:
-        raised = write_report(
-            ws, key, summary.students, [f.file for f in summary.failed]
-        )
-    except Exception as error:  # written to the log: it may quote stored work
-        log_failure(ws, "report", error)
-        _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
-    typer.echo(f"Wrote {ws.root / 'out'}")
-    typer.echo(review_line(ws, raised))
+    _report(ws, key, summary)
 
 
 @app.command()

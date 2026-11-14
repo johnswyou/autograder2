@@ -48,7 +48,8 @@ async def grade_student(
     """Grade `student` from their stored readings and return each graded part's
     record, by part id, with the digest of the reading it was graded from. A part
     read as unreadable gets none, and so does a choice part answered with no option
-    read. Each top-level problem's file is replaced as soon as it is graded. The
+    read, and a problem with no stored reading is not graded. Each top-level
+    problem's file is replaced as soon as it is graded. The
     problems run concurrently; when one still fails its checks after one more call,
     `StageError` is raised once every other problem has finished, and that
     problem's earlier file, if any, is left as it was."""
@@ -73,6 +74,8 @@ async def grade_student(
         )
 
     async def grade(problem: str, parts: list[KeyPart]) -> None:
+        if not workspace.reading_json(student, problem).exists():
+            return
         mine = readings(problem)
         records: dict[str, GradeRecord] = {}
         asked: list[KeyPart] = []
