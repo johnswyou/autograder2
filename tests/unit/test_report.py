@@ -93,7 +93,16 @@ from redpen.schemas.reading import (
     SecondReading,
     SecondReadings,
 )
-from redpen.schemas.submission import IngestRecord
+from redpen.schemas.submission import (
+    Coverage,
+    CoveragePage,
+    IngestRecord,
+    Map,
+    MapEntry,
+    MapPage,
+    MapRecord,
+    SetAside,
+)
 from redpen.workspace import Workspace, keep_out_of_git, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
@@ -2914,6 +2923,149 @@ def test_a_review_stops_closing_its_flags_once_its_entry_shows_something_else(
     assert row["open_flags"] == str(len(raised))
 
 
+def unclaimed(
+    workspace: Workspace,
+    student: IngestRecord,
+    patch: bytes = b"a patch",
+    block: bytes = b"a block",
+    reason: str = "a note",
+    box: Sequence[float] = (0.5, 0.1, 0.9, 0.2),
+) -> None:
+    """`student`'s map with Q2's work in `box` and a block set aside on page 1 for
+    `reason` while Q1 has no response, checked: ink on page 3 that no region claims.
+    The coverage file and both images (`patch`, `block`) as the check stores them:
+    two `unclaimed_work` flags on the whole submission."""
+    who = student.student_key
+    mapped = MapRecord(
+        provenance=NOBODY,
+        pages=[
+            MapPage(number=p.number, rotation=0, photo=False) for p in student.pages
+        ],
+        map=Map(
+            entries=[
+                MapEntry(
+                    part_id="Q2",
+                    page=1,
+                    box=list(box),
+                    basis="position",
+                    role="work",
+                    confidence="high",
+                )
+            ],
+            unanswered=["Q1"],
+            set_aside=[SetAside(page=1, box=[0.1, 0.8, 0.4, 0.9], reason=reason)],
+        ),
+    )
+    write_model(workspace.map_json(who), mapped)
+    pages = [
+        CoveragePage(
+            number=p.number,
+            not_compared=None,
+            patches=[[0.1, 0.5, 0.3, 0.6]] if p.number == 3 else [],
+        )
+        for p in student.pages
+    ]
+    write_model(
+        workspace.coverage_json(who), Coverage(map_digest=digest(mapped), pages=pages)
+    )
+    for path, data in (
+        (workspace.patch_png(who, 3, 1), patch),
+        (workspace.aside_png(who, 1), block),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+
+WHOLE = "`A Student` (`s1`), the whole submission"
+
+
+def test_review_shows_a_whole_submission_with_its_images_and_accepting_closes_it(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    unclaimed(workspace, student)
+    ready(workspace, [student])
+    write_report(workspace, KEY, [student])
+    assert open_entries(workspace) == [WHOLE]
+    lines = workspace.review_md.read_text().splitlines()
+    at = lines.index(f"### {WHOLE}") + 1
+    end = next(n for n in range(at, len(lines)) if lines[n].startswith("#"))
+    entry = [line for line in lines[at:end] if line]
+
+    result = session(workspace, "correct", "accept")
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout.splitlines()
+    at = out.index(f"### {WHOLE}")
+    end = next(n for n in range(at, len(out)) if out[n].startswith("Accept, "))
+    # What review.md shows, then the absolute path of each image it and the list
+    # of blocks set aside link; accept, skip and quit only.
+    assert [line for line in out[at + 1 : end] if line] == [
+        *entry,
+        "- Files:",
+        f"  - patch 1, page 3: {workspace.patch_png('s1', 3, 1).absolute()}",
+        f"  - block 1, page 1: {workspace.aside_png('s1', 1).absolute()}",
+    ]
+    assert out[end].startswith("Accept, skip or quit: ")
+    assert out.count("Type accept, skip or quit.") == 1
+    assert [
+        (r["student"], r.get("part"))
+        for r in yaml_reader().load(workspace.reviews_yaml)
+    ] == [("s1", None)]
+    assert open_entries(workspace) == []
+    assert row_of(workspace.scores_by_problem_csv, student)["status"] == "final"
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- `s1`, the whole submission: `unclaimed_work`, `unclaimed_work`.",
+    ]
+
+
+def patch_replaced(workspace: Workspace, student: IngestRecord) -> None:
+    unclaimed(workspace, student, patch=b"another patch")
+
+
+def map_changed(workspace: Workspace, student: IngestRecord) -> None:
+    """Q2's box elsewhere, the check run again on the new map: the same ink left
+    over, the same images."""
+    unclaimed(workspace, student, box=(0.5, 0.1, 0.9, 0.25))
+
+
+def block_changed(workspace: Workspace, student: IngestRecord) -> None:
+    """Another reason for the block and another image of it, checked again."""
+    unclaimed(workspace, student, block=b"another block", reason="a doodle")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [patch_replaced, map_changed, block_changed],
+    ids=["a patch image changed", "the map changed", "a block set aside changed"],
+)
+def test_a_review_of_a_whole_submission_stops_closing_once_what_it_shows_changes(
+    built: Built, tmp_path: Path, change: Callable[[Workspace, IngestRecord], None]
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    unclaimed(workspace, student)
+    review_of(workspace, [student], ("s1", None))
+    assert write_report(workspace, KEY, [student]) == []
+
+    change(workspace, student)
+    raised = write_report(workspace, KEY, [student])
+
+    assert {(f.code, f.part_id) for f in raised} == {(F.UNCLAIMED_WORK, None)}
+    assert open_entries(workspace) == [WHOLE]
+    for path in (workspace.review_md, workspace.run_report_md):
+        assert section(path, "## Reviews out of date") == [
+            OUTDATED,
+            "- `s1`, the whole submission.",
+        ]
+    assert section(workspace.review_md, "## Closed by review") == []
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("provisional", str(len(raised)))
+
+
 def test_a_review_stops_closing_once_a_later_version_raises_another_flag_on_it(
     built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3580,6 +3732,7 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
         workspace.second_grade_json("s6"),
         SecondGrades(records=[second_grade_of_q4b(load(workspace, KEY, s6), "differ")]),
     )
+    unclaimed(workspace, s3)  # work no part claims, and a block set aside
     ready(workspace, students, key)
     listing = session(workspace, listing=True).stdout.splitlines()
     assert [line.split(":")[0] for line in listing] == [
@@ -3587,6 +3740,7 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
         "`s1`, Q4.b",
         "`s5`, Q4.b",
         "`s6`, Q4.b",
+        "`s3`, the whole submission",
         "`s2`, Q4.b",
         "`s3`, Q5.b",
         "`s4`, Q4.c",
@@ -3596,6 +3750,7 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
         "readers_disagree",
         "unreadable",
         "graders_disagree",
+        "unclaimed_work",
         "transcript_dispute",
         "code_overruled",
         "audit_changed",
@@ -3604,13 +3759,14 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
     result = session(
         workspace,
         *("accept", "accept", "accept", "accept"),  # the key's Q2, s1, s5, s6
+        "accept",  # s3's whole submission
         *("correct", "1", "0.5", "Check line 2."),  # s2's Q4.b: both criteria
         *("correct", "", ""),  # s3's Q5.b: both kept, so accepted
         "accept",  # s4
     )
 
     assert result.exit_code == 0, result.output
-    assert result.stdout.splitlines()[-1] == counts(7, 1, 0, 0)
+    assert result.stdout.splitlines()[-1] == counts(8, 1, 0, 0)
     # The note on the first criterion typed alone.
     assert [
         (o["student"], o["criterion"], str(o["points"]), o.get("note"))
@@ -3623,7 +3779,7 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
         s5.student_name: "incomplete",
     }
     assert section(workspace.review_md, "## Reviews out of date") == []
-    assert len(section(workspace.review_md, "## Closed by review")) == 1 + 7
+    assert len(section(workspace.review_md, "## Closed by review")) == 1 + 8
 
 
 TERMINAL = "\x1b[2J\x1b[H\rgone\x08‮RTL\x00"  # clears, moves, hides, reorders

@@ -22,7 +22,12 @@ from typing import Literal, get_args
 from pydantic import BaseModel, ValidationError
 
 from redpen.config import Profile, read_lock
-from redpen.grade.coverage import set_aside_section, unclaimed_flags, unclaimed_lines
+from redpen.grade.coverage import (
+    set_aside_section,
+    unclaimed_flags,
+    unclaimed_lines,
+    unclaimed_shown,
+)
 from redpen.grade.grade import graded_from, levels, part_points
 from redpen.grade.map import name_counts
 from redpen.grade.read import digest, problem_of, unsure
@@ -258,7 +263,8 @@ def _shown(
     reading, the bytes of each crop the entry links, its second reading, its second
     grade, its grade after the class audit, why it is withheld, and the
     instructor's corrections of it (with the grade, they give the grade after the
-    corrections)."""
+    corrections); for a whole submission, each flag's cause, the bytes of each
+    image the entry or the list of blocks set aside links, and the map."""
     who, part_id = place
     part = next((p for p in key.parts if p.id == part_id), None)
     shown: list[BaseModel | str | None] = [*sorted({f.code for f in found})]
@@ -273,16 +279,17 @@ def _shown(
         shown += [
             first,
             # The images themselves: a new PDF can be read and graded the same.
-            *(
-                hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None
-                for p in crops
-            ),
+            *(_bytes(p) for p in crops),
             stored.seconds.get(part.id),
             stored.second_grades.get(part.id),
             base,
             s.withheld,
             *(s.overrides[c] for c in sorted(s.overrides)),
         ]
+    elif who is not None and part_id is None:  # a whole submission
+        [student] = [st.student for st, _ in scored if st.student.student_key == who]
+        mapped, images = unclaimed_shown(workspace, student)
+        shown += [*(f.detail for f in found), *(_bytes(p) for _, p in images), mapped]
     material = " ".join(
         digest(x) if isinstance(x, BaseModel) else str(x) for x in shown
     )
@@ -292,6 +299,11 @@ def _shown(
         part_hash=None if part is None else part_hash(part, key.policies),
         digest=hashlib.sha256(material.encode()).hexdigest()[:12],
     )
+
+
+def _bytes(path: Path) -> str | None:
+    """The sha256 of the file at `path`, or None when there is none."""
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
 def write_report(
@@ -1222,6 +1234,13 @@ def review_entries(
         shown, files = _entry(workspace, key, found.scored, place, entries[place])
         s = _score_at(found.scored, place)
         shown += _criteria(s) if s else []
+        if files is None:  # a whole submission: the images review.md links
+            [who] = [
+                st.student
+                for st, _ in found.scored
+                if st.student.student_key == place[0]
+            ]
+            files = unclaimed_shown(workspace, who)[1]
         if files:
             shown += ["- Files:", *(f"  - {t}: {p.absolute()}" for t, p in files)]
         line = _line(key, found.scored, place, entries[place])

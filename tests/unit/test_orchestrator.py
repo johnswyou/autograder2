@@ -55,6 +55,7 @@ from redpen.schemas.submission import (
     MapEntry,
     MapPage,
     MapRecord,
+    SetAside,
 )
 from redpen.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
@@ -2323,6 +2324,59 @@ def test_a_review_holds_through_a_regrade_and_a_grade_that_change_nothing(
     lines = WS.review_md.read_text().splitlines()
     at = lines.index("## Reviews out of date")
     assert lines[at + 4 :] == [f"- `{s}`, Q4.b." for s in sorted(students())]
+
+
+async def mapped_with_a_note(
+    workspace: Workspace, student: str, spec: Spec, *_: object
+) -> None:
+    """A map stage that finds every part's work in one box on page 1 but the last
+    part's, which has no response, and sets a block below it aside: a note."""
+    await mapped_everywhere(workspace, student, spec)
+    record = read_model(workspace.map_json(student), MapRecord)
+    last = spec.parts[-1].id
+    found = record.map.model_copy(
+        update={
+            "entries": [e for e in record.map.entries if e.part_id != last],
+            "unanswered": [last],
+            "set_aside": [SetAside(page=1, box=[0.1, 0.5, 0.6, 0.6], reason="a note")],
+        }
+    )
+    write_model(workspace.map_json(student), record.model_copy(update={"map": found}))
+
+
+def test_a_whole_submission_s_review_holds_through_a_report_regrade_and_grade(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own_pages()
+    router.reads, router.grades = True, grades
+    fast(router, monkeypatch)
+    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_with_a_note)
+    assert grade().exit_code == 0
+    assert review("--list").stdout.splitlines() == [
+        f"`{s}`, the whole submission: `unclaimed_work`." for s in sorted(students())
+    ]
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+
+    reviewed = review(answers="accept\n" * len(NAMES))
+
+    assert reviewed.exit_code == 0, reviewed.output
+    assert statuses() == {"final"}
+    kept = WS.reviews_yaml.read_bytes()
+    images = {p: p.read_bytes() for p in WS.root.glob("students/*/unclaimed/*.png")}
+    assert len(images) == len(NAMES)  # one block set aside each
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    for again in (
+        lambda: runner.invoke(app, ["report", "--workspace", "ws"]),
+        regrade,
+        grade,
+    ):
+        result = again()
+        assert result.exit_code == 0, result.output
+        # The images the entry and the list link, which its review covers, the same.
+        assert {p: p.read_bytes() for p in images} == images
+        assert review("--list").stdout == f"{NOTHING_TO_REVIEW}\n"
+        assert statuses() == {"final"}
+        assert WS.reviews_yaml.read_bytes() == kept
 
 
 def test_a_review_goes_out_of_date_when_a_new_pdf_is_read_and_graded_the_same(

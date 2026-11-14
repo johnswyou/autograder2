@@ -369,6 +369,35 @@ def _link(workspace: Workspace, path: Path) -> str:
     return path.relative_to(workspace.review_md.parent, walk_up=True).as_posix()
 
 
+def _images(workspace: Workspace, found: _Stored) -> list[tuple[str, Path]]:
+    """Each image the review list links for `found`'s student, labelled: each patch
+    of leftover ink, page by page, then each block set aside; none while the
+    check's file is not of the map."""
+    if not (found.coverage and found.mapped):
+        return []
+    key = found.student.student_key
+    patches = [
+        (f"patch {n}, page {page.number}", workspace.patch_png(key, page.number, n))
+        for page in found.coverage.pages
+        for n in range(1, len(page.patches) + 1)
+    ]
+    blocks = [
+        (f"block {n}, page {block.page}", workspace.aside_png(key, n))
+        for n, block in _blocks(found.mapped)
+    ]
+    return patches + blocks
+
+
+def unclaimed_shown(
+    workspace: Workspace, student: IngestRecord
+) -> tuple[MapRecord | None, list[tuple[str, Path]]]:
+    """What `student`'s whole-submission entry shows besides its flags: the map the
+    check ran on, and each image the entry or the list of blocks set aside links,
+    labelled."""
+    [found] = _stored(workspace, [student])
+    return found.mapped, _images(workspace, found)
+
+
 def unclaimed_flags(
     workspace: Workspace, students: Sequence[IngestRecord]
 ) -> list[Flag]:
