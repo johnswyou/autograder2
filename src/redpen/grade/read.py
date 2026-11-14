@@ -205,16 +205,24 @@ def unit_images(
     call: each page that holds an entry, whole, then each distinct mapped box grown
     by `MARGIN` and rendered from `source.pdf` to fill the image budget, all turned
     upright as `pages` (the map record's) say, and contrast-corrected on a page they
-    call a photo unless it is mostly white. With `save`, each region image is also
-    saved with `Workspace.crop_png` under each part it holds."""
+    call a photo unless it is mostly white. Each of a page's `names` is blanked in
+    every image of the page, last, so that nothing else in the image changes. With
+    `save`, each region image is also saved with `Workspace.crop_png` under each
+    part it holds: these are what the grade stage sends."""
     kind = read_model(workspace.ingest_json(student), IngestRecord).source_kind
     facts = {p.number: p for p in pages}
     corrected: dict[int, bool] = {}
 
-    def upright(image: Image.Image, number: int) -> bytes:
-        turned = prep.rotate(image, facts[number].rotation // 90)
+    def upright(
+        image: Image.Image, number: int, frame: Sequence[float] = (0, 0, 1, 1)
+    ) -> bytes:
+        """`image`, the part `frame` of page `number`, as it is sent."""
+        turns = facts[number].rotation // 90
+        turned = prep.rotate(image, turns)
         shown = prep.correct_contrast(turned) if corrected[number] else turned
-        return prep.reduced_png(shown, image_budget)
+        inside = [prep.box_within(name, frame) for name in facts[number].names]
+        blanked = [prep.box_to_rotated(b, turns) for b in inside if b is not None]
+        return prep.reduced_png(shown, image_budget, blanked)
 
     items: list[Content] = []
     for number in sorted({e.page for e in unit.entries}):
@@ -240,7 +248,7 @@ def unit_images(
             ]
             parts = list(dict.fromkeys(e.part_id for e in here))
             region = _region(pdf[number - 1], kind, box, image_budget)
-            png = upright(region.image, number)
+            png = upright(region.image, number, region.box)
             for part in parts:
                 latest[part] = n
                 crops[part].append(

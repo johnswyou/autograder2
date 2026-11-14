@@ -5,14 +5,15 @@ import asyncio
 import io
 import json
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from math import ceil, floor
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from redpen import prompts
 from redpen.grade.ingest import IngestSummary
@@ -375,6 +376,89 @@ def test_a_page_flagged_as_a_photo_is_corrected_only_when_it_is_not_mostly_blank
         assert prep.reduced_png(image, BUDGET) != prep.reduced_png(
             prep.correct_contrast(image), BUDGET
         )
+
+
+# --- names masked ------------------------------------------------------------------
+
+
+def blanked_box(png: bytes, plain: bytes) -> tuple[int, int, int, int] | None:
+    """The pixel box of what `png` changed in `plain`, once every pixel in it is
+    seen to be flat black: the region blanked. None when nothing changed."""
+    on, off = Image.open(io.BytesIO(png)), Image.open(io.BytesIO(plain))
+    assert on.size == off.size
+    box = ImageChops.difference(on.convert("RGB"), off.convert("RGB")).getbbox()
+    if box:
+        assert on.convert("RGB").crop(box).getextrema() == ((0, 0), (0, 0), (0, 0))
+    return box
+
+
+def pixels(box: Sequence[float], png: bytes) -> tuple[int, int, int, int]:
+    """Every pixel `box` (fractions) touches on the image `png`."""
+    width, height = Image.open(io.BytesIO(png)).size
+    x0, y0, x1, y1 = box
+    return (
+        floor(round(x0 * width, 6)),
+        floor(round(y0 * height, 6)),
+        ceil(round(x1 * width, 6)),
+        ceil(round(y1 * height, 6)),
+    )
+
+
+def test_a_name_is_blanked_in_the_page_and_in_a_region_that_takes_it_in(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, truth = student_of(fixture_workspace, "ink-in-place")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    [name] = truth.map.set_aside  # the name signed on the name line of page 1
+    below = [0.2, name.box[3] + 0.005, 0.4, 0.2]  # its margin takes the name in
+    far = [0.5, 0.5, 0.7, 0.6]
+    found = Map(
+        entries=[entry("Q1", 1, below), entry("Q2", 1, far)],
+        unanswered=[],
+        set_aside=[],
+    )
+    [unit] = units(SPEC, found)
+    plain = [MapPage(number=n, rotation=0, photo=False) for n in range(1, 5)]
+    named = [p.model_copy(update={"names": [name.box]}) for p in plain]
+    named[3] = plain[3]  # a page with no name
+
+    off = unit_images(workspace, student, unit, plain, BUDGET, save=False)
+    on = unit_images(workspace, student, unit, named, BUDGET)
+
+    assert [i for i in on.items if isinstance(i, str)] == [
+        i for i in off.items if isinstance(i, str)
+    ]
+    assert on.crops == off.crops
+    overview, region, other = [i for i in on.items if isinstance(i, bytes)]
+    plain_overview, plain_region, plain_other = [
+        i for i in off.items if isinstance(i, bytes)
+    ]
+    assert blanked_box(overview, plain_overview) == pixels(name.box, overview)
+    [crop] = on.crops["Q1"]
+    inside = prep.box_within(name.box, crop.box)
+    assert inside and blanked_box(region, plain_region) == pixels(inside, region)
+    assert other == plain_other  # a region clear of the name is sent as it was
+    assert workspace.crop_png(student, "Q1", 1).read_bytes() == region  # as sent
+
+
+def test_a_name_on_a_turned_page_is_blanked_where_the_page_turned_upright_has_it(
+    fixture_workspace: tuple[Workspace, IngestSummary], tmp_path: Path
+) -> None:
+    student, truth = student_of(fixture_workspace, "rotated")
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    plain = map_of(truth).pages
+    assert plain[2].rotation == 90
+    named = [p.model_copy(update={"names": [[0.1, 0.1, 0.3, 0.2]]}) for p in plain]
+    [unit] = [u for u in units(SPEC, truth.map) if u.name == "Q4"]
+
+    off = unit_images(workspace, student, unit, plain, BUDGET, save=False)
+    on = unit_images(workspace, student, unit, named, BUDGET, save=False)
+
+    assert [a.get("page") for a in about(on.items)][:2] == [2, 3]
+    turned, plain_turned = on.items[3], off.items[3]
+    assert isinstance(turned, bytes) and isinstance(plain_turned, bytes)
+    # A quarter turn clockwise takes (x0, y0, x1, y1) to (1 - y1, x0, 1 - y0, x1).
+    assert blanked_box(turned, plain_turned) == pixels([0.8, 0.1, 0.9, 0.3], turned)
 
 
 # --- checks ------------------------------------------------------------------------
