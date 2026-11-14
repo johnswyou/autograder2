@@ -101,6 +101,8 @@ def test_prepare_gives_the_workspace_it_makes_a_gitignore_holding_everything(
         ["eval", "--gold", "gold.csv"],
         ["override", "x", "Q1.c1", "1"],
         ["models", "check"],
+        ["run", "blank.pdf", "subs", "--dry-run"],
+        ["prepare", "not-a.pdf"],  # it stops before it copies the blank
     ],
 )
 def test_any_command_that_finds_a_workspace_with_no_gitignore_writes_one(
@@ -111,6 +113,9 @@ def test_any_command_that_finds_a_workspace_with_no_gitignore_writes_one(
     workspace = Workspace(Path("ws"))
     workspace.blank_pdf.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / "blank.pdf", workspace.blank_pdf)
+    shutil.copyfile(FIXTURES / "blank.pdf", "blank.pdf")
+    Path("not-a.pdf").write_text("text\n")
+    Path("subs").mkdir()
 
     runner.invoke(app, [*args, "--workspace", "ws"])
 

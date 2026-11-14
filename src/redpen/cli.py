@@ -241,6 +241,7 @@ def run(
     what was answered before is not paid for twice."""
     _constraint(total, page_points)  # a dry run leaves the key as it is
     ws = Workspace.for_blank(blank, workspace)
+    keep_out_of_git(ws)
     if dry_run:
         _estimate(ws, blank, _dry_ingest(submissions, roster), profile)
         return
@@ -261,10 +262,11 @@ def prepare(
     """Build the key only. On a workspace that has one, --total or --page-points
     sets its points and changes nothing else, with no model call."""
     points = _constraint(total, page_points)
+    ws = Workspace.for_blank(blank, workspace)
+    keep_out_of_git(ws)  # a workspace that exists; a new one once the blank is in
     # Refused rather than ignored: ignoring --dry-run would spend money.
     if dry_run:
         _fail("--dry-run is not supported yet")
-    ws = Workspace.for_blank(blank, workspace)
     # Opened before anything is copied, so a bad file leaves the workspace free.
     try:
         data = blank.read_bytes()
