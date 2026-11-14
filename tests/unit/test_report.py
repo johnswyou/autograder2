@@ -3026,6 +3026,38 @@ def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
         assert section(path, "## Reviews out of date") == [OUTDATED, "- The key, Q4.b."]
 
 
+def test_the_order_of_the_corrections_in_their_file_keeps_a_review(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    one, two = (correction(student, c, "1") for c in ("Q4.b.c2", "Q4.b.c1"))
+    corrections(workspace, one, two)
+    review_of(workspace, [student], ("s1", "Q4.b"))
+    assert write_report(workspace, KEY, [student]) == []
+
+    corrections(workspace, two, one)  # the same corrections, in the other order
+
+    assert write_report(workspace, KEY, [student]) == []
+    assert section(workspace.review_md, "## Reviews out of date") == []
+
+
+def test_the_run_report_counts_the_flags_a_review_closes_not_its_entries(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    # One entry with two flags.
+    graded_with(workspace, student, "Q4.b", transcript_dispute="d", code_overruled="y")
+    review_of(workspace, [student], ("s1", "Q4.b"))
+
+    write_report(workspace, KEY, [student])
+
+    report = workspace.run_report_md.read_text().splitlines()
+    assert "Flags raised: 2. Closed by review: 2. Open: 0." in report
+
+
 def ready(
     workspace: Workspace, students: Sequence[IngestRecord], key: Key = KEY
 ) -> None:
@@ -3268,6 +3300,58 @@ def test_a_withheld_part_corrected_in_full_is_scored_and_reviewed(
     assert result.stdout.splitlines()[-1] == counts(1, 1, 0, 0)
     for entry in yaml_reader().load(workspace.overrides_yaml):
         assert "note" not in entry
+
+
+def test_on_a_withheld_part_the_instructor_s_earlier_award_is_shown_and_kept(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    unread_q4b(built, workspace, student)
+    corrections(workspace, correction(student, "Q4.b.c1", "1", "Seen."))
+    ready(workspace, [student])
+
+    # Return keeps Q4.b.c1's earlier correction; Q4.b.c2 typed; no note.
+    result = session(workspace, "correct", "", "0.5", "")
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout.splitlines()
+    assert "  - Q4.b.c1: 1 / 2, the instructor's." in out
+    assert "  - Q4.b.c2: none, out of 1." in out
+    assert "Q4.b.c1, from 0 to 2, return keeps 1: " in result.stdout
+    assert [
+        (o["criterion"], str(o["points"]), o.get("note"))
+        for o in yaml_reader().load(workspace.overrides_yaml)
+    ] == [("Q4.b.c1", "1", "Seen."), ("Q4.b.c2", "0.5", None)]
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- `s1`, Q4.b: `unreadable`. Proposed score: 1.5 / 3.",
+    ]
+
+
+def test_an_entry_reviewed_again_once_out_of_date_has_its_review_replaced(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    offline(monkeypatch)
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    ready(workspace, [student])
+    assert session(workspace, "accept").exit_code == 0
+    lowered("Q4.b.c2")(built, workspace, student)  # graded again: another award
+    assert session(workspace, listing=True).stdout.splitlines() == [
+        "`s1`, Q4.b: `transcript_dispute`. Proposed score: 2 / 3."
+    ]
+
+    result = session(workspace, "accept")
+
+    assert result.exit_code == 0, result.output
+    [entry] = yaml_reader().load(workspace.reviews_yaml)
+    assert (entry["student"], entry["part"]) == ("s1", "Q4.b")
+    assert open_entries(workspace) == []
+    assert section(workspace.review_md, "## Reviews out of date") == []
+    assert row_of(workspace.scores_by_problem_csv, student)["status"] == "final"
 
 
 def test_a_key_part_offers_no_correction(
