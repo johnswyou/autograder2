@@ -725,6 +725,8 @@ def test_run_with_a_total_sets_it_in_the_key_and_reaches_grading(
         reached.append((ws.key_yaml.resolve(), points, submissions, dry_run))
 
     monkeypatch.setattr("redpen.cli._grade", grade)
+    Path("subs").mkdir()  # run looks for a PDF in it before prepare
+    Path("subs", "HW 1 - Ann Example.pdf").write_bytes(b"")
 
     result = runner.invoke(
         app, ["run", "blank.pdf", "subs", "--workspace", "ws", "--total", "4"]

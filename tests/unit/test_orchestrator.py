@@ -247,9 +247,18 @@ def by_problem(workspace: Workspace) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def a_pdf_in_subs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`tmp_path` as cwd, with a folder `subs` holding a PDF: run looks for one there
+    before prepare."""
+    monkeypatch.chdir(tmp_path)
+    Path("subs").mkdir()
+    Path("subs", "HW 1 - Ann Example.pdf").write_bytes(b"")
+
+
 def test_run_prepares_then_grades(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    a_pdf_in_subs(tmp_path, monkeypatch)
     calls: list[tuple[str, tuple[object, ...]]] = []
     monkeypatch.setattr("redpen.cli.prepare", lambda *a: calls.append(("prepare", a)))
     monkeypatch.setattr("redpen.cli._grade", lambda *a, **k: calls.append(("grade", a)))
@@ -267,7 +276,11 @@ def test_run_prepares_then_grades(
     ]
 
 
-def test_run_grades_nothing_when_prepare_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_grades_nothing_when_prepare_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a_pdf_in_subs(tmp_path, monkeypatch)
+
     def failing(*args: object) -> None:
         raise SystemExit(1)
 
