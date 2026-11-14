@@ -924,7 +924,11 @@ def test_key_check_names_a_part_changed_after_it_was_verified(
     result = runner.invoke(app, ["key", "check", "--workspace", "ws"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.splitlines()[0] == "Q4.b was changed after it was verified."
+    assert result.output.splitlines()[:2] == [
+        "Q4.b was changed after it was verified.",
+        "`redpen regrade` grades the class again under the edited key;"
+        " `redpen key verify` has the edit checked.",
+    ]
     assert sum("was changed" in line for line in result.output.splitlines()) == 1
     assert workspace.key_yaml.read_bytes() == edited  # no state changed
 

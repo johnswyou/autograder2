@@ -738,8 +738,8 @@ def key_check(workspace: KeyWorkspace) -> None:
 
 
 def _changed_by_hand(ws: Workspace, key: Key) -> list[str]:
-    """`changed` against verification.json: nothing without the file, and one line
-    when it does not load."""
+    """`changed` against verification.json, then what to do next: nothing without
+    the file, and one line when it does not load."""
     if not ws.verification_json.exists():
         return []
     try:
@@ -749,7 +749,12 @@ def _changed_by_hand(ws: Workspace, key: Key) -> list[str]:
             f"{ws.verification_json} does not load, so no part is checked for a"
             " change since it was verified."
         ]
-    return changed(key, record)
+    if found := changed(key, record):
+        found.append(
+            "`redpen regrade` grades the class again under the edited key;"
+            " `redpen key verify` has the edit checked."
+        )
+    return found
 
 
 @key_app.command("render")
