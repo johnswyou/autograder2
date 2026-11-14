@@ -39,7 +39,10 @@ from redpen.prepare.key import (
     save_key,
     yaml_writer,
 )
+from redpen.report import report as reporting
+from redpen.report.overrides import record_review
 from redpen.report.report import (
+    CLOSED,
     CORRECTED,
     DETAIL,
     NO_OPTION,
@@ -47,6 +50,7 @@ from redpen.report.report import (
     NOTHING_TO_REVIEW,
     OTHER_KEY,
     OTHER_READING,
+    OUTDATED,
     STALE,
     UNGRADED,
     UNREADABLE,
@@ -56,6 +60,7 @@ from redpen.report.report import (
     load,
     one_line,
     review,
+    review_entries,
     review_line,
     score,
     status,
@@ -2555,3 +2560,406 @@ def test_under_a_point_constraint_a_correction_s_line_gives_no_points(
     part = feedback.split("**4(b)")[1].split("**4(c)")[0]
     assert part.splitlines()[1:] == ["- Marked by your instructor. A note.", ""]
     assert detail_of(workspace, "Q4.b.c1") == ("1", CORRECTED)  # its own points
+
+
+# --- the instructor's reviews (`redpen review`) -----------------------------------
+
+
+def review_of(
+    workspace: Workspace,
+    students: Sequence[IngestRecord],
+    place: tuple[str | None, str | None],
+    key: Key = KEY,
+) -> None:
+    """Record the review of the entry at `place` as it stands, as `redpen review`'s
+    accept does."""
+    [entry] = [
+        e
+        for e in review_entries(workspace, key, students)
+        if (e.review.student, e.review.part) == place
+    ]
+    keys = [s.student_key for s in students]
+    record_review(workspace.reviews_yaml, key, keys, entry.review)
+
+
+def section(path: Path, heading: str) -> list[str]:
+    """The lines of `path`'s section `heading`, up to the next, blank lines left
+    out; none when it has no such section."""
+    lines = path.read_text().splitlines()
+    if heading not in lines:
+        return []
+    at = lines.index(heading) + 1
+    end = next((n for n in range(at, len(lines)) if lines[n].startswith("## ")), None)
+    return [line for line in lines[at:end] if line]
+
+
+def open_entries(workspace: Workspace) -> list[str]:
+    """The headings of the review list's open entries."""
+    return [heading for heading, _ in listed(workspace)]
+
+
+def test_a_review_closes_its_entry_s_flags_and_every_file_follows(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)  # medium
+    graded_with(workspace, student, "Q5.a", code_overruled="y")  # low
+    write_report(workspace, KEY, [student])
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("provisional", "2")
+    kept = {
+        p: p.read_bytes()
+        for p in (
+            workspace.feedback_md("s1"),
+            workspace.scores_by_page_csv,
+            workspace.scores_detail_csv,
+        )
+    }
+
+    review_of(workspace, [student], ("s1", "Q4.b"))
+    raised = write_report(workspace, KEY, [student])
+
+    assert [(f.code, f.part_id) for f in raised] == [(F.CODE_OVERRULED, "Q5.a")]
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert (row["status"], row["open_flags"]) == ("final", "1")
+    assert {p: p.read_bytes() for p in kept} == kept  # the score stands
+    assert open_entries(workspace) == ["`A Student` (`s1`), Q5.a"]
+    # A closed flag is not deleted: listed last, in one line.
+    lines = workspace.review_md.read_text().splitlines()
+    assert lines[lines.index("## Closed by review") :] == [
+        "## Closed by review",
+        "",
+        CLOSED,
+        "",
+        "- `s1`, Q4.b: `transcript_dispute`. Proposed score: 3 / 3.",
+    ]
+    report = workspace.run_report_md.read_text().splitlines()
+    assert "| transcript_dispute | medium | 1 |" in report  # raised, and counted
+    assert "Flags raised: 2. Closed by review: 1. Open: 1." in report
+    assert entries_line(1) in report
+    assert section(workspace.review_md, "## Reviews out of date") == []
+
+
+def test_with_every_entry_reviewed_the_list_says_nothing_needs_review(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    review_of(workspace, [student], ("s1", "Q4.b"))
+
+    assert write_report(workspace, KEY, [student]) == []
+
+    lines = workspace.review_md.read_text().splitlines()
+    assert lines[:3] == ["# Review list", "", NOTHING_TO_REVIEW]
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- `s1`, Q4.b: `transcript_dispute`. Proposed score: 3 / 3.",
+    ]
+    assert entries_line(0) in workspace.run_report_md.read_text().splitlines()
+
+
+# What happens to the stored files before the review and after it: each `Step`
+# returns the key to report with, or None for the one before.
+type Step = Callable[[Built, Workspace, IngestRecord], Key | None]
+
+
+def unchanged(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+    pass
+
+
+def lowered(criterion: str) -> Step:
+    """Q4.b graded again, with 0 on `criterion`."""
+
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        def change(r: GradeRecord) -> GradeRecord:
+            criteria = [
+                c.model_copy(update={"awarded": Decimal(0)}) if c.id == criterion else c
+                for c in r.grade.criteria
+            ]
+            grade = r.grade.model_copy(update={"criteria": criteria})
+            return r.model_copy(update={"grade": grade})
+
+        change_grades(workspace, student, "Q4", change)
+
+    return step
+
+
+def corrected(criterion: str) -> Step:
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        corrections(workspace, correction(student, criterion, "1"))
+
+    return step
+
+
+def uncorrected(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+    corrections(workspace)
+
+
+def overruled(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+    graded_with(workspace, student, "Q4.b", code_overruled="y")  # a flag more
+
+
+def edited(key: Key) -> Key:
+    """`key` with the requirement of Q4.b's first criterion edited."""
+    return key.model_copy(
+        update={
+            "parts": [
+                p.model_copy(
+                    update={
+                        "criteria": [
+                            p.criteria[0].model_copy(update={"requirement": "Edited."}),
+                            *p.criteria[1:],
+                        ]
+                    }
+                )
+                if p.id == "Q4.b"
+                else p
+                for p in key.parts
+            ]
+        }
+    )
+
+
+def regraded(
+    built: Built, workspace: Workspace, student: IngestRecord, key: Key
+) -> None:
+    """The copied typed-in-place `student` graded again under `key`, as regrade
+    would."""
+    truth = built.truths[student_of(built, "typed-in-place").student_key]
+    grades = [graded(with_feedback(g), key) for g in truth.grades]
+    store_grades(workspace, student.student_key, grades, key)
+
+
+def key_edited(built: Built, workspace: Workspace, student: IngestRecord) -> Key:
+    """Q4.b's first criterion edited, and the student graded again under it."""
+    key = edited(KEY)
+    regraded(built, workspace, student, key)
+    change_grades(workspace, student, "Q4", disputed)
+    return key
+
+
+def unread_q4b(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+    """Q4.b read as unreadable, so withheld, with no grade."""
+    change_reading(workspace, student, "Q4.b", unreadable)
+    change_grades(
+        workspace, student, "Q4", lambda r: None if r.grade.part_id == "Q4.b" else r
+    )
+
+
+def read_again(line: str) -> Step:
+    """Q4.b read a second time as `line`, not decided against the first: no flag."""
+
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        first = load(workspace, KEY, student).readings["Q4.b"]
+        reading = first.reading.model_copy(update={"lines": [line]})
+        [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+        record = SecondReading(
+            part_id="Q4.b",
+            part_hash=part_hash(part, KEY.policies),
+            first=digest(first),
+            doubted=False,
+            result="not decided",
+            second=first.model_copy(update={"reading": reading}),
+        )
+        path = workspace.second_json(student.student_key)
+        write_model(path, SecondReadings(records=[record]))
+
+    return step
+
+
+def graded_again(dispute: str) -> Step:
+    """Q4.b graded a second time with the same awards, the second grader disputing
+    the reading in `dispute`: no flag."""
+
+    def step(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+        record = second_grade_of_q4b(load(workspace, KEY, student), "same")
+        assert record.second
+        grade = record.second.grade.model_copy(update={"transcript_dispute": dispute})
+        second = record.second.model_copy(update={"grade": grade})
+        path = workspace.second_grade_json(student.student_key)
+        write_model(
+            path, SecondGrades(records=[record.model_copy(update={"second": second})])
+        )
+
+    return step
+
+
+def reread(built: Built, workspace: Workspace, student: IngestRecord) -> None:
+    """Q4.b's reading stored anew with another line, its grade kept."""
+
+    def anew(r: ReadingRecord) -> ReadingRecord:
+        lines = [*r.reading.lines, "Read anew."]
+        return r.model_copy(
+            update={"reading": r.reading.model_copy(update={"lines": lines})}
+        )
+
+    change_reading(workspace, student, "Q4.b", anew)
+
+
+def made_from_another_reading(
+    built: Built, workspace: Workspace, student: IngestRecord
+) -> None:
+    """Q4.b's grade under the key now, made from another reading: withheld for
+    another reason than before."""
+    [part] = [p for p in KEY.parts if p.id == "Q4.b"]
+    graded_from(
+        workspace, student, earlier, key_part_hash=part_hash(part, KEY.policies)
+    )
+
+
+OUT_OF_DATE: dict[str, tuple[Step, Step]] = {
+    "the part read again otherwise": (unchanged, reread),
+    "a re-grade that changes an award": (unchanged, lowered("Q4.b.c2")),
+    "a re-grade under a correction": (corrected("Q4.b.c1"), lowered("Q4.b.c1")),
+    "a new flag on the part": (unchanged, overruled),
+    "an edit to the key part": (unchanged, key_edited),
+    "a correction added": (unchanged, corrected("Q4.b.c1")),
+    "a correction removed": (corrected("Q4.b.c1"), uncorrected),
+    "a correction added to a part withheld": (unread_q4b, corrected("Q4.b.c2")),
+    "a changed second reading": (read_again("a = 2.5"), read_again("a = 25")),
+    "a changed second grade": (graded_again("One."), graded_again("Two.")),
+    "another reason the part is withheld": (
+        lambda built, workspace, student: other_key(workspace, student),
+        made_from_another_reading,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("before", "after"), OUT_OF_DATE.values(), ids=OUT_OF_DATE.keys()
+)
+def test_a_review_stops_closing_its_flags_once_its_entry_shows_something_else(
+    built: Built, tmp_path: Path, before: Step, after: Step
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    key = before(built, workspace, student) or KEY
+    review_of(workspace, [student], ("s1", "Q4.b"), key)
+    assert write_report(workspace, key, [student]) == []
+
+    key = after(built, workspace, student) or key
+    raised = write_report(workspace, key, [student])
+
+    assert {f.part_id for f in raised} == {"Q4.b"}
+    assert open_entries(workspace) == ["`A Student` (`s1`), Q4.b"]
+    for path in (workspace.review_md, workspace.run_report_md):
+        assert section(path, "## Reviews out of date") == [OUTDATED, "- `s1`, Q4.b."]
+    assert section(workspace.review_md, "## Closed by review") == []
+    row = row_of(workspace.scores_by_problem_csv, student)
+    assert row["status"] in ("provisional", "incomplete")
+    assert row["open_flags"] == str(len(raised))
+
+
+def test_a_review_stops_closing_once_a_later_version_raises_another_flag_on_it(
+    built: Built, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    review_of(workspace, [student], ("s1", "Q4.b"))
+    flagged = reporting._part_flags
+
+    def more(key: Key, part: KeyPart, stored: Stored) -> list[tuple[FlagCode, str]]:
+        found = flagged(key, part, stored)
+        extra = [(F.HARD_TO_READ, DETAIL[F.HARD_TO_READ])] if part.id == "Q4.b" else []
+        return found + extra
+
+    monkeypatch.setattr(reporting, "_part_flags", more)
+
+    raised = write_report(workspace, KEY, [student])
+
+    assert {f.code for f in raised} == {F.TRANSCRIPT_DISPUTE, F.HARD_TO_READ}
+    assert section(workspace.review_md, "## Reviews out of date") == [
+        OUTDATED,
+        "- `s1`, Q4.b.",
+    ]
+
+
+def test_a_review_of_an_entry_no_longer_flagged_is_not_listed(
+    built: Built, tmp_path: Path
+) -> None:
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place", "A Student", "s1")
+    change_grades(workspace, student, "Q4", disputed)
+    review_of(workspace, [student], ("s1", "Q4.b"))
+    change_grades(  # graded again with no dispute: no flag left
+        workspace,
+        student,
+        "Q4",
+        lambda r: r.model_copy(
+            update={"grade": r.grade.model_copy(update={"transcript_dispute": None})}
+        ),
+    )
+
+    assert write_report(workspace, KEY, [student]) == []
+
+    for path in (workspace.review_md, workspace.run_report_md):
+        assert "## Reviews out of date" not in path.read_text()
+    assert "## Closed by review" not in workspace.review_md.read_text()
+
+
+@pytest.mark.parametrize("change", ["the part edited", "another finding"])
+def test_a_key_part_s_review_closes_its_flags_for_every_student_while_it_holds(
+    built: Built, tmp_path: Path, change: str
+) -> None:
+    workspace = new_workspace(tmp_path)
+    students = students_of(built, workspace, 2)
+    key = KEY.model_copy(
+        update={
+            "parts": [
+                p.model_copy(update={"state": "unverified"}) if p.id == "Q4.b" else p
+                for p in KEY.parts
+            ]
+        }
+    )
+
+    def suspect(key: Key, shared: int) -> None:
+        [part] = [p for p in key.parts if p.id == "Q4.b"]
+        audit = PartAudit(
+            part_id="Q4.b",
+            part_hash=part_hash(part, key.policies),
+            groups=0,
+            changed=0,
+            undecided=0,
+            changes=[],
+            key_suspect=Suspect(shared=shared, answered=9),
+        )
+        write_model(workspace.audit_json("Q4.b"), audit)
+
+    suspect(key, 8)
+    write_report(workspace, key, students)
+    assert {r["status"] for r in rows(workspace.scores_by_problem_csv)} == {
+        "provisional"
+    }
+    review_of(workspace, students, (None, "Q4.b"), key)
+
+    assert write_report(workspace, key, students) == []
+
+    found = rows(workspace.scores_by_problem_csv)
+    assert {(r["status"], r["open_flags"]) for r in found} == {("final", "0")}
+    assert section(workspace.review_md, "## Closed by review") == [
+        CLOSED,
+        "- The key, Q4.b: `key_unverified`, `key_suspect`. Worth 3.",
+    ]
+    if change == "the part edited":  # graded again under it, the finding the same
+        key = edited(key)
+        for student in students:
+            regraded(built, workspace, student, key)
+        suspect(key, 8)
+    else:
+        suspect(key, 7)
+
+    raised = write_report(workspace, key, students)
+
+    assert {(f.code, f.student_key) for f in raised} == {
+        (F.KEY_UNVERIFIED, None),
+        (F.KEY_SUSPECT, None),
+    }
+    assert {r["status"] for r in rows(workspace.scores_by_problem_csv)} == {
+        "provisional"
+    }
+    for path in (workspace.review_md, workspace.run_report_md):
+        assert section(path, "## Reviews out of date") == [OUTDATED, "- The key, Q4.b."]

@@ -7,6 +7,7 @@ The caller supplies the students. The `students/` directory is never listed: a
 respelled name leaves an old folder behind."""
 
 import csv
+import hashlib
 import re
 import sqlite3
 import unicodedata
@@ -35,7 +36,7 @@ from redpen.prepare.key import (
     scaled,
     scoring,
 )
-from redpen.report.overrides import load_overrides
+from redpen.report.overrides import load_overrides, load_reviews
 from redpen.schemas.audit import PartAudit
 from redpen.schemas.common import Provenance
 from redpen.schemas.flags import SEVERITY, Flag, FlagCode, Severity
@@ -45,6 +46,7 @@ from redpen.schemas.grade import (
     GradeRecord,
     Override,
     ProblemGrades,
+    Review,
     SecondGrade,
     SecondGrades,
 )
@@ -87,6 +89,15 @@ STALE = (
     "The key's part of each criterion below was edited after its correction was"
     " recorded, so the correction is not applied. Record it again with `redpen"
     " override` if it still holds."
+)
+# The instructor's reviews, in fixed words: why one is listed as out of date, and
+# what the review list's last section holds.
+OUTDATED = (
+    "What each entry below shows has changed since it was reviewed, so its review"
+    " closes none of its flags. `redpen review` asks about it again."
+)
+CLOSED = (
+    "Each entry below was reviewed, and its flags are closed while it shows the same."
 )
 # Why a file is in the run report's list of files not ingested, in fixed words.
 NOT_INGESTED = "It could not be ingested, so nothing in it is graded."
@@ -161,22 +172,47 @@ class Score:
     overrides: Mapping[str, Override]
 
 
-def write_report(
-    workspace: Workspace,
-    key: Key,
-    students: Sequence[IngestRecord],
-    not_ingested: Sequence[str] = (),
-) -> list[Flag]:
-    """Write `out/` for `students`, in the order given: the three score files, one
-    feedback file per student (any other is removed), the review list and the run
-    report, which also lists the files of `not_ingested` (names inside the
-    submissions, never opened here). The corrections in `overrides.yaml` are
-    applied, or listed as stale; one that cannot be loaded raises `OverrideError`.
-    Returns every flag derived."""
-    problems, pages = columns(workspace, key)
-    corrections = load_overrides(
-        workspace.overrides_yaml, key, [s.student_key for s in students]
-    )
+# An entry of the review list: a student key and a part id; no student for a key
+# part, and no part for a whole submission.
+type Place = tuple[str | None, str | None]
+
+
+@dataclass(frozen=True)
+class Derived:
+    """What the report files are made from: each student's stored files and the
+    score of each part; every flag raised; the corrections not applied; the review
+    that would close each flagged entry as it stands, by place; the places a stored
+    review closes; and the stored reviews of a flagged entry that no longer hold."""
+
+    scored: list[tuple[Stored, list[Score]]]
+    raised: list[Flag]
+    stale: list[Override]
+    current: dict[Place, Review]
+    reviewed: set[Place]
+    outdated: list[Review]
+
+    @property
+    def open(self) -> list[Flag]:
+        """The flags no review closes."""
+        return [
+            f for f in self.raised if (f.student_key, f.part_id) not in self.reviewed
+        ]
+
+    @property
+    def closed(self) -> list[Flag]:
+        """The flags a review closes."""
+        return [f for f in self.raised if (f.student_key, f.part_id) in self.reviewed]
+
+
+def derive(workspace: Workspace, key: Key, students: Sequence[IngestRecord]) -> Derived:
+    """What is stored for `students`, scored and flagged. The corrections in
+    `overrides.yaml` are applied, or listed as stale; a review in `reviews.yaml`
+    closes the flags of its entry while the entry shows what it was made for, or is
+    listed as out of date. A file of them that cannot be loaded raises
+    `OverrideError`."""
+    keys = [s.student_key for s in students]
+    corrections = load_overrides(workspace.overrides_yaml, key, keys)
+    reviews = load_reviews(workspace.reviews_yaml, key, keys)
     hashes = {c.id: part_hash(p, key.policies) for p in key.parts for c in p.criteria}
     stale = [o for o in corrections if o.part_hash != hashes[o.criterion]]
     stored = [
@@ -192,6 +228,77 @@ def write_report(
     ]
     raised = flags(key, stored)
     scored = [(s, score(key, s)) for s in stored]
+    current = {
+        place: _shown(key, scored, place, found)
+        for place, found in _grouped(raised).items()
+    }
+    reviewed = {
+        (r.student, r.part) for r in reviews if current.get((r.student, r.part)) == r
+    }
+    outdated = [
+        r
+        for r in reviews
+        if (r.student, r.part) in current and (r.student, r.part) not in reviewed
+    ]
+    return Derived(scored, raised, stale, current, reviewed, outdated)
+
+
+def _shown(
+    key: Key,
+    scored: Sequence[tuple[Stored, list[Score]]],
+    place: Place,
+    found: Sequence[Flag],
+) -> Review:
+    """The review that closes the entry at `place`, with flags `found`, as it
+    stands: its key part's hash, and the digest of what it shows that a later run
+    could change. That is its flag codes; for a key part, the class audit's finding
+    that the class disputes the key's answer; for a student's part, its stored
+    reading and second reading, its second grade, its grade after the class audit,
+    why it is withheld, and the instructor's corrections of it (with the grade, they
+    give the grade after the corrections)."""
+    who, part_id = place
+    part = next((p for p in key.parts if p.id == part_id), None)
+    shown: list[BaseModel | str | None] = [*sorted({f.code for f in found})]
+    if who is None and part_id is not None:
+        audit = scored[0][0].audits.get(part_id) if scored else None
+        shown.append(audit.key_suspect if audit else None)
+    elif part is not None and (s := _score_at(scored, place)):
+        [stored] = [st for st, _ in scored if st.student.student_key == who]
+        base = None if withheld(key, part, stored) else audited(stored, part)
+        shown += [
+            stored.readings.get(part.id),
+            stored.seconds.get(part.id),
+            stored.second_grades.get(part.id),
+            base,
+            s.withheld,
+            *(s.overrides[c] for c in sorted(s.overrides)),
+        ]
+    material = " ".join(
+        digest(x) if isinstance(x, BaseModel) else str(x) for x in shown
+    )
+    return Review(
+        student=who,
+        part=part_id,
+        part_hash=None if part is None else part_hash(part, key.policies),
+        digest=hashlib.sha256(material.encode()).hexdigest()[:12],
+    )
+
+
+def write_report(
+    workspace: Workspace,
+    key: Key,
+    students: Sequence[IngestRecord],
+    not_ingested: Sequence[str] = (),
+) -> list[Flag]:
+    """Write `out/` for `students`, in the order given: the three score files, one
+    feedback file per student (any other is removed), the review list and the run
+    report, which also lists the files of `not_ingested` (names inside the
+    submissions, never opened here). What is written is `derive`'s: a file of
+    corrections or reviews that cannot be loaded raises `OverrideError`. Returns
+    the open flags."""
+    problems, pages = columns(workspace, key)
+    found = derive(workspace, key, students)
+    scored, raised = found.scored, found.open
     maximum = points_of(key, key.parts)
     title = workspace.root.name.removesuffix(".redpen")
     by_problem: list[list[Cell]] = []
@@ -227,8 +334,10 @@ def write_report(
                 detail.append(row)
         text = _feedback(key, title, problems, scores, total, maximum)
         feedback.append((workspace.feedback_md(s.student.student_key), text))
-    run_report = _run_report(workspace, key, pages, scored, raised, not_ingested, stale)
-    review_md = review(workspace, key, scored, raised, stale)
+    run_report = _run_report(workspace, key, pages, found, not_ingested)
+    review_md = review(
+        workspace, key, scored, raised, found.stale, found.closed, found.outdated
+    )
     # Everything is rendered before any old file is removed.
     workspace.feedback_dir.mkdir(parents=True, exist_ok=True)
     for old in workspace.feedback_dir.glob("*.md"):
@@ -482,7 +591,7 @@ def flags(key: Key, students: Sequence[Stored]) -> list[Flag]:
     """Every flag the stored files give (this version's set): a `key_unverified`
     for each unverified key part and a `key_suspect` for each part the class audit
     found suspect, on no student, then each student's, part by part in key order.
-    All are open: nothing closes a flag yet."""
+    `derive` says which a review closes."""
     # The class audit, the same for every student.
     found: Mapping[str, PartAudit] = students[0].audits if students else {}
     on_key = [
@@ -513,7 +622,7 @@ def flags(key: Key, students: Sequence[Stored]) -> list[Flag]:
 
 def status(key: Key, stored: Stored, flags: Sequence[Flag]) -> Status:
     """`incomplete` when a part is withheld, and not corrected in full; else
-    `provisional` when one of the student's flags, or a flag on the key (which
+    `provisional` when one of the student's open `flags`, or one on the key (which
     counts for every student), is of high or medium severity; else `final`."""
     if any(s.withheld for s in score(key, stored)):
         return "incomplete"
@@ -726,16 +835,15 @@ def _run_report(
     workspace: Workspace,
     key: Key,
     pages: Sequence[int],
-    scored: Sequence[tuple[Stored, list[Score]]],
-    raised: Sequence[Flag],
+    found: Derived,
     not_ingested: Sequence[str],
-    stale: Sequence[Override],
 ) -> str:
     """The state of every key part, the class audit, the second read's and the
     second grade's results, each page's maximum and the total, the students with
-    parts not scored and why, the files not ingested, the corrections not applied,
-    the flags by code, the pinned models, and the cost by role from the usage
-    ledger."""
+    parts not scored and why, the files not ingested, the corrections not applied
+    and the reviews out of date, the flags raised by code and how many a review
+    closes, the pinned models, and the cost by role from the usage ledger."""
+    scored, raised = found.scored, found.raised
     maxima = page_points(key)
     pinned = workspace.config_lock_toml.exists()
     lock = read_lock(workspace.config_lock_toml) if pinned else None
@@ -792,7 +900,7 @@ def _run_report(
         lines.append("The reason ingest gave for each is in `ingest_summary.json`.")
         lines.append("")
         lines += [f"- {code_span(file)}: {NOT_INGESTED}" for file in not_ingested]
-    lines += _stale(stale)
+    lines += [*_stale(found.stale), *_outdated(found.outdated)]
     counts = Counter(f.code for f in raised)
     lines += ["", "## Flags", ""]
     if counts:
@@ -800,9 +908,14 @@ def _run_report(
         lines += [
             f"| {c} | {SEVERITY[c]} | {counts[c]} |" for c in FlagCode if c in counts
         ]
+        lines += [
+            "",
+            f"Flags raised: {len(raised)}. Closed by review: {len(found.closed)}."
+            f" Open: {len(found.open)}.",
+        ]
     else:
         lines.append("No flags.")
-    lines += ["", review_line(workspace, raised), "", "## Models", ""]
+    lines += ["", review_line(workspace, found.open), "", "## Models", ""]
     if lock:
         lines += ["| Role | Model |", "|---|---|"]
         lines += [f"| {role} | {m.slug} |" for role, m in lock.models.items()]
@@ -877,36 +990,93 @@ def review(
     scored: Sequence[tuple[Stored, list[Score]]],
     raised: Sequence[Flag],
     stale: Sequence[Override] = (),
+    closed: Sequence[Flag] = (),
+    outdated: Sequence[Review] = (),
 ) -> str:
-    """`out/review.md` (design 8.4): an entry for each key part flagged, with its
-    points, the number of students scored on it and what is stored behind its
-    flags; then one for each student and part, or whole submission, flagged, with
-    every flag on it and its stored cause, the proposed score, the instructor's
-    corrections, the transcript and links to the crops and the stored files; then
-    the `stale` corrections, not applied. Students' entries come by their highest
-    severity, the points at stake, the student key and the key's part order. Text
-    a student, a model or the instructor wrote is only ever in a code span."""
+    """`out/review.md` (design 8.4): an entry for each key part with an open flag
+    in `raised`, with its points, the number of students scored on it and what is
+    stored behind its flags; then one for each student and part, or whole
+    submission, flagged, with every flag on it and its stored cause, the proposed
+    score, the instructor's corrections, the transcript and links to the crops and
+    the stored files; then the `stale` corrections, not applied, the `outdated`
+    reviews, and last each entry whose flags a review closed (`closed`), in one
+    line. Entries come in `_order`'s order. Text a student, a model or the
+    instructor wrote is only ever in a code span."""
     lines = ["# Review list", ""]
+    after = [*_stale(stale), *_outdated(outdated), *_closed(key, scored, closed)]
     if not raised:
-        return "\n".join([*lines, NOTHING_TO_REVIEW, *_stale(stale)]) + "\n"
-    entries: dict[tuple[str | None, str | None], list[Flag]] = {}
+        return "\n".join([*lines, NOTHING_TO_REVIEW, *after]) + "\n"
+    out = workspace.review_md.parent
+    entries = _grouped(raised)
+    for place in _order(key, entries):
+        if (
+            section := "## The key" if place[0] is None else "## Students"
+        ) not in lines:
+            lines += [section, ""]
+        shown, files = _entry(workspace, key, scored, place, entries[place])
+        lines += [*shown, *([] if files is None else [_files(out, files)]), ""]
+    return "\n".join([*lines[:-1], *after, ""])
+
+
+def _grouped(raised: Iterable[Flag]) -> dict[Place, list[Flag]]:
+    """The flags of each entry, by place, in the order raised."""
+    entries: dict[Place, list[Flag]] = {}
     for f in raised:
         entries.setdefault((f.student_key, f.part_id), []).append(f)
-    out = workspace.review_md.parent
-    # The class audit, the same for every student.
-    class_audit: Mapping[str, PartAudit] = scored[0][0].audits if scored else {}
-    on_key = [p for p in key.parts if (None, p.id) in entries]
-    if on_key:
-        lines += ["## The key", ""]
-    for part in on_key:
-        found = entries[None, part.id]
+    return entries
+
+
+def _order(key: Key, entries: Mapping[Place, Sequence[Flag]]) -> list[Place]:
+    """The review list's order of `entries`: the key's parts in key order, then the
+    students' by their highest severity, the points at stake, the student key and
+    the key's part order. A whole submission is at stake for the key's total,
+    before any part."""
+    order = [p.id for p in key.parts]
+
+    def at_stake(place: Place) -> tuple[int, Decimal, str, int]:
+        who, part_id = place
+        worst = min(SEVERITIES.index(f.severity) for f in entries[place])
+        parts = [p for p in key.parts if p.id == part_id] if part_id else key.parts
+        at = order.index(part_id) if part_id else -1
+        return worst, -points_of(key, parts), who or "", at
+
+    on_key: list[Place] = [(None, p.id) for p in key.parts if (None, p.id) in entries]
+    return [*on_key, *sorted((p for p in entries if p[0] is not None), key=at_stake)]
+
+
+def _score_at(
+    scored: Sequence[tuple[Stored, list[Score]]], place: Place
+) -> Score | None:
+    """The score of a student's part at `place`; None for any other entry."""
+    who, part_id = place
+    for s, xs in scored:
+        if s.student.student_key == who:
+            return next((x for x in xs if x.part.id == part_id), None)
+    return None
+
+
+def _entry(
+    workspace: Workspace,
+    key: Key,
+    scored: Sequence[tuple[Stored, list[Score]]],
+    place: Place,
+    found: Sequence[Flag],
+) -> tuple[list[str], list[tuple[str, Path]] | None]:
+    """The review list's entry at `place`, with flags `found`: its lines up to its
+    files, and the files it links (None for a whole submission, which links
+    none)."""
+    who, part_id = place
+    files: list[tuple[str, Path]] = []
+    if who is None:
+        [part] = [p for p in key.parts if p.id == part_id]
+        # The class audit, the same for every student.
+        class_audit: Mapping[str, PartAudit] = scored[0][0].audits if scored else {}
         count = sum(
             x.part.id == part.id and x.awarded is not None
             for _, xs in scored
             for x in xs
         )
         causes: dict[FlagCode, list[str]] = {}
-        files: list[tuple[str, Path]] = []
         unverified = FlagCode.KEY_UNVERIFIED in {f.code for f in found}
         if unverified and workspace.verification_md.exists():
             files.append(("verification", workspace.verification_md))
@@ -916,70 +1086,149 @@ def review(
                 f" that is not the key's: {suspect.shared}."
             ]
             files.append(("audit", workspace.audit_json(part.id)))
-        lines += [
+        return [
             f"### {part.id}, worth {number(points_of(key, [part]))}",
             "",
             *_flagged(found, causes),
             f"- Students scored on it: {count}.",
-            _files(out, files),
-            "",
+        ], files
+    [(stored, scores)] = [(s, xs) for s, xs in scored if s.student.student_key == who]
+    name = f"{code_span(stored.student.student_name)} (`{who}`)"
+    if part_id is None:
+        return [f"### {name}, the whole submission", "", *_flagged(found, {})], None
+    [s] = [x for x in scores if x.part.id == part_id]
+    record = stored.grades.get(part_id)
+    # The tool's own score: the grade record after the class audit.
+    base = None if withheld(key, s.part, stored) else audited(stored, s.part)
+    worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
+    causes = _causes(record, base, stored.second_grades.get(part_id))
+    lines = [f"### {name}, {part_id}", "", *_flagged(found, causes)]
+    lines.append(
+        f"- Proposed score: {worth}."
+        + (f" {s.withheld}{_still_open(s)}" if s.withheld else "")
+    )
+    lines += _corrections(s, base)
+    codes = {f.code for f in found}
+    if first := stored.readings.get(part_id):
+        lines += _transcript("First reading", first)
+        files += [
+            (f"crop {n}", workspace.crop_png(who, part_id, n))
+            for n in range(1, len(first.crops) + 1)
         ]
-    order = [p.id for p in key.parts]
+        files.append(("reading", workspace.reading_json(who, problem_of(part_id))))
+    second = stored.seconds.get(part_id)
+    if second and second.second and FlagCode.READERS_DISAGREE in codes:
+        lines += _transcript("Second reading, by another vendor's model", second.second)
+    if base:  # a grade withheld is not linked: the score shown is not from it
+        files.append(("grade", workspace.grade_json(who, problem_of(part_id))))
+    # The grade file holds the awards before the audit; its file, the change.
+    if FlagCode.AUDIT_CHANGED in codes:
+        files.append(("audit", workspace.audit_json(part_id)))
+    if FlagCode.GRADERS_DISAGREE in codes:
+        files.append(("second grade", workspace.second_grade_json(who)))
+    return lines, files
 
-    def at_stake(entry: tuple[str, str | None]) -> tuple[int, Decimal, str, int]:
-        who, part_id = entry
-        worst = min(SEVERITIES.index(f.severity) for f in entries[entry])
-        parts = [p for p in key.parts if p.id == part_id] if part_id else key.parts
-        # A whole submission is at stake for the key's total, before any part.
-        at = order.index(part_id) if part_id else -1
-        return worst, -points_of(key, parts), who, at
 
-    theirs = sorted(((w, p) for w, p in entries if w is not None), key=at_stake)
-    if theirs:
-        lines += ["## Students", ""]
-    by_key = {s.student.student_key: (s, xs) for s, xs in scored}
-    for who, part_id in theirs:
-        stored, scores = by_key[who]
-        found = entries[who, part_id]
-        name = f"{code_span(stored.student.student_name)} (`{who}`)"
-        if part_id is None:
-            lines += [f"### {name}, the whole submission", "", *_flagged(found, {}), ""]
-            continue
-        [s] = [x for x in scores if x.part.id == part_id]
-        record = stored.grades.get(part_id)
-        # The tool's own score: the grade record after the class audit.
-        base = None if withheld(key, s.part, stored) else audited(stored, s.part)
+def _whose(place: Place) -> str:
+    """Whose entry `place` is, and which part's."""
+    who, part_id = place
+    if who is None:
+        return f"The key, {part_id}"
+    return f"`{who}`, {part_id or 'the whole submission'}"
+
+
+def _line(
+    key: Key,
+    scored: Sequence[tuple[Stored, list[Score]]],
+    place: Place,
+    found: Sequence[Flag],
+) -> str:
+    """The entry at `place` in one line: whose and which part, the codes of its
+    flags `found`, and the proposed score, or a key part's points."""
+    codes = ", ".join(f"`{f.code}`" for f in _ranked(found))
+    line = f"{_whose(place)}: {codes}."
+    if s := _score_at(scored, place):
         worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
-        causes = _causes(record, base, stored.second_grades.get(part_id))
-        lines += [f"### {name}, {part_id}", "", *_flagged(found, causes)]
-        lines.append(
-            f"- Proposed score: {worth}."
-            + (f" {s.withheld}{_still_open(s)}" if s.withheld else "")
-        )
-        lines += _corrections(s, base)
-        codes = {f.code for f in found}
-        files = []
-        if first := stored.readings.get(part_id):
-            lines += _transcript("First reading", first)
-            files += [
-                (f"crop {n}", workspace.crop_png(who, part_id, n))
-                for n in range(1, len(first.crops) + 1)
-            ]
-            files.append(("reading", workspace.reading_json(who, problem_of(part_id))))
-        second = stored.seconds.get(part_id)
-        if second and second.second and FlagCode.READERS_DISAGREE in codes:
-            lines += _transcript(
-                "Second reading, by another vendor's model", second.second
+        return f"{line} Proposed score: {worth}."
+    if place[0] is None:
+        [part] = [p for p in key.parts if p.id == place[1]]
+        return f"{line} Worth {number(points_of(key, [part]))}."
+    return line
+
+
+def _outdated(outdated: Sequence[Review]) -> list[str]:
+    """The section of the reviews out of date, with a blank line before it, or
+    nothing when there are none."""
+    if not outdated:
+        return []
+    found = [f"- {_whose((r.student, r.part))}." for r in outdated]
+    return ["", "## Reviews out of date", "", OUTDATED, "", *found]
+
+
+def _closed(
+    key: Key, scored: Sequence[tuple[Stored, list[Score]]], closed: Sequence[Flag]
+) -> list[str]:
+    """The review list's last section: each entry whose flags `closed` a review
+    closed, in one line, in the list's order; nothing when there is none."""
+    if not closed:
+        return []
+    entries = _grouped(closed)
+    found = [f"- {_line(key, scored, p, entries[p])}" for p in _order(key, entries)]
+    return ["", "## Closed by review", "", CLOSED, "", *found]
+
+
+@dataclass(frozen=True)
+class Entry:
+    """An entry of the review list as `redpen review` takes it: the review that
+    would close it as it stands, whether a stored review closes it, its line for
+    `--list`, what the terminal shows of it, and the score of a student's part."""
+
+    review: Review
+    closed: bool
+    line: str
+    shown: list[str]
+    score: Score | None
+
+
+def review_entries(
+    workspace: Workspace, key: Key, students: Sequence[IngestRecord]
+) -> list[Entry]:
+    """Every entry of the review list for `students`, in its order: what
+    `out/review.md` shows of it, then for a student's part each criterion with its
+    award and why, and the absolute path of each file it links. Raises as `derive`
+    does."""
+    found = derive(workspace, key, students)
+    entries = _grouped(found.raised)
+    listed: list[Entry] = []
+    for place in _order(key, entries):
+        shown, files = _entry(workspace, key, found.scored, place, entries[place])
+        s = _score_at(found.scored, place)
+        shown += _criteria(s) if s else []
+        if files:
+            shown += ["- Files:", *(f"  - {t}: {p.absolute()}" for t, p in files)]
+        line = _line(key, found.scored, place, entries[place])
+        review = found.current[place]
+        listed.append(Entry(review, place in found.reviewed, line, shown, s))
+    return listed
+
+
+def _criteria(s: Score) -> list[str]:
+    """Each criterion of a student's part with the award shown, in its own points,
+    and why; or, on a part withheld, the instructor's award, or none."""
+    given = {c.id: c for c in s.record.grade.criteria} if s.record else {}
+    lines = ["- Criteria:"]
+    for c in s.part.criteria:
+        worth = number(c.points)
+        if found := given.get(c.id):
+            awarded = number(found.awarded)
+            lines.append(
+                f"  - {c.id}: {awarded} / {worth}. {code_span(found.rationale)}"
             )
-        if base:  # a grade withheld is not linked: the score shown is not from it
-            files.append(("grade", workspace.grade_json(who, problem_of(part_id))))
-        # The grade file holds the awards before the audit; its file, the change.
-        if FlagCode.AUDIT_CHANGED in codes:
-            files.append(("audit", workspace.audit_json(part_id)))
-        if FlagCode.GRADERS_DISAGREE in codes:
-            files.append(("second grade", workspace.second_grade_json(who)))
-        lines += [_files(out, files), ""]
-    return "\n".join([*lines[:-1], *_stale(stale), ""])
+        elif o := s.overrides.get(c.id):
+            lines.append(f"  - {c.id}: {number(o.points)} / {worth}, the instructor's.")
+        else:
+            lines.append(f"  - {c.id}: none, out of {worth}.")
+    return lines
 
 
 def _still_open(s: Score) -> str:
@@ -1015,14 +1264,18 @@ def _stale(stale: Sequence[Override]) -> list[str]:
 
 
 def _flagged(found: Sequence[Flag], causes: Mapping[FlagCode, list[str]]) -> list[str]:
-    """Each flag, high severity first and then as raised, each with the lines of
-    what is stored behind it."""
-    ranked = sorted(found, key=lambda f: SEVERITIES.index(f.severity))
+    """Each flag, in `_ranked` order, each with the lines of what is stored behind
+    it."""
     return [
         line
-        for f in ranked
+        for f in _ranked(found)
         for line in [f"- `{f.code}`, {f.severity}: {f.detail}", *causes.get(f.code, [])]
     ]
+
+
+def _ranked(found: Sequence[Flag]) -> list[Flag]:
+    """High severity first, and then as raised."""
+    return sorted(found, key=lambda f: SEVERITIES.index(f.severity))
 
 
 def _causes(
