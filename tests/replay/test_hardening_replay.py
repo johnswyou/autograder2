@@ -58,6 +58,8 @@ KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 CHAIN = recorded("run_chain")
 PREPARE = recorded("prepare_blank")
 REPO = Path(__file__).parents[2]
+# What a child process imports: the code under test, whatever redpen is installed.
+CODE = f"{REPO / 'src'}:{REPO}"
 runner = CliRunner()
 # Every N of a sweep, and the class of 150, run under REDPEN_SLOW=1 only (`pytest -m
 # slow` selects them); a few N run in every suite.
@@ -452,7 +454,7 @@ def test_grade_killed_for_real_mid_stage_resumes_asking_nothing_twice(
 ) -> None:
     workspace, submissions = chained
     marker = workspace.root.parent / "blocked"
-    env = {**os.environ, "PYTHONPATH": str(REPO), "OPENROUTER_API_KEY": "made-up"}
+    env = {**os.environ, "PYTHONPATH": CODE, "OPENROUTER_API_KEY": "made-up"}
     command = [sys.executable, "-c", CHILD, str(marker), "17"]  # in the read stage
     child = subprocess.Popen(
         [*command, *grade(workspace, submissions)],
@@ -558,7 +560,7 @@ def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
         CallCache(connection)
         [(mode,)] = connection.execute("PRAGMA journal_mode")
     assert mode in ("delete", "truncate", "persist", "wal")
-    env = {**os.environ, "PYTHONPATH": str(REPO)}
+    env = {**os.environ, "PYTHONPATH": CODE}
     for _ in range(20):  # each kill lands somewhere in a stream of writes
         child = subprocess.Popen([sys.executable, "-c", WRITER, str(db)], env=env)
         rows = 0
