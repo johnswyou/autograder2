@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 import pytest
 from reportlab.pdfgen import canvas
+from rich.text import Text
 from typer.testing import CliRunner
 
 import redpen.prompts
@@ -35,7 +36,7 @@ from redpen.grade.read import digest
 from redpen.llm.client import Gateway
 from redpen.llm.models import Catalog, recheck_providers
 from redpen.orchestrator import PER_PAGE, TOKENS, estimate, image_tokens, shape
-from redpen.prepare.key import load_key, part_hash, save_key
+from redpen.prepare.key import load_key, part_hash, save_key, yaml_reader
 from redpen.report.report import OTHER_READING, STRICT_OFF_RUN, UNGRADED
 from redpen.schemas.common import Provenance
 from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
@@ -1343,6 +1344,7 @@ def test_a_student_with_no_stored_reading_of_a_problem_is_skipped_and_named(
     graded_once(router, monkeypatch)
     first = students()[0]
     WS.reading_json(first, "Q4").unlink()
+    WS.reading_json(first, "Q1").unlink()
     kept = WS.grade_json(first, "Q4").read_bytes()
     edit_criterion("Q4.b")
 
@@ -1352,11 +1354,11 @@ def test_a_student_with_no_stored_reading_of_a_problem_is_skipped_and_named(
     assert grade_requests(router) == [Q4_PARTS] * (len(NAMES) - 1)
     assert WS.grade_json(first, "Q4").read_bytes() == kept
     assert (
-        "Problems not graded, with no stored reading: 1, of 1 students."
+        "Problems not graded, with no stored reading: 2, of 1 students."
         f" {WS.run_report_md} names them."
     ) in result.stderr.splitlines()
     assert "Example" not in result.output + result.stderr
-    named = f"- `{first}`: Q4.a, Q4.b, Q4.c. {UNGRADED}"
+    named = f"- `{first}`: Q1, Q4.a, Q4.b, Q4.c. {UNGRADED}"
     assert named in WS.run_report_md.read_text().splitlines()
 
 
@@ -1509,6 +1511,11 @@ BAD_FILES = {
         "- {{student: {first}, criterion: Q4.b.c1, points: 3, part_hash: {hashed}}}\n",
         ", entry 1: its points are above the 2 that Q4.b.c1 is worth.",
     ),
+    "a duplicate": (
+        "- {{student: {first}, criterion: Q4.b.c1, points: 1, part_hash: {hashed}}}\n"
+        "- {{student: {first}, criterion: Q4.b.c1, points: 2, part_hash: {hashed}}}\n",
+        ", entry 2: entry 1 corrects the same student and criterion.",
+    ),
 }
 
 
@@ -1521,7 +1528,7 @@ COMMANDS = ("report", "regrade", "grade", "override")
         *((c, "unknown student") for c in COMMANDS),
         *((c, "not YAML") for c in COMMANDS),
         *(("report", b) for b in ("not a correction", "unknown criterion")),
-        ("report", "above full points"),
+        *(("report", b) for b in ("above full points", "a duplicate")),
     ],
 )
 def test_an_overrides_file_that_cannot_be_used_stops_each_command_with_one_line(
@@ -1550,6 +1557,7 @@ def test_an_overrides_file_that_cannot_be_used_stops_each_command_with_one_line(
     assert out_files(WS) == out and grade_files() == files
     assert WS.ingest_summary_json.read_bytes() == summary
     assert WS.overrides_yaml.read_text() == text.format(first=first, hashed=hashed)
+
 
 def detail_rows(name: str) -> dict[str, str]:
     """`name`'s rationale in scores_detail.csv, by criterion."""
@@ -1624,3 +1632,207 @@ def test_a_grade_whose_digest_left_out_its_dependencies_is_graded_again_free(
     assert OTHER_READING not in detail_rows(NAMES[0]).values()
     assert [r["status"] for r in by_problem(WS)] == ["final"] * len(NAMES)
 
+
+def test_an_empty_note_is_no_note(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+
+    assert override(first, "Q4.a.c1", "1", "--note", "").exit_code == 0
+
+    assert "note" not in WS.overrides_yaml.read_text()
+    feedback = WS.feedback_md(first).read_text().splitlines()
+    assert "- Marked by your instructor: 1 / 1." in feedback
+
+
+def test_a_correction_that_would_not_read_back_is_refused_and_writes_nothing(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    out = out_files(WS)
+
+    # YAML reads a next-line character in a quoted scalar as a line break.
+    result = override(first, "Q4.a.c1", "1", "--note", "x\x85y")
+
+    quiet(result)
+    assert result.stderr.splitlines() == [
+        f"{WS.overrides_yaml} would not read back as the corrections, so it is left"
+        " as it is."
+    ]
+    assert not WS.overrides_yaml.exists() and out_files(WS) == out
+
+
+HAND = """\
+# Corrections, by hand
+- points: 1 # not full: see the margin
+  student: {first}
+  criterion: Q4.b.c1
+  part_hash: {q4b}
+  note: first
+
+# the second one
+- {{student: {second}, criterion: Q4.c.c1, points: 0, part_hash: {q4c}}}
+# the third
+- student: {third}
+  criterion: Q4.b.c2
+  points: 1
+  part_hash: {q4b}
+  note: third
+# the end
+"""
+
+
+def comments(text: str) -> list[str]:
+    return [line[line.index("#") :] for line in text.splitlines() if "#" in line]
+
+
+@pytest.mark.parametrize("how", ["replace", "remove"])
+def test_replacing_or_removing_a_correction_keeps_every_comment_and_the_others(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first, second, third = students()
+    hashes = {p.id: part_hash(p, KEY.policies) for p in KEY.parts}
+    text = HAND.format(
+        first=first, second=second, third=third, q4b=hashes["Q4.b"], q4c=hashes["Q4.c"]
+    )
+    WS.overrides_yaml.write_text(text)
+
+    if how == "replace":
+        result = override(first, "Q4.b.c1", "0.5")
+    else:
+        result = override(second, "Q4.c.c1", "--remove")
+
+    assert result.exit_code == 0, result.output
+    after = WS.overrides_yaml.read_text()
+    assert comments(after) == comments(text)
+    if how == "replace":
+        entries = yaml_reader().load(after)
+        assert [(e["student"], str(e["points"])) for e in entries] == [
+            (first, "0.5"),
+            (second, "0"),
+            (third, "1"),
+        ]
+        assert "0.5 # not full" in after
+        return
+    # The other entries as they were, line for line.
+    removed = text.splitlines()[8]
+    assert after.splitlines() == [x for x in text.splitlines() if x != removed]
+
+
+@pytest.mark.parametrize("gone", ["student", "criterion"])
+def test_a_correction_whose_student_or_criterion_is_gone_can_still_be_removed(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, gone: str
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    hashed = part_hash(next(p for p in KEY.parts if p.id == "Q4.a"), KEY.policies)
+    who, criterion = (
+        ("nobody-000000", "Q4.a.c1") if gone == "student" else (first, "Q9.c1")
+    )
+    entry = "- {{student: {}, criterion: {}, points: 1, part_hash: {}}}\n"
+    WS.overrides_yaml.write_text(
+        entry.format(first, "Q4.a.c2", hashed) + entry.format(who, criterion, hashed)
+    )
+    assert runner.invoke(app, ["report", "--workspace", "ws"]).exit_code == 1
+
+    result = override(who, criterion, "--remove")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[:2] == [
+        f"Removed from {WS.overrides_yaml}",
+        f"Wrote {WS.root / 'out'}",
+    ]
+    assert criterion not in WS.overrides_yaml.read_text()
+    assert awarded("Q4.a.c2")[NAMES[0]] == "1"
+
+
+def test_grade_names_the_correction_of_a_student_its_ingest_no_longer_finds(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ungraded_class(router, monkeypatch)
+    first = students()[0]
+    assert override(first, "Q4.a.c1", "1").exit_code == 0
+    Path("subs", f"HW 1 - {NAMES[0]}.pdf").unlink()
+
+    result = grade()
+
+    quiet(result)
+    assert result.stderr.splitlines()[-1] == (
+        f"{WS.overrides_yaml}, entry 1: no student of the latest ingest has its key."
+    )
+    assert not WS.run_log.exists()
+
+
+def test_a_mistyped_option_is_an_unknown_option_and_the_dry_run_says_what_it_prints(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ungraded_class(router, monkeypatch)
+
+    result = override(students()[0], "Q4.b.c1", "--remov")
+    helped = runner.invoke(app, ["regrade", "--help"])
+
+    assert result.exit_code == 2
+    assert "No such option: --remov" in " ".join(
+        Text.from_ansi(result.stderr).plain.split()
+    )
+    assert "POINTS" not in result.stderr
+    text = " ".join(Text.from_ansi(helped.stdout).plain.replace("│", " ").split())
+    assert "how many grade requests the call cache would not answer" in text
+
+
+def test_a_dry_run_changes_neither_the_real_cache_nor_its_ledger(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graded_once(router, monkeypatch)
+    edit_criterion("Q4.b")
+    # Each student's new Q4 grade is answered twice: the first answer fails a check
+    # and the second passes, and both are cached.
+    import redpen.grade.grade as stage
+
+    def first_answer_fails(body: dict[str, Any]) -> Grades:
+        found = grades(body)
+        if '"problems"' in body["messages"][1]["content"][-1].get("text", ""):
+            return found
+        for g in found.grades:
+            for c in g.criteria:
+                c.rationale = "first"
+        return found
+
+    router.grades = first_answer_fails
+    checks = stage.problems
+    monkeypatch.setattr(
+        stage,
+        "problems",
+        lambda key, asked, found: (
+            ["x"]
+            if any(c.rationale == "first" for g in found.grades for c in g.criteria)
+            else checks(key, asked, found)
+        ),
+    )
+    assert regrade().exit_code == 0
+    assert len(router.chats) == 2 * len(NAMES)
+    cache = WS.cache_sqlite.read_bytes()
+    router.requests.clear()
+    # Now every cached answer fails its checks, so a grade would drop both from the
+    # cache it asks.
+    monkeypatch.setattr(stage, "problems", lambda key, asked, found: ["x"])
+    opened: list[Path] = []
+    gateway = Gateway
+
+    def recorded(db: Path, *args: Any, **kwargs: Any) -> Gateway:
+        opened.append(Path(db))
+        return gateway(db, *args, **kwargs)
+
+    monkeypatch.setattr("redpen.orchestrator.Gateway", recorded)
+
+    dry = regrade("--dry-run")
+
+    assert dry.exit_code == 0, dry.output
+    assert router.requests == []
+    assert WS.cache_sqlite.read_bytes() == cache
+    [db] = opened
+    assert db.resolve().parent.parent == WS.root.resolve() and db != WS.cache_sqlite
+    assert not list(WS.root.glob("dry-run-*"))

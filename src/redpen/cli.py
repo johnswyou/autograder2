@@ -738,6 +738,8 @@ def _report(ws: Workspace, key: Key, summary: IngestSummary) -> None:
         raised = write_report(
             ws, key, summary.students, [f.file for f in summary.failed]
         )
+    except OverrideError as error:  # a corrected student the new ingest lacks
+        _fail(str(error))
     except Exception as error:  # written to the log: it may quote stored work
         log_failure(ws, "report", error)
         _fail(f"The report could not be written. The traceback is in {ws.run_log}.")
@@ -877,7 +879,17 @@ def _print_estimate(
 
 
 @app.command()
-def regrade(workspace: KeyWorkspace, dry_run: DryRun = False) -> None:
+def regrade(
+    workspace: KeyWorkspace,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print how many grade requests the call cache would not answer,"
+            " and send nothing.",
+        ),
+    ] = False,
+) -> None:
     """Grade the latest ingest again from its stored readings, then audit and
     report: no ingest, map or read. The call cache answers each grade request that
     did not change, so only what a key edit changed is paid for."""
@@ -950,6 +962,7 @@ def review() -> None:
 # command's own check.
 @app.command(context_settings={"ignore_unknown_options": True})
 def override(
+    ctx: typer.Context,
     student: Annotated[str, typer.Argument(help="The student key.")],
     criterion: Annotated[str, typer.Argument(help="A criterion id, such as Q7.b.c1.")],
     workspace: KeyWorkspace,
@@ -966,8 +979,23 @@ def override(
 ) -> None:
     """Record a correction in overrides.yaml, in place of an earlier one for the
     student and criterion, then rebuild out/. No model call."""
+    if points is not None and points.startswith("--"):  # a mistyped option
+        ctx.fail(f"No such option: {points}")
     ws = Workspace(workspace)
     key, summary = _stored(ws)
+    if remove:
+        if points is not None or note is not None:
+            _fail("--remove takes no POINTS and no --note.")
+        # Whatever the entry names: a correction for a criterion the key lost, or a
+        # student the class lost, can always be taken out.
+        try:
+            record_override(ws.overrides_yaml, key, None, student, criterion, None)
+        except OverrideError as error:
+            _fail(str(error))
+        typer.echo(f"Removed from {ws.overrides_yaml}")
+        _corrections(ws, key, summary.students)
+        _report(ws, key, summary)
+        return
     _corrections(ws, key, summary.students)
     keys = [s.student_key for s in summary.students]
     if student not in keys:
@@ -976,31 +1004,27 @@ def override(
     if criterion not in parts:
         _fail("The key has no criterion with that id.")
     part, found = parts[criterion]
-    new = None
-    if remove and (points is not None or note is not None):
-        _fail("--remove takes no POINTS and no --note.")
-    if not remove:
-        try:
-            value = Decimal((points or "").strip())
-        except InvalidOperation:
-            value = Decimal("NaN")
-        if not value.is_finite() or not 0 <= value <= found.points:
-            _fail(
-                f"POINTS is a number from 0 to {number(found.points)}, the full"
-                f" points of {criterion}."
-            )
-        new = Override(
-            student=student,
-            criterion=criterion,
-            points=value,
-            part_hash=part_hash(part, key.policies),
-            note=note or None,
+    try:
+        value = Decimal((points or "").strip())
+    except InvalidOperation:
+        value = Decimal("NaN")
+    if not value.is_finite() or not 0 <= value <= found.points:
+        _fail(
+            f"POINTS is a number from 0 to {number(found.points)}, the full"
+            f" points of {criterion}."
         )
+    new = Override(
+        student=student,
+        criterion=criterion,
+        points=value,
+        part_hash=part_hash(part, key.policies),
+        note=note or None,
+    )
     try:
         record_override(ws.overrides_yaml, key, keys, student, criterion, new)
     except OverrideError as error:
         _fail(str(error))
-    typer.echo(f"{'Removed from' if remove else 'Recorded in'} {ws.overrides_yaml}")
+    typer.echo(f"Recorded in {ws.overrides_yaml}")
     _report(ws, key, summary)
 
 

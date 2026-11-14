@@ -158,7 +158,8 @@ async def uncached(
     """How many requests the grade stage would make for `students` that the call
     cache does not answer. The stage runs as it would, but each request that gets
     past the cache is counted and refused before it leaves, the cache is a copy and
-    the grade files go to a scratch folder, so nothing is sent and nothing stored
+    the grade files go to a scratch folder, both inside the workspace (they hold
+    text derived from student work), so nothing is sent and nothing stored
     changes. A request that would follow a refused one is not counted."""
     asked = 0
 
@@ -167,7 +168,7 @@ async def uncached(
         asked += 1
         return httpx.Response(400)
 
-    with tempfile.TemporaryDirectory() as folder:
+    with tempfile.TemporaryDirectory(prefix="dry-run-", dir=workspace.root) as folder:
         copy = Path(folder) / "cache.sqlite"
         if workspace.cache_sqlite.exists():
             stored = workspace.cache_sqlite.resolve().as_uri() + "?mode=ro"
