@@ -988,6 +988,14 @@ def test_the_review_list_shows_both_awards_and_rationales_as_untrusted_text(
     workspace = new_workspace(tmp_path)
     student = copy_student(built, workspace, "typed-in-place")
     hostile = "Fine.\n### Someone else, Q1\n- Proposed score: 99 / 3.\n`x` <!-- y"
+
+    def disputed(r: GradeRecord) -> GradeRecord:  # an entry with another flag
+        if r.grade.part_id != "Q4.a":
+            return r
+        grade = r.grade.model_copy(update={"transcript_dispute": "Not what I read."})
+        return r.model_copy(update={"grade": grade})
+
+    change_grades(workspace, student, "Q4", disputed)
     first = load(workspace, KEY, student)
     record = second_grade_of_q4b(first, "differ", hostile)
     write_model(
@@ -1006,10 +1014,16 @@ def test_the_review_list_shows_both_awards_and_rationales_as_untrusted_text(
         f"  - Q4.b.c1, the first grade: 2. The grader wrote: {code_span(c1.rationale)}",
         f"  - Q4.b.c1, the second grade: 1. The grader wrote: {code_span(hostile)}",
     ]
+    # Only the criterion whose awards differ.
+    assert not any("Q4.b.c2, the" in line for line in lines)
     # Every piece of the second grader's text stays inside its code span.
     for piece in hostile.splitlines():
         assert [line for line in lines if piece in line] == [lines[at + 2]]
     who = student.student_key
+    # On the entry with the flag, and on no other.
+    entries = [e.split("\n")[0] for e in text.split("\n### ")[1:]]
+    assert sorted(e.rsplit(" ", 1)[1] for e in entries) == ["Q4.a", "Q4.b"]
+    assert text.count("[second grade](") == 1
     assert f"[second grade](../students/{who}/grades/second.json)" in text
     for path in (workspace.root / "out").rglob("*"):
         if path.is_file() and path != workspace.review_md:
@@ -1017,15 +1031,17 @@ def test_the_review_list_shows_both_awards_and_rationales_as_untrusted_text(
 
 
 @pytest.mark.parametrize(
-    "profile", ["economy", "balanced", "thorough", "economy, a result stored"]
+    "profile",
+    ["economy", "balanced", "thorough", "no lock", "economy, a result stored"],
 )
 def test_the_run_report_says_when_the_profile_does_no_second_grade(
     built: Built, tmp_path: Path, profile: str
 ) -> None:
     workspace = new_workspace(tmp_path)
-    workspace.config_lock_toml.write_text(
-        LOCK.replace("balanced", profile.split(",")[0])
-    )
+    if profile != "no lock":
+        workspace.config_lock_toml.write_text(
+            LOCK.replace("balanced", profile.split(",")[0])
+        )
     student = copy_student(built, workspace, "typed-in-place")
     if profile.endswith("stored"):  # graded a second time; the lock edited since
         record = second_grade_of_q4b(load(workspace, KEY, student), "differ")

@@ -1934,7 +1934,8 @@ def test_each_problem_a_model_graded_is_graded_again_under_the_profiles_that_do_
 def second_draw(how: str) -> Callable[[dict[str, Any]], Grades]:
     """A grader whose first answer to each request earns every criterion, and whose
     second answer gives Q4.b's first criterion 0 with MARKER as its reason and
-    feedback ("differ"), or leaves a part out every time, MARKER in its reason."""
+    feedback ("differ"), and Q4.c's second criterion as well ("two parts differ"),
+    or leaves a part out every time, MARKER in its reason."""
     seen: Counter[str] = Counter()
 
     def answer(body: dict[str, Any]) -> Grades:
@@ -1944,10 +1945,11 @@ def second_draw(how: str) -> Callable[[dict[str, Any]], Grades]:
         retry = '"problems"' in body["messages"][1]["content"][-1].get("text", "")
         if seen[text] == 1 and not retry:
             return found
-        if how == "differ":
+        if how != "fails its checks twice":
+            lowered = {"Q4.b": 0, **({"Q4.c": 1} if how == "two parts differ" else {})}
             for g in found.grades:
-                if g.part_id == "Q4.b":
-                    c = g.criteria[0]
+                if g.part_id in lowered:
+                    c = g.criteria[lowered[g.part_id]]
                     c.awarded, c.rationale, c.feedback = Decimal(0), MARKER, MARKER
             return found
         found.grades[0].criteria[0].rationale = MARKER
@@ -1956,7 +1958,9 @@ def second_draw(how: str) -> Callable[[dict[str, Any]], Grades]:
     return answer
 
 
-@pytest.mark.parametrize("how", ["differ", "fails its checks twice"])
+@pytest.mark.parametrize(
+    "how", ["differ", "two parts differ", "fails its checks twice"]
+)
 def test_a_second_grade_flags_a_part_or_fails_and_changes_no_score_or_feedback(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
 ) -> None:
@@ -1973,9 +1977,11 @@ def test_a_second_grade_flags_a_part_or_fails_and_changes_no_score_or_feedback(
     review = WS.review_md.read_text()
     lines = WS.run_report_md.read_text().splitlines()
     rows = by_problem(WS)
-    if how == "differ":
-        assert second_grade_line(AWARDS * 3, 3, 3, 0) in lines
-        assert review.count("- `graders_disagree`, high: ") == len(NAMES)
+    if how != "fails its checks twice":
+        parts = 1 if how == "differ" else 2  # of Q4, each student's
+        assert second_grade_line(AWARDS * 3, 3 * parts, 3 * parts, 0) in lines
+        assert review.count("- `graders_disagree`, high: ") == parts * len(NAMES)
+        assert chat_kinds(router).count("Grades") == 4 * len(NAMES)  # one again each
         assert all(r["status"] == "provisional" for r in rows)
         assert not log
     else:
