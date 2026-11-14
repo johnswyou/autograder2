@@ -2,6 +2,10 @@
 `audit/<part>.json`. The grade files are never rewritten; the report stage applies
 each change while the grade it was decided on still stands."""
 
+from typing import Any, cast
+
+from pydantic import model_validator
+
 from redpen.schemas.common import CriterionId, PartId, Points, Schema, StudentKey
 
 
@@ -37,3 +41,11 @@ class PartAudit(Schema):
     split: int
     changes: list[Change]
     key_suspect: Suspect | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stored_before(cls, data: Any) -> Any:
+        """An audit stored before `split` existed split no group: it loads with 0."""
+        if not isinstance(data, dict):
+            return data
+        return {"split": 0, **cast(dict[str, Any], data)}

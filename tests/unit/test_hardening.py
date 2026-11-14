@@ -421,6 +421,24 @@ def test_a_damaged_coverage_file_is_named_and_stops_the_report(
     assert_one_line(result, damaged_line(coverage))
 
 
+def test_a_damaged_audit_file_is_named_and_stops_the_command(
+    class_folder: Path,
+) -> None:
+    assert runner.invoke(app, ["grade", "subs", "--workspace", "ws"]).exit_code == 0
+    [student, *_] = sorted(p.name for p in WS.students_dir.iterdir())
+    audit = WS.audit_json("Q4.c")
+    audit.write_text("{")
+
+    for command in (
+        ["report"],
+        ["review", "--list"],
+        ["override", student, "Q1.c1", "1"],
+    ):
+        result = runner.invoke(app, [*command, "--workspace", "ws"])
+        assert result.exit_code == 1, (command, result.output)
+        assert said(result)[-1] == damaged_line(audit), command
+
+
 # --- the lock (task 5.4a, fix round 1) -----------------------------------------------
 
 

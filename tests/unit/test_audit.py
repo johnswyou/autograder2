@@ -1065,7 +1065,7 @@ def test_the_parts_of_a_split_group_are_decided_each_on_its_own(tmp_path: Path) 
     assert sorted(c.after for c in found.changes) == [0] * 15 + [1] * 15
 
 
-def test_an_audit_stored_before_split_is_taken_as_none_until_the_next_grade(
+def test_an_audit_stored_before_split_reports_as_one_that_split_nothing(
     tmp_path: Path,
 ) -> None:
     workspace = new_workspace(tmp_path)
@@ -1073,12 +1073,18 @@ def test_an_audit_stored_before_split_is_taken_as_none_until_the_next_grade(
         grade = graded("Q4.c", {"Q4.c.c1": c1, "Q4.c.c2": "1"})
         store(workspace, who, [reading("Q4.c")], [record(Q4C, grade)])
     audit(workspace, Q4C, Grader())
+
+    def written() -> dict[str, bytes]:
+        write_report(workspace, Q4C, students(ANN, BEN))
+        out = workspace.root / "out"
+        files = (p for p in out.rglob("*") if p.is_file())
+        return {p.relative_to(out).as_posix(): p.read_bytes() for p in files}
+
+    now = written()
     path = workspace.audit_json("Q4.c")
     earlier = json.loads(path.read_text())
-    del earlier["split"]
+    del earlier["split"]  # as the code before task 5.4a stored it
     path.write_text(json.dumps(earlier))
 
-    write_report(workspace, Q4C, students(ANN, BEN))
-
-    report = workspace.run_report_md.read_text().splitlines()
-    assert "No class audit is stored for the key as it is." in report
+    assert written() == now
+    assert "Changed: 1." in workspace.run_report_md.read_text()
