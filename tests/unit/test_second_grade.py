@@ -22,6 +22,8 @@ from redpen.grade.read import digest
 from redpen.grade.second_grade import ROLE, differing, grade_again
 from redpen.llm.client import Gateway, StageError
 from redpen.llm.ledger import Ledger
+from redpen.report.report import flags, load
+from redpen.schemas.flags import FlagCode
 from redpen.schemas.grade import (
     Grade,
     GradeRecord,
@@ -31,6 +33,7 @@ from redpen.schemas.grade import (
 )
 from redpen.schemas.key import Key
 from redpen.schemas.reading import FinalAnswer, Reading
+from redpen.schemas.submission import IngestRecord
 from redpen.workspace import Workspace, read_model
 from tests.unit.test_grade import (
     ASKED,
@@ -224,6 +227,8 @@ def test_no_problem_is_graded_again_where_its_first_grade_failed(
         stored(workspace, ASKED["Q4.a"].model_copy(update={"lines": ["y = 5"]}))
     q4 = workspace.grade_json(STUDENT, "Q4")
     kept = q4.read_bytes() if q4.exists() else None
+    path = workspace.second_grade_json(STUDENT)
+    compared = path.read_bytes() if path.exists() else None
     # Every answer leaves Q4.c out, so the grade stage fails Q4 twice.
     grader = Grader(lambda ids, n: Grades(grades=[full(KEY, i) for i in ids[:2]]))
     first_grade(workspace, grader)
@@ -233,8 +238,10 @@ def test_no_problem_is_graded_again_where_its_first_grade_failed(
     found = second_grade(workspace, grader)
 
     assert len(grader.sent) == 2
-    assert found == []
-    assert not workspace.second_grade_json(STUDENT).exists()
+    # Nothing is compared, and what was compared before stays as it is: the
+    # earlier first grades of Q4.b and Q4.c still stand.
+    assert (path.read_bytes() if path.exists() else None) == compared
+    assert [r.part_id for r in found] == (["Q4.a", "Q4.b", "Q4.c"] if kept else [])
 
 
 # --- a failure ---------------------------------------------------------------------
@@ -284,6 +291,88 @@ def test_a_failed_second_grade_is_logged_and_the_other_problems_go_on(
     )
     assert MARKER not in log
     assert grade_files(workspace) == graded  # every first grade stands
+
+
+TWO = key_of(*Q4.parts, PARTS["Q5.a"])  # two problems asked
+WHO = IngestRecord(student_name="N", student_key=STUDENT, source_kind="other", pages=[])
+
+
+def disagree(workspace: Workspace) -> set[str | None]:
+    """The parts the report flags `graders_disagree`, from the stored files."""
+    found = flags(TWO, [load(workspace, TWO, WHO)])
+    return {f.part_id for f in found if f.code == FlagCode.GRADERS_DISAGREE}
+
+
+def lower_q4b_on_the_second_draw(ids: list[str], n: int) -> Grades:
+    grades = [full(TWO, i) for i in ids]
+    if n == 1 and "Q4.b" in ids:
+        b = grades[1]
+        c1 = b.criteria[0].model_copy(update={"awarded": Decimal(1)})
+        grades[1] = b.model_copy(update={"criteria": [c1, *b.criteria[1:]]})
+    return Grades(grades=grades)
+
+
+@pytest.mark.parametrize(
+    "how",
+    ["its first grade fails", "the second call fails", "interrupted", "Q5 fails"],
+)
+def test_a_raised_flag_stays_while_the_first_grade_it_was_raised_on_stands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    workspace = Workspace(tmp_path / "ws")
+    stored(workspace, q5a=True)
+    grader = Grader(lower_q4b_on_the_second_draw)
+    first_grade(workspace, grader, TWO)
+    second_grade(workspace, grader, TWO)
+    assert disagree(workspace) == {"Q4.b"}
+    q4b = firsts(workspace)["Q4.b"]
+    path = workspace.second_grade_json(STUDENT)
+    compared = path.read_bytes()
+    if how == "its first grade fails":  # Q4.a read anew; no answer grades Q4.c
+        stored(workspace, ASKED["Q4.a"].model_copy(update={"lines": ["y = 5"]}), True)
+        grader = Grader(lambda ids, n: Grades(grades=[full(TWO, i) for i in ids[:2]]))
+    if how == "the second call fails":  # the cache lost: the first answers as before
+        (workspace.root.parent / "cache.sqlite").unlink()
+        grader = Grader(
+            lambda ids, n: None if n else Grades(grades=[full(TWO, i) for i in ids])
+        )
+    if how == "Q5 fails":  # Q5.a read anew, and its second grade refused
+        store(workspace, [reading("Q5.a", lines=["z = 9"])], crops=1)
+        grader = Grader(
+            lambda ids, n: (
+                None if n and "Q5.a" in ids else lower_q4b_on_the_second_draw(ids, n)
+            )
+        )
+    first_grade(workspace, grader, TWO)
+    assert firsts(workspace)["Q4.b"] == q4b
+
+    if how == "interrupted":
+
+        async def interrupted(*args: object, **kwargs: object) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("redpen.grade.second_grade.ask_grader", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            second_grade(workspace, grader, TWO)
+    else:
+        second_grade(workspace, grader, TWO)
+
+    assert disagree(workspace) == {"Q4.b"}
+    found = read_model(path, SecondGrades).records
+    if how == "Q5 fails":  # no result for the new first grade of Q5.a: failed
+        assert {r.part_id: r.result for r in found} == {
+            "Q4.a": "same",
+            "Q4.b": "differ",
+            "Q4.c": "same",
+            "Q5.a": "failed",
+        }
+    else:
+        assert path.read_bytes() == compared
+    if how == "the second call fails":
+        log = workspace.run_log.read_text().split("--- ")[1:]
+        assert sorted(e.split("\n")[0].split(" ", 1)[1] for e in log) == [
+            f"{ROLE} {STUDENT}: {q} was not graded a second time" for q in ("Q4", "Q5")
+        ]
 
 
 # --- the comparison ----------------------------------------------------------------

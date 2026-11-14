@@ -10,6 +10,8 @@ the report stage, read from `Workspace.second_grade_json`."""
 
 from typing import Literal
 
+from pydantic import ValidationError
+
 from redpen.grade.grade import ask_grader, by_problem, graded_from, request
 from redpen.grade.read import digest
 from redpen.llm.client import Gateway, finish_all
@@ -38,13 +40,19 @@ async def grade_again(
 ) -> list[SecondGrade]:
     """Grade again, with the grader `model`, each problem of `student` the grader
     was asked about whose stored grade answers the request made now, compare each
-    part's awards, and write the results to `Workspace.second_grade_json` (removed
-    first; none when nothing was graded again). A problem whose call fails, or whose
-    answer still fails its checks, gets "failed" on its parts: a fixed line and the
-    traceback go to the run log, and the other problems go on. No grade file is
-    written."""
+    part's awards, and store the results with those stored earlier in
+    `Workspace.second_grade_json`, written once when every problem is done (none
+    when nothing was ever graded again); return what is stored. A result stored
+    earlier is replaced only by a new comparison: a problem not asked again keeps
+    it, and so does a problem whose call fails, or whose answer still fails its
+    checks, where it is tied to the same first grade; its other parts get "failed".
+    A failure writes a fixed line and the traceback to the run log, and the other
+    problems go on. No grade file is written."""
     path = workspace.second_grade_json(student)
-    path.unlink(missing_ok=True)
+    try:
+        earlier = {r.part_id: r for r in read_model(path, SecondGrades).records}
+    except (FileNotFoundError, ValidationError):  # none, or of another shape
+        earlier = {}
 
     async def again(problem: str, parts: list[KeyPart]) -> list[SecondGrade]:
         found = request(workspace, student, key, parts)
@@ -92,7 +100,15 @@ async def grade_again(
         except Exception as error:  # any failure: the flags stay as they are
             what = f"{ROLE} {student}: {problem} was not graded a second time"
             log_failure(workspace, what, error)
-            return [tied(p, "failed", None) for p in found.asked]
+            failed = [tied(p, "failed", None) for p in found.asked]
+            return [
+                old
+                if (old := earlier.get(f.part_id))
+                and (old.part_hash, old.reading_digest, old.first)
+                == (f.part_hash, f.reading_digest, f.first)
+                else f
+                for f in failed
+            ]
         return [
             tied(
                 p,
@@ -105,7 +121,8 @@ async def grade_again(
         ]
 
     done = await finish_all(again(q, parts) for q, parts in by_problem(key))
-    records = [r for problem in done for r in problem]
+    results = earlier | {r.part_id: r for problem in done for r in problem}
+    records = [results[p.id] for p in key.parts if p.id in results]
     if records:
         write_model(path, SecondGrades(records=records))
     return records
