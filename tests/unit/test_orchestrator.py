@@ -1029,27 +1029,36 @@ def test_strict_privacy_once_off_stays_recorded(
 
 
 MASKED = (
-    "Names masked (`mask_names`). Name regions blanked: 3, found on 3 pages, each in"
+    "Names masked (`mask_names`). Name regions blanked: 9, found on 6 pages, each in"
     " every image of its page that is sent after the map. Left whole because they"
     " overlap a response: 3. The mapper sees each page whole, before it is blanked."
 )
 
 
 def masked_map(asked: list[bool]) -> Callable[..., Any]:
-    """A map stage that finds no work, and with names masked a name to blank and one
-    left whole on page 1; each call's setting kept in `asked`."""
+    """A map stage that finds no work, and with names masked two names to blank and
+    one left whole on page 1, and one to blank on page 2; each call's setting kept
+    in `asked`."""
 
     async def fake(workspace: Workspace, student: str, spec: Spec, *args: Any) -> None:
         *_, mask_names = args
         asked.append(mask_names)
-        names = [[0.1, 0.05, 0.3, 0.1]] if mask_names else []
-        page = MapPage(
-            number=1, rotation=0, photo=False, names=names, names_on_responses=names
-        )
+        box = [0.1, 0.05, 0.3, 0.1]
+        n = int(mask_names)
+        pages = [
+            MapPage(
+                number=1,
+                rotation=0,
+                photo=False,
+                names=[box, box] * n,
+                names_on_responses=[box] * n,
+            ),
+            MapPage(number=2, rotation=0, photo=False, names=[box] * n),
+        ]
         found = Map(entries=[], unanswered=[p.id for p in spec.parts], set_aside=[])
         write_model(
             workspace.map_json(student),
-            MapRecord(provenance=NOBODY, pages=[page], map=found),
+            MapRecord(provenance=NOBODY, pages=pages, map=found),
         )
 
     return fake

@@ -461,6 +461,99 @@ def test_a_name_on_a_turned_page_is_blanked_where_the_page_turned_upright_has_it
     assert blanked_box(turned, plain_turned) == pixels([0.8, 0.1, 0.9, 0.3], turned)
 
 
+# The review's probe, taken over: where a turn puts a box, by PIL's own transposes
+# rather than redpen's box arithmetic.
+TRANSPOSE = {
+    1: Image.Transpose.ROTATE_270,
+    2: Image.Transpose.ROTATE_180,
+    3: Image.Transpose.ROTATE_90,
+}
+NAME = [0.15, 0.05, 0.45, 0.09]
+WORK = [0.1, 0.1, 0.6, 0.3]  # its read margin takes in the lower edge of NAME
+
+
+def turned(size: tuple[int, int], box: Sequence[float], turns: int) -> list[float]:
+    """Where `box` (fractions) of an image of `size` lands, as fractions of that
+    image turned a quarter clockwise `turns` times."""
+    width, height = size
+    mask = Image.new("L", size, 0)
+    x0, y0, x1, y1 = box
+    mask.paste(
+        255,
+        (round(x0 * width), round(y0 * height), round(x1 * width), round(y1 * height)),
+    )
+    if turns:
+        mask = mask.transpose(TRANSPOSE[turns])
+    found = mask.getbbox()
+    assert found
+    return [
+        found[0] / mask.width,
+        found[1] / mask.height,
+        found[2] / mask.width,
+        found[3] / mask.height,
+    ]
+
+
+def blanked_where(png: bytes, plain: bytes) -> list[float]:
+    """The box `png` blanked in `plain`, as fractions of the image."""
+    box = blanked_box(png, plain)
+    assert box
+    width, height = Image.open(io.BytesIO(png)).size
+    return [box[0] / width, box[1] / height, box[2] / width, box[3] / height]
+
+
+@pytest.mark.parametrize("budget", [1536, 400])
+@pytest.mark.parametrize("photo", [False, True])
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+@pytest.mark.parametrize("layout", ["ink-in-place", "not-classkick"])
+def test_a_name_is_blanked_where_it_is_at_every_turn_size_and_layout(
+    fixture_workspace: tuple[Workspace, IngestSummary],
+    tmp_path: Path,
+    layout: str,
+    rotation: int,
+    photo: bool,
+    budget: int,
+) -> None:
+    student, _ = student_of(fixture_workspace, layout)
+    workspace = copy_student(fixture_workspace, student, tmp_path / "ws")
+    stored = workspace.student_page(student, 1)
+    before = stored.read_bytes()
+    found = Map(entries=[entry("Q1", 1, WORK)], unanswered=[], set_aside=[])
+    [unit] = units(SPEC, found)
+    plain = [MapPage(number=n, rotation=rotation, photo=photo) for n in range(1, 5)]  # type: ignore[arg-type]
+    named = [p.model_copy(update={"names": [NAME]}) for p in plain]
+
+    off = unit_images(workspace, student, unit, plain, budget, save=False)
+    on = unit_images(workspace, student, unit, named, budget)
+
+    assert stored.read_bytes() == before  # the page stored at ingest stays whole
+    turns = rotation // 90
+    overview, region = [i for i in on.items if isinstance(i, bytes)]
+    plain_overview, plain_region = [i for i in off.items if isinstance(i, bytes)]
+    with Image.open(stored) as image:
+        size = image.size
+    near = 1.5 / min(Image.open(io.BytesIO(overview)).size)
+    assert blanked_where(overview, plain_overview) == pytest.approx(
+        turned(size, NAME, turns), abs=near
+    )
+    # In the region, the part of NAME inside its frame.
+    [crop] = on.crops["Q1"]
+    x0, y0, x1, y1 = crop.box
+    inside = [max(NAME[0], x0), max(NAME[1], y0), min(NAME[2], x1), min(NAME[3], y1)]
+    framed = [
+        (inside[0] - x0) / (x1 - x0),
+        (inside[1] - y0) / (y1 - y0),
+        (inside[2] - x0) / (x1 - x0),
+        (inside[3] - y0) / (y1 - y0),
+    ]
+    frame = (1000, round(1000 * (y1 - y0) / (x1 - x0) * size[1] / size[0]))
+    near = 2.5 / min(Image.open(io.BytesIO(region)).size)
+    assert blanked_where(region, plain_region) == pytest.approx(
+        turned(frame, framed, turns), abs=near
+    )
+    assert workspace.crop_png(student, "Q1", 1).read_bytes() == region  # as sent
+
+
 # --- checks ------------------------------------------------------------------------
 
 BLANK_WITH_WORK = (

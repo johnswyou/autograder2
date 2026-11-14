@@ -429,6 +429,32 @@ def test_with_names_masked_the_mapper_is_asked_where_names_are_and_the_map_keeps
     )
 
 
+def test_a_continuation_protects_a_name_and_a_response_only_on_its_own_page(
+    tmp_path: Path,
+) -> None:
+    # Q1's work is p1.b2, [0.5, 0.6, 0.7, 0.8], and it goes on in p2.b1 on page 2.
+    resolution = Resolution(
+        entries=[entry("Q1", "p1.b2"), entry("Q1", "p2.b1", "continuation")],
+        unanswered=["Q2.a", "Q2.b"],
+        set_aside=[Aside(block_id="p1.b1", reason="a name")],
+    )
+    over_continuation = [0.3, 0.4, 0.4, 0.5]
+    where_page_1_has_work = [0.62, 0.65, 0.68, 0.7]  # clear of p2.b1
+
+    def named(image: Image.Image) -> NamedInventory:
+        names = [over_continuation, where_page_1_has_work] if image.width == 120 else []
+        return NamedInventory(**two_pages(image).model_dump(), names=names)
+
+    workspace = workspace_with(tmp_path, [page(100), page(120)])
+
+    mapped = run(workspace, Mapper([resolution], named), mask_names=True)
+
+    assert [(p.names, p.names_on_responses) for p in mapped.pages] == [
+        ([], []),
+        ([where_page_1_has_work], [over_continuation]),
+    ]
+
+
 def test_no_name_region_a_model_returned_reaches_an_error_or_the_terminal(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
