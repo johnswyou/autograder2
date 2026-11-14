@@ -1617,11 +1617,11 @@ def test_the_proposed_score_is_the_feedback_s_awarded_withheld_or_after_the_audi
         assert line in workspace.feedback_md(student.student_key).read_text()
     # What is stored behind each flag, and the audit file only where it holds.
     s1, s3 = found["`Student 1` (`s1`), Q4.b"], found["`Student 3` (`s3`), Q4.b"]
-    assert s1[:2] == [
+    assert s1[: s1.index("- Proposed score: 3 / 3.")] == [
         f"- `code_overruled`, low: {DETAIL[F.CODE_OVERRULED]}",
         "  - The grader wrote: `x`",
     ]
-    assert s3[:2] == [
+    assert s3[: s3.index("- Proposed score: 2 / 3.")] == [
         f"- `audit_changed`, low: {DETAIL[F.AUDIT_CHANGED]}",
         "  - Q4.b.c1: 2 before the audit, 1 after.",
     ]
