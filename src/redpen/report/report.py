@@ -157,8 +157,8 @@ class Stored:
     are stored, by part id; the class audit of each part, the same for every
     student; each part's second reading compared with the stored first, and its
     second grade compared with the stored first; the instructor's corrections
-    made under the key's current version of their part, by criterion id; and the
-    stored map."""
+    made under the key's current version of their part, by criterion id; the
+    stored map; and what the latest grade run graded under (`Lock.graded`)."""
 
     student: IngestRecord
     readings: dict[str, ReadingRecord]
@@ -172,6 +172,7 @@ class Stored:
     )
     overrides: Mapping[str, Override] = field(default_factory=dict[str, Override])
     mapped: MapRecord | None = None
+    graded: Mapping[str, str] = field(default_factory=dict[str, str])
 
 
 @dataclass(frozen=True)
@@ -411,8 +412,9 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
     key's top-level problems whose file exists, each second reading made for the
     first reading stored now and the key's version of its part, and each second
     grade made for the first grade stored now, the readings it was graded from and
-    the key's version of its part, that grades each of the first's criteria; and
-    its map, if one is stored."""
+    the key's version of its part, that grades each of the first's criteria; its
+    map, if one is stored; and what the lock says the latest grade run graded
+    under."""
     readings: dict[str, ReadingRecord] = {}
     grades: dict[str, GradeRecord] = {}
     who = student.student_key
@@ -453,6 +455,10 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
             == {c.id for c in grades[s.part_id].grade.criteria}
         )
     }
+    try:  # a lock that does not load compares nothing; `report` says it is damaged
+        graded = read_lock(workspace.config_lock_toml).graded
+    except (OSError, ValueError):
+        graded = {}
     return Stored(
         student,
         readings,
@@ -461,6 +467,7 @@ def load(workspace: Workspace, key: Key, student: IngestRecord) -> Stored:
         seconds,
         second_grades,
         mapped=_read(workspace.map_json(who), MapRecord),
+        graded=graded,
     )
 
 
@@ -479,10 +486,11 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
     """Why `part` is not scored for the stored student, or None when it is: its
     work cannot be read; it is a choice part answered with no option read; it has
     no reading or no grade record; its record was graded under another version of
-    the part, which `part_points` would refuse; or its record was graded from
-    other readings than those stored now, its own or its dependencies'
-    (`graded_from`; a record from before the digest was kept is taken as graded
-    from them)."""
+    the part, which `part_points` would refuse, or by a model under another grade
+    prompt or grader model than the latest grade run's (`Stored.graded`; before
+    any, none is); or its record was graded from other readings than those stored
+    now, its own or its dependencies' (`graded_from`; a record from before the
+    digest was kept is taken as graded from them)."""
     found = stored.readings.get(part.id)
     record = stored.grades.get(part.id)
     if found is not None and found.reading.status == "unreadable":
@@ -496,7 +504,13 @@ def withheld(key: Key, part: KeyPart, stored: Stored) -> str | None:
         return NO_OPTION
     if found is None or record is None:
         return UNGRADED
-    if record.provenance.key_part_hash != part_hash(part, key.policies):
+    made, under = record.provenance, stored.graded
+    if made.key_part_hash != part_hash(part, key.policies) or (
+        under
+        and made.model_slug is not None
+        and (made.prompt_version, made.model_slug)
+        != (under.get("prompt"), under.get("model"))
+    ):
         return OTHER_KEY
     if record.reading_digest not in (None, graded_from(part, stored.readings)):
         return OTHER_READING

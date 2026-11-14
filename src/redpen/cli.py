@@ -991,7 +991,8 @@ def _graded(ws: Workspace, dry_run: bool) -> tuple[Config, str, Spec, Lock, Key]
 
 def _gate(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Lock:
     """Exit, with nothing sent, unless the pinned endpoints keep nothing; then the
-    lock, written with the prompt versions and the strict privacy of this run."""
+    lock, written with the prompt versions, the strict privacy and what grades are
+    made under in this run."""
     _pinned_as_set(ws, config, lock)
     strict = config.strict_privacy
     gate = privacy_problems(lock, api_key, strict)
@@ -1005,7 +1006,13 @@ def _gate(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Lock:
     # answers may still come from that run, and only a fresh workspace clears it.
     kept = strict and lock.strict_privacy is not False
     masked = config.mask_names or None  # off, the lock holds no line for it
-    update = {"strict_privacy": kept, "mask_names": masked}
+    # Only a grade run sets it, so an update of the tool or a re-pin alone leaves
+    # every stored grade current.
+    graded = {
+        "prompt": prompts.load("grade", "problem")[1],
+        "model": lock.models["grader"].slug,
+    }
+    update = {"strict_privacy": kept, "mask_names": masked, "graded": graded}
     lock = _with_prompts(ws, lock.model_copy(update=update))
     if not strict:
         typer.echo(

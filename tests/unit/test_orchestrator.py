@@ -48,6 +48,7 @@ from redpen.orchestrator import (
 from redpen.prepare.key import load_key, number, part_hash, save_key, yaml_reader
 from redpen.report.report import (
     NOTHING_TO_REVIEW,
+    OTHER_KEY,
     OTHER_READING,
     STRICT_OFF_RUN,
     UNGRADED,
@@ -1295,7 +1296,7 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
         )
         provenance = Provenance(
             key_part_hash=part_hash(part, key.policies),
-            prompt_version="v",
+            prompt_version=redpen.prompts.load("grade", "problem")[1],
             model_slug=model.slug,
         )
         write_model(
@@ -1607,6 +1608,100 @@ def test_a_problem_whose_new_grade_fails_keeps_its_file_and_is_logged_and_counte
     shown = {r["part"]: r["rationale"] for r in mine}
     assert shown["Q4.a"] == OTHER_READING
     assert shown["Q4.b"] != OTHER_READING
+
+
+def another_condition(how: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Change what a grade is made under: the grade prompt, as an update of the
+    tool does, or the grader's pinned model, as a re-pin does."""
+    if how == "model":
+        lock = read_lock(WS.config_lock_toml)
+        models = {**lock.models, "grader": SECOND}
+        write_lock(WS.config_lock_toml, lock.model_copy(update={"models": models}))
+        return
+    real = redpen.prompts.load
+
+    def load(stage: str, name: str) -> tuple[str, str]:
+        text, version = real(stage, name)
+        return (
+            (text + "\n", "edited")
+            if (stage, name) == ("grade", "problem")
+            else (
+                text,
+                version,
+            )
+        )
+
+    monkeypatch.setattr(redpen.prompts, "load", load)
+    versions = {**redpen.prompts.versions(), "grade/problem": "edited"}
+    monkeypatch.setattr(redpen.prompts, "versions", lambda: versions)
+
+
+def rationales() -> dict[tuple[str, str], str]:
+    """Each student's rationale of each criterion in scores_detail.csv."""
+    with WS.scores_detail_csv.open(newline="", encoding="utf-8-sig") as file:
+        found = csv.DictReader(file)
+        return {(r["student"], r["criterion"]): r["rationale"] for r in found}
+
+
+@pytest.mark.parametrize("how", ["prompt", "model"])
+def test_a_grade_made_under_another_condition_is_withheld_when_its_regrade_fails(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    graded_once(router, monkeypatch)
+    another_condition(how, monkeypatch)
+
+    def no_q4c(body: dict[str, Any]) -> Grades:
+        return Grades(grades=[g for g in grades(body).grades if g.part_id != "Q4.c"])
+
+    router.grades = no_q4c
+
+    result = regrade()
+
+    assert result.exit_code == 1
+    assert "grade: 3 of 3 students failed." in result.stderr.splitlines()
+    shown = rationales()
+    for (_, criterion), why in shown.items():
+        if criterion.startswith("Q4."):  # kept, and not shown as current
+            assert why == OTHER_KEY
+        else:  # graded again, or scored by code
+            assert why != OTHER_KEY
+    assert {row["status"] for row in by_problem(WS)} == {"incomplete"}
+
+
+@pytest.mark.parametrize("how", ["prompt", "model"])
+def test_a_condition_changed_with_no_grade_run_since_changes_no_report(
+    router: OpenRouter, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    graded_once(router, monkeypatch)
+    before = out_files(WS)
+    another_condition(how, monkeypatch)
+    first = students()[0]
+    total = sum((c.points for p in KEY.parts for c in p.criteria), Decimal(0))
+
+    for args in (
+        ["report"],
+        ["review", "--list"],
+        ["key", "check"],
+        ["key", "render"],
+        ["override", first, "Q1.c1", "0"],
+        ["override", first, "Q1.c1", "--remove"],
+    ):
+        result = runner.invoke(app, [*args, "--workspace", "ws"])
+        assert result.exit_code == 0, result.output
+    after = out_files(WS)
+    if how == "model":  # the run report names the models pinned now
+        pinned = f"| grader | {GRADER.slug} |".encode()
+        repinned = f"| grader | {SECOND.slug} |".encode()
+        assert repinned in after[WS.run_report_md]
+        after[WS.run_report_md] = after[WS.run_report_md].replace(repinned, pinned)
+    assert after == before
+    blank = str(FIXTURES / "blank.pdf")
+    points = ["prepare", blank, "--total", str(total), "--workspace", "ws"]
+    for args in (points, ["report", "--workspace", "ws"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+    assert WS.scores_by_problem_csv.read_bytes() == before[WS.scores_by_problem_csv]
+    assert router.chats == []
 
 
 # --- redpen override -----------------------------------------------------------------

@@ -100,6 +100,10 @@ class Lock(BaseModel):
     and False from then on; True when every grade run had it on; None before any."""
     mask_names: bool | None = None
     """True when the latest grade run masked names; None otherwise."""
+    graded: dict[str, str] = Field(default_factory=dict[str, str])
+    """The grade prompt's version (`prompt`) and the grader's model slug (`model`)
+    at the latest grade run; empty before any. A grade a model made under others
+    is not current."""
 
 
 async def pin(
@@ -145,9 +149,10 @@ def write_lock(path: Path, lock: Lock) -> None:
         for k, v in model.model_dump(mode="json").items():
             value = sorted(cast(list[str], v)) if isinstance(v, list) else v
             lines.append(f"{k} = {json.dumps(value)}")
-    if lock.prompts:
-        lines += ["", "[prompts]"]
-        lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in lock.prompts.items()]
+    for name, table in (("prompts", lock.prompts), ("graded", lock.graded)):
+        if table:
+            lines += ["", f"[{name}]"]
+            lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in table.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".partial")  # whole or not at all
     partial.write_text("\n".join(lines) + "\n")
