@@ -565,21 +565,76 @@ def test_a_student_with_no_map_gets_no_file_and_still_counts_for_the_background(
     assert [len(patches(workspace, k)) for k in ("s1", "s2")] == [1, 1]
 
 
-def test_a_page_that_cannot_be_read_is_logged_and_nothing_is_stored(
+def test_a_page_that_cannot_be_read_or_is_not_its_recorded_size_is_not_compared(
     tmp_path: Path,
 ) -> None:
-    pages = {f"s{n}": [scribble(slide(), s)] for n, s in enumerate(SPOTS, 1)}
-    workspace, students = make_class(tmp_path, pages)
-    check_class(workspace, students)
+    pages = {f"s{n}": [scribble(slide(), s), slide()] for n, s in enumerate(SPOTS, 1)}
+    pages["s4"] = pages["s5"] = [slide(), slide()]
+    note = (60, 600, 200, 660)
+    maps = {key: mapped(aside=[(note, "a note")], pages=2) for key in ("s2", "s5")}
+    workspace, students = make_class(tmp_path, pages, maps)
     workspace.student_page("s2", 1).write_bytes(b"not a picture")
+    with Image.open(workspace.student_page("s5", 1)) as image:  # shorter than recorded
+        image.crop((0, 0, W, H - 40)).save(workspace.student_page("s5", 1))
 
     check_class(workspace, students)
 
-    assert not any(workspace.coverage_json(k).exists() for k in pages)
-    assert not workspace.patch_png("s1", 1, 1).exists()
+    for key in ("s2", "s5"):  # those pages alone
+        assert [p.not_compared for p in stored(workspace, key).pages] == [
+            "unreadable",
+            None,
+        ]
+    for n in (1, 3):  # the rest of the class checked
+        [patch] = patches(workspace, f"s{n}")
+        assert holds(patch, SPOTS[n - 1])
+    assert not workspace.run_log.exists()
+    # The block on the page that cannot be read has no image, and says so.
+    assert not workspace.aside_png("s2", 1).exists()
+    assert workspace.aside_png("s5", 1).exists()  # cut from the page as it is
+    lines = set_aside_section(workspace, students).splitlines()
+    assert f"- `Student s2` (`s2`), page 1: `a note` {coverage.NO_IMAGE}." in lines
+    assert unclaimed_lines(workspace, students)[5] == (
+        "Student pages not compared: 2. On a page with fewer than three comparable"
+        " students, 0; not a Classkick page, 0; another rendering than the class's,"
+        " 0; an image that cannot be read at the size ingest recorded, 2; the check"
+        " failed, its traceback in run.log, 0; not checked, with no map or a map"
+        " changed since the check, 0."
+    )
+
+
+def test_when_the_check_fails_it_keeps_nothing_and_the_run_report_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pages = {f"s{n}": [scribble(slide(), s), slide()] for n, s in enumerate(SPOTS, 1)}
+    workspace, students = make_class(tmp_path, pages)
+    leftover = coverage._leftover
+
+    def broken(page: Image.Image, background: Image.Image, *args: Any) -> Any:
+        if args[-1] == 2:  # page 2, once page 1's patches are stored
+            raise RuntimeError("the check broke")
+        return leftover(page, background, *args)
+
+    monkeypatch.setattr(coverage, "_leftover", broken)
+
+    check_class(workspace, students)
+
+    assert not list(workspace.root.rglob("unclaimed/*.png"))
+    for key in pages:
+        assert [p.not_compared for p in stored(workspace, key).pages] == [
+            "check failed",
+            "check failed",
+        ]
     log = workspace.run_log.read_text()
     assert log.split("\n")[0].split()[2:] == ["coverage"]
-    assert "UnidentifiedImageError" in log
+    assert "RuntimeError: the check broke" in log
+    assert unclaimed_flags(workspace, students) == []
+    assert unclaimed_lines(workspace, students)[5] == (
+        "Student pages not compared: 6. On a page with fewer than three comparable"
+        " students, 0; not a Classkick page, 0; another rendering than the class's,"
+        " 0; an image that cannot be read at the size ingest recorded, 0; the check"
+        " failed, its traceback in run.log, 6; not checked, with no map or a map"
+        " changed since the check, 0."
+    )
 
 
 def test_no_more_than_two_page_images_are_held_at_once_whatever_the_class_size(
@@ -734,7 +789,9 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         "",
         "Student pages not compared: 0. On a page with fewer than three comparable"
         " students, 0; not a Classkick page, 0; another rendering than the class's,"
-        " 0; not checked, with no map or a map changed since the check, 0.",
+        " 0; an image that cannot be read at the size ingest recorded, 0; the"
+        " check failed, its traceback in run.log, 0; not checked, with no map or a"
+        " map changed since the check, 0.",
         "",
     ]
     assert said(part, students)[3:6] == [
@@ -743,7 +800,9 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         "",
         "Student pages not compared: 2. On a page with fewer than three comparable"
         " students, 0; not a Classkick page, 1; another rendering than the class's,"
-        " 1; not checked, with no map or a map changed since the check, 0.",
+        " 1; an image that cannot be read at the size ingest recorded, 0; the"
+        " check failed, its traceback in run.log, 0; not checked, with no map or a"
+        " map changed since the check, 0.",
     ]
     assert said(two, pair)[3:6] == [
         "Student pages compared with their class's own background: 0 of 4. Students"
@@ -751,7 +810,9 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
         "",
         "Student pages not compared: 4. On a page with fewer than three comparable"
         " students, 4; not a Classkick page, 0; another rendering than the class's,"
-        " 0; not checked, with no map or a map changed since the check, 0.",
+        " 0; an image that cannot be read at the size ingest recorded, 0; the"
+        " check failed, its traceback in run.log, 0; not checked, with no map or a"
+        " map changed since the check, 0.",
     ]
 
 

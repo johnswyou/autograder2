@@ -103,7 +103,16 @@ class MapRecord(Schema):
 class CoveragePage(Schema):
     number: PositiveInt
     # Why the page was not compared with the background; null when it was.
-    not_compared: Literal["few comparable", "not classkick", "other rendering"] | None
+    not_compared: (
+        Literal[
+            "few comparable",
+            "not classkick",
+            "other rendering",
+            "unreadable",
+            "check failed",
+        ]
+        | None
+    )
     # Each patch of dense ink that no region of the map claims.
     patches: list[Box]
 

@@ -56,7 +56,9 @@ CELL = 40
 DENSE = 0.125
 FEWEST = 3  # comparable students a page needs
 
-type Reason = Literal["few comparable", "not classkick", "other rendering"]
+type Reason = Literal[
+    "few comparable", "not classkick", "other rendering", "unreadable", "check failed"
+]
 
 # The flags' details and the report's lines, in fixed words.
 LEFTOVER = (
@@ -71,7 +73,7 @@ ASIDE_INTRO = (
     "Each block of work the mapper set aside as no part's response, with the"
     " mapper's reason."
 )
-NO_IMAGE = "(no image: the check has not run on this map)"
+NO_IMAGE = "(no image: the check made none for this map)"
 COMPARED = (
     "Student pages compared with their class's own background: {compared} of"
     " {pages}. Students with dense ink that no region of their map claims"
@@ -80,8 +82,9 @@ COMPARED = (
 NOT_COMPARED = (
     "Student pages not compared: {count}. On a page with fewer than three comparable"
     " students, {few}; not a Classkick page, {other}; another rendering than the"
-    " class's, {rendering}; not checked, with no map or a map changed since the"
-    " check, {unchecked}."
+    " class's, {rendering}; an image that cannot be read at the size ingest"
+    " recorded, {unreadable}; the check failed, its traceback in {log}, {failed};"
+    " not checked, with no map or a map changed since the check, {unchecked}."
 )
 BLOCKS = (
     "Blocks the mapper set aside, each listed in {review}: {blocks}. Students with"
@@ -93,8 +96,9 @@ def check_class(workspace: Workspace, students: Sequence[IngestRecord]) -> None:
     """Compare each page of the class with its background, one page image held at a
     time, and store each mapped student's coverage file and images, the earlier
     ones removed first. A student with no map gets none but counts for the
-    background. When a page cannot be read the failure goes to the run log and
-    nothing is stored, so the run report says the pages were not checked."""
+    background. A page whose image cannot be read is not compared, that page alone.
+    When the check itself fails, the failure goes to the run log and each student's
+    file says so of every page, with nothing else of the check kept."""
     maps: dict[str, MapRecord] = {}
     for student in students:
         _clear(workspace, student.student_key)
@@ -106,18 +110,25 @@ def check_class(workspace: Workspace, students: Sequence[IngestRecord]) -> None:
         found = _compare(workspace, students, maps)
         for key, mapped in maps.items():
             for n, block in _blocks(mapped):
-                with Image.open(workspace.student_page(key, block.page)) as page:
+                page = _open(workspace.student_page(key, block.page))
+                if page is not None:  # else no image, and the list says so
                     _cut(
                         page,
                         block.box,
                         _turns(mapped, block.page),
                         workspace.aside_png(key, n),
                     )
-    except Exception as error:  # one unreadable page: nothing stored for anyone
+    except Exception as error:  # a fault of the check: nothing of it is kept
         log_failure(workspace, "coverage", error)
         for student in students:
             _clear(workspace, student.student_key)
-        return
+        found = {
+            s.student_key: [
+                CoveragePage(number=p.number, not_compared="check failed", patches=[])
+                for p in s.pages
+            ]
+            for s in students
+        }
     for key, mapped in maps.items():
         record = Coverage(map_digest=digest(mapped), pages=found[key])
         write_model(workspace.coverage_json(key), record)
@@ -146,7 +157,9 @@ def _compare(
         ]
         # The size most of the class's slides have; another is another rendering.
         common = (
-            Counter(size for _, size in slides).most_common(1)[0][0] if slides else None
+            Counter(size for _, size in slides).most_common(1)[0][0]
+            if slides
+            else (0, 0)
         )
         reasons: dict[str, Reason] = {
             s.student_key: "not classkick"
@@ -157,7 +170,7 @@ def _compare(
         paths = {
             k: workspace.student_page(k, number) for k, _ in slides if k not in reasons
         }
-        background, why = _background(paths)
+        background, why = _background(paths, common)
         reasons |= why
         for student, _ in here:
             key = student.student_key
@@ -183,33 +196,44 @@ def _compare(
 
 
 def _background(
-    paths: Mapping[str, Path],
+    paths: Mapping[str, Path], size: tuple[int, int]
 ) -> tuple[Image.Image | None, dict[str, Reason]]:
     """The background of one page from the students' images of it at `paths`, all
-    of one size, and why each student not compared was not. Each image is read
-    three times, one at a time: for a first background of them all; to keep those
-    with little ink on its paper, whose background is the one returned; and to
-    leave out those lighter than it on much of the print (the rest read once more
-    when one is). Another rendering (a
-    photo, a scan) is darker than the slide's paper nearly everywhere; one shifted
-    by a pixel is lighter along every printed line. None when fewer than FEWEST are
+    recorded as `size`, and why each student not compared was not. Each image is
+    read three times, one at a time: for a first background of those that can be
+    read at that size; to keep those with little ink on its paper, whose background
+    is the one returned; and to leave out those lighter than it on much of the
+    print (the rest read once more when one is). Another rendering (a photo, a
+    scan) is darker than the slide's paper nearly everywhere; one shifted by a
+    pixel is lighter along every printed line. None when fewer than FEWEST are
     comparable."""
     few: Reason = "few comparable"
-    if len(paths) < FEWEST:
-        return None, dict.fromkeys(paths, few)
-    first = _kth(_lightest(_load(p) for p in paths.values()), len(paths))
+    why: dict[str, Reason] = {}
+
+    def readable() -> Iterator[Image.Image]:
+        for key, path in paths.items():
+            if (page := _open(path)) is None or page.size != size:
+                why[key] = "unreadable"
+            else:
+                yield page
+
+    top = _lightest(readable())
+    read = [k for k in paths if k not in why]
+    if len(read) < FEWEST:
+        return None, why | dict.fromkeys(read, few)
+    first = _kth(top, len(read))
     paper = _paper(first)
     kept: list[str] = []
 
     def comparable() -> Iterator[Image.Image]:
-        for key, path in paths.items():
-            page = _load(path)
+        for key in read:
+            page = _load(paths[key])
             if _share(_ink(page, first), paper) <= NEARLY:
                 kept.append(key)
                 yield page
 
     top = _lightest(comparable())
-    why: dict[str, Reason] = {k: "other rendering" for k in paths if k not in kept}
+    why |= {k: "other rendering" for k in read if k not in kept}
     # The second lightest is dark where every page but one is: there, the print.
     if len(kept) >= FEWEST and (printed := _print(top[1])).getbbox():
         background = _kth(top, len(kept))
@@ -364,6 +388,14 @@ def _load(path: Path) -> Image.Image:
     return image
 
 
+def _open(path: Path) -> Image.Image | None:
+    """The image at `path`, or None when it cannot be read."""
+    try:
+        return _load(path)
+    except (OSError, SyntaxError):  # what Pillow raises for a file it cannot read
+        return None
+
+
 def _blocks(mapped: MapRecord) -> list[tuple[int, SetAside]]:
     """Each block the map set aside, numbered from 1, but one that lies mostly in a
     name region of its page (names masked): that is not listed again."""
@@ -424,10 +456,18 @@ def _images(workspace: Workspace, found: _Stored) -> list[tuple[str, Path]]:
         for n in range(1, len(page.patches) + 1)
     ]
     blocks = [
-        (f"block {n}, page {block.page}", workspace.aside_png(key, n))
+        (f"block {n}, page {block.page}", image)
         for n, block in _blocks(found.mapped)
+        if (image := _aside(workspace, found, n))
     ]
     return patches + blocks
+
+
+def _aside(workspace: Workspace, found: _Stored, n: int) -> Path | None:
+    """The image of `found`'s block `n` set aside, which the list links: none while
+    the check's file is not of the map, or when the check could not cut it."""
+    image = workspace.aside_png(found.student.student_key, n)
+    return image if found.coverage and image.is_file() else None
 
 
 def unclaimed_shown(
@@ -486,6 +526,7 @@ def unclaimed_lines(
     blocks = [(f, len(_blocks(f.mapped))) for f in found if f.mapped]
     asking = [f for f, n in blocks if n and f.mapped and f.mapped.map.unanswered]
     review = workspace.review_md.relative_to(workspace.root).as_posix()
+    log = workspace.run_log.relative_to(workspace.root).as_posix()
     return [
         "",
         "## Work no part claims",
@@ -497,6 +538,9 @@ def unclaimed_lines(
             few=why["few comparable"],
             other=why["not classkick"],
             rendering=why["other rendering"],
+            unreadable=why["unreadable"],
+            log=log,
+            failed=why["check failed"],
             unchecked=pages - why.total(),
         ),
         "",
@@ -519,8 +563,8 @@ def set_aside_section(workspace: Workspace, students: Sequence[IngestRecord]) ->
         key = found.student.student_key
         name = f"{code_span(found.student.student_name)} (`{key}`)"
         for n, block in _blocks(found.mapped):
-            link = f"[image]({_link(workspace, workspace.aside_png(key, n))})"
-            shown = link if found.coverage else NO_IMAGE
+            image = _aside(workspace, found, n)
+            shown = f"[image]({_link(workspace, image)})" if image else NO_IMAGE
             lines.append(
                 f"- {name}, page {block.page}: {code_span(block.reason)} {shown}."
             )
