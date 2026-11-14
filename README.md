@@ -61,7 +61,7 @@ cd ~/redpen-practice
    redpen run practice-set-3.pdf submissions --dry-run
    ```
 
-3. **Prepare the key.** This writes the answer key into `practice-set-3.redpen/key/`, in the folder `practice-set-3.redpen` beside the PDF, called the workspace. It takes a minute or two and shows nothing until it is done; then it prints the problems and parts it found and their points.
+3. **Prepare the key.** This writes the answer key into `practice-set-3.redpen/key/`, in the folder `practice-set-3.redpen` beside the PDF, called the workspace. It takes a minute or two and shows nothing until it is done; then it prints the problems and parts it found, their points, and what it spent.
 
    ```
    redpen prepare practice-set-3.pdf
@@ -69,7 +69,7 @@ cd ~/redpen-practice
 
 4. **Read the key** before you grade. A model wrote it. Open `practice-set-3.redpen/key/rubric.md`: each part's criteria and their points. Look for a criterion that asks for more than you would, and for points weighted as you would not. Then open `practice-set-3.redpen/key/verification.md`: its first lines name the parts that need a look. To change the key, edit `key/key.yaml` as the guide's section "Between the steps" says.
 
-5. **Grade.** This grades every student against the key. It shows a progress bar for each stage, with the money spent so far: `map` (finding each answer on the pages), `check` (looking for work no answer region claims), `read` (copying down each answer), `second` (reading again what was unclear), `grade`, and `second grade` (grading once more, to compare). The total cost is in `practice-set-3.redpen/out/run_report.md`, under "Cost". You can stop it with Ctrl-C and run the same command again: what was already answered is not paid for twice. Run again on a finished class, it costs nothing and takes about a minute. If its last lines say that some students failed, run it again.
+5. **Grade.** This grades every student against the key. It shows a progress bar for each stage, with the money spent so far: `map` (finding each answer on the pages), `check` (looking for work no answer region claims), `read` (copying down each answer), `second` (reading again what was unclear), `grade`, and `second grade` (grading once more, to compare). Its last line says what it spent; `practice-set-3.redpen/out/run_report.md` has the cost by role, under "Cost". You can stop it with Ctrl-C and run the same command again: what was already answered is not paid for twice. Run again on a finished class, it costs nothing and takes about a minute. If its last lines say that some students failed, run it again.
 
    ```
    redpen grade submissions --workspace practice-set-3.redpen

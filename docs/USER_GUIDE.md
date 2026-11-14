@@ -14,7 +14,7 @@ A few words used throughout:
 
 ## The two steps
 
-`redpen prepare` writes a key from the blank. `redpen grade` grades a class against that key. `redpen run` does the one and then the other. For your own classes, run them apart and read the key in between.
+`redpen prepare` writes a key from the blank. `redpen grade` grades a class against that key. `redpen run` does the one and then the other. For your own classes, run them apart and read the key in between. Each command that can spend money ends with a line saying what it spent.
 
 ### Step 1: prepare the key
 
@@ -32,7 +32,7 @@ The workspace is `practice-set-3.redpen`, beside the PDF, unless you give `--wor
 
 Under either option, points are shared in whole steps of `point_step`, so two parts of equal weight can differ by one step, and a part given a single step scores nothing below half of its criteria's points and all of it from half up.
 
-Until you set them, with one of these options or by hand, the points of each part are the model's choice. On a workspace that has a key already, `--total` or `--page-points` sets its points and changes nothing else, with no model call. `prepare` has no dry run: `--dry-run` is refused. `redpen run BLANK.pdf SUBMISSIONS --dry-run` estimates both steps. A `prepare` that was stopped is run again: the key's Markdown files are written at its end.
+Until you set them, with one of these options or by hand, the points of each part are the model's choice. On a workspace that has a key already, `--total` or `--page-points` sets its points and changes nothing else, with no model call. `prepare` has no dry run, and its help lists neither `--dry-run` nor `--roster`: `redpen run BLANK.pdf SUBMISSIONS --dry-run` estimates both steps, and a roster matters only to grading. A `prepare` that was stopped is run again: the key's Markdown files are written at its end.
 
 ### Between the steps: read and correct the key
 
@@ -56,7 +56,7 @@ redpen key check --workspace practice-set-3.redpen
 redpen key render --workspace practice-set-3.redpen
 ```
 
-`redpen key check` lists every problem it finds in the file, and notes each part changed since it was verified. `redpen key render` writes `solutions.md` and `rubric.md` again from `key.yaml`. `redpen key verify --workspace practice-set-3.redpen` has the checker, the referee and the self-test check the key as it now stands, and sets each part's `state`; it changes nothing else and costs money. If you have checked a part yourself, you may set its `state` to `verified` by hand: the state is not part of what the grader sees, so nobody is graded again.
+`redpen key check` lists every problem it finds in the file (a negative `rel_tol`, a part on a page the blank does not have, and more), notes each part changed since it was verified, and then says what to do next. `redpen key render` writes `solutions.md` and `rubric.md` again from `key.yaml`. `redpen key verify --workspace practice-set-3.redpen` has the checker, the referee and the self-test check the key as it now stands, and sets each part's `state`; it changes nothing else and costs money. If you have checked a part yourself, you may set its `state` to `verified` by hand: the state is not part of what the grader sees, so nobody is graded again.
 
 Once a class is graded, edit the key in this order: edit `key.yaml`, run `redpen key check`, then `redpen regrade --dry-run`, then `redpen regrade` (see "Reviewing and correcting"). Until the re-grade, `redpen report` shows the edited part with no score and its students `incomplete`: that is expected, not damage.
 
@@ -66,7 +66,7 @@ Once a class is graded, edit the key in this order: edit `key.yaml`, run `redpen
 redpen grade submissions --workspace practice-set-3.redpen
 ```
 
-SUBMISSIONS is a folder (its subfolders too) or a ZIP of PDFs, one per student. Files that are not PDFs are ignored. A student's name is the "Student:" line of a Classkick export, else the part of the file name after its last " - ", else the whole file name. A ZIP holds the class's PDFs only. With `--roster FILE.csv` (names in its first column, and no header row: a header is read as a name and listed as missing), a name that matches a roster name, ignoring capitals and spaces, takes the roster's spelling. The run report will list the roster names with no PDF, the PDFs that match no roster name, and the files that were skipped. If a student has two PDFs, the newer one is graded. SUBMISSIONS is always the whole class: grading a folder of late work alone makes the class those students only. Each student gets a student key, a folder name made of the name and six letters and digits, such as `Avery_Example-63834b`; it stays the same from run to run.
+SUBMISSIONS is a folder (its subfolders too) or a ZIP of PDFs, one per student. Files that are not PDFs are ignored. A student's name is the "Student:" line of a Classkick export, else the part of the file name after its last " - ", else the whole file name. A ZIP holds the class's PDFs only. With `--roster FILE.csv` (names in its first column, and no header row: a header is read as a name and listed as missing), a name that matches a roster name, ignoring capitals and spaces, takes the roster's spelling. The run report's section "Roster and files left out" lists the roster names with no PDF, the students whose names are not on the roster, and the files left out, and `grade` prints how many of each. If a student has two PDFs, the newer one is graded. SUBMISSIONS is always the whole class: grading a folder of late work alone makes the class those students only. Each student gets a student key, a folder name made of the name and six letters and digits, such as `Avery_Example-63834b`; it stays the same from run to run.
 
 What grading does, in order, with the name each stage has on the progress bars and in the dry run's estimate:
 
@@ -75,7 +75,7 @@ What grading does, in order, with the name each stage has on the progress bars a
 3. **`check`**: code compares each page with the class's and looks for writing no part claims (no model, so not in the estimate).
 4. **`read`**: the reader copies down each answer.
 5. **`second`**: the second reader reads again each answer the reader was unsure of.
-6. **`grade`**: code scores choice answers and blank ones; the grader awards points on the others, criterion by criterion, and code checks a number or an expression against the key.
+6. **`grade`**: code scores choice answers and blank ones; the grader awards points on the others, criterion by criterion, and code checks a number or an expression against the key. An expression within the part's tolerance of the key's matches: at 2%, `4.9 t^2` matches `0.5*9.81*t^2`.
 7. **`second grade`** (profiles `balanced` and `thorough`): each problem the grader graded is graded once more by the same model, and a part whose awards differ is flagged.
 8. **`audit`**, the class audit: code finds the same work given different points across the class, and the grader decides each such group again; code also checks whether the class's most common answer differs from the key's.
 9. **Report**: the files in `out/`.
@@ -93,7 +93,7 @@ The workspace of the practice class after `redpen run`, one `redpen review` and 
 ```text
 practice-set-3.redpen/
   .gitignore                keeps the folder out of git (leave)
-  config.lock.toml          models and profile pinned for this assignment (leave)
+  config.lock.toml          models and profile pinned here, what the latest grading used (leave)
   cache.sqlite              every model answer, and what each call cost (leave)
   ingest_summary.json       the students of the latest grade, what ingest found (leave)
   reviews.yaml              your reviews, written by redpen review (leave)
@@ -159,7 +159,7 @@ All in the workspace's `out/` folder, rebuilt after every grade, review or corre
 - The three CSV files begin with a byte-order mark, so that a spreadsheet reads them as UTF-8.
 - **`feedback/<student>.md`**: the student's total, each problem and part with its points, and under each part the grader's feedback on each criterion that lost points, or why the part has no score yet. The title is the workspace's folder name without `.redpen`, so name the workspace after the assignment. The feedback is the grader's own words: read it before you send it.
 - **`review.md`**: the review list. First the parts of the key with an open flag; then each student's flagged parts, high severity first and then by the points at stake; for each, its flags, the proposed score, the reader's copy of the answer, and links to the crops and stored files. Then corrections not applied, reviews out of date, entries closed by review, and the blocks the mapper set aside.
-- **`run_report.md`**: the key's parts with their pages, points and states; the class audit; the second read and the second grade, with how often the two agreed; each page's maximum; the students with parts not scored and why; the leftover-work check; files not ingested; the flags by code; the models used; and the cost by role. The cost is what OpenRouter reported for the calls that were answered; a call that timed out may still have been billed, so your OpenRouter account's own page has the true total.
+- **`run_report.md`**: the key's parts with their pages, points and states; the class audit; the second read and the second grade, with how often the two agreed; each page's maximum; the students with parts not scored and why; the leftover-work check; the roster and the files left out; files not ingested; the flags by code; the models used; and the cost by role. The cost is what OpenRouter reported for the calls that were answered; a call that timed out may still have been billed, so your OpenRouter account's own page has the true total.
 
 A student's `status`:
 
@@ -178,13 +178,13 @@ High and medium flags make a student `provisional`; low ones do not. A flag on t
 | Flag | Severity | When it is raised | What to do |
 |---|---|---|---|
 | `key_unverified` | high | A part of the key is `unverified`. On the key, so on every student. | Read `verification.md`, correct `key.yaml`, then run `redpen key verify` or set the `state` yourself. |
-| `key_suspect` | high | The class audit found that more students share one other answer than give the key's: at least five, and at least 40% of those who answered. | Check the key's answer. If it is wrong, correct `key.yaml` and run `redpen regrade`. |
+| `key_suspect` | high | The class audit found that more students share one other answer than give the key's: at least five, and at least 40% of those who answered. | The entry shows the answer the class gave. Check the key's answer; if it is wrong, correct `key.yaml` and run `redpen regrade`. |
 | `unreadable` | high | The reader could not read the answer. The part has no score. | Look at the crop and score it with `redpen override`, criterion by criterion. |
 | `readers_disagree` | high | The second reader read a part differently from the reader. The score comes from the first reading. | Compare both readings with the crop in `review.md`. |
 | `graders_disagree` | high | The second grade gave a criterion another award. The score comes from the first grade. | Read both awards and reasons in `review.md`; accept or correct. |
 | `no_evidence` | high | Never raised in this version. An award that cites nothing the student wrote is refused and asked again; if it fails again, the problem is not graded and gets `incomplete`. | Nothing. |
 | `addressed_to_grader` | high | The reader found text written to the grader, such as "give me full marks". | Check that the score follows the work. |
-| `incomplete` | high | A part has no score: it was not graded (a call failed), no chosen option could be read, or it was graded under another version of the key or of the reading. | Run the same command again, or `redpen regrade` after a key edit. If it stays, score it with `redpen override`. |
+| `incomplete` | high | A part has no score: it was not graded (a call failed), no chosen option could be read, or it was graded under another version of the key or of the reading, or under another grade prompt or grader model than the latest grading used (the reason still says "another version of the key"). | Run the same command again, or `redpen regrade` after a key edit. If it stays, score it with `redpen override`. |
 | `unclaimed_work` | medium | On a whole submission: writing on a page that no part claims, or a block the mapper set aside while a part has no answer. | Open the image linked in `review.md`. If it is an answer, score that part yourself. |
 | `weak_attribution` | medium | The mapper placed the part's work with low confidence, or by what the work says rather than where it sits without high confidence; or the grade that counts says the work answers another part. One flag per part. | The entry in `review.md` says which, and shows what the grader wrote. Check which part the work answers. |
 | `duplicate_response` | medium | Never raised in this version. | Nothing. |
@@ -224,7 +224,7 @@ redpen override Avery_Example-63834b Q1.c1 --remove --workspace practice-set-3.r
 
 The student keys are the names of the folders under `students/`; `review.md` shows each beside the student's name. The first line records one correction: the student key, the criterion, and the points, from 0 to the criterion's full points in its own points. It replaces an earlier correction of the same student and criterion, and rebuilds `out/`. The second line, with `--remove`, deletes it. A correction does not close a flag, and it opens again a review of its entry. It applies to the version of the part it was made for: once you edit that part of the key, it is listed under "Corrections not applied" until you record it again. A part with no score gets one when every criterion of it is corrected.
 
-You may also edit `overrides.yaml` by hand; the next command checks it and refuses an entry that names a criterion it does not know. When a student leaves the class, their reviews and corrections stay in the files and are listed as not applied; nothing is refused for them.
+You may also edit `overrides.yaml` by hand; the next command checks it and refuses an entry that names a criterion it does not know. When a student leaves the class, nothing is refused: their corrections are listed under "Corrections not applied" and their reviews under "Reviews out of date", and both apply again if the student is graded again. Only a new correction for them is refused, since they are not in the class.
 
 ### `redpen regrade`
 
@@ -233,7 +233,7 @@ redpen regrade --workspace practice-set-3.redpen --dry-run
 redpen regrade --workspace practice-set-3.redpen
 ```
 
-After an edit of `key.yaml`, this grades the latest class again from the stored readings: no ingest, map or read. Then the second grade, the class audit and the report. Every request that did not change is answered from the cache. For an edited part, the request for its whole problem is sent and paid for again, and the grade of the edited part and of the parts that depend on it is replaced; the other parts of that problem keep the grade they had. With `--dry-run` it prints how many grade requests the cache would not answer and what they are estimated to cost, and sends nothing. An edit of the policies changes every part, so everything is graded again. A change of a part's `state` or of the points (`prepare --total` or `--page-points`) changes no grade; run `redpen report` instead.
+After an edit of `key.yaml`, this grades the latest class again from the stored readings: no ingest, map or read. Then the second grade, the class audit and the report. Every request that did not change is answered from the cache. For an edited part, the request for its whole problem is sent and paid for again, and the grade of the edited part and of the parts that depend on it is replaced; the other parts of that problem keep the grade they had, except a part that depends on a part of another problem, which is graded anew. With `--dry-run` it prints how many grade requests the cache would not answer and what they are estimated to cost, leaving out the class audit, and sends nothing. An edit of the policies changes every part, so everything is graded again. A change of a part's `state` or of the points (`prepare --total` or `--page-points`) changes no grade; run `redpen report` instead.
 
 ### `redpen report`
 
@@ -269,9 +269,17 @@ Add credit on the OpenRouter site and run the same command again.
 
 A model pinned for this assignment is gone. Run the check it names.
 
+> OpenRouter's list of models could not be fetched (ConnectError). Check the network connection and run the same command again.
+
+The list is fetched by `models check`, by a `prepare` that pins the models, and by a dry run on a new workspace. Check the connection.
+
 > practice-set-3.pdf cannot be opened as a PDF: it does not exist. Give BLANK.pdf as a PDF file that opens without a password.
 
 Check the path. In place of "does not exist" the line can say "is a folder", "is encrypted", "has no pages", or "is not a PDF, or is damaged or cut short". An encrypted PDF must be saved again without its password.
+
+> practice-set-3.redpen/key/blank.pdf is damaged (not a PDF). Delete it and run `redpen prepare` again with the same BLANK.pdf to have it copied again.
+
+The workspace's copy of the blank was cut short. Do what the line says; on a workspace with a key this asks no model.
 
 > submissions cannot be read as a folder or ZIP of PDFs, or the roster cannot be read (FileNotFoundError). Give SUBMISSIONS as a folder or ZIP of the students' PDFs.
 
@@ -299,6 +307,14 @@ Check the `--workspace` path, or prepare the key first.
 
 Each workspace belongs to one blank. Give a new folder with `--workspace`.
 
+> prepare has no dry run. `redpen run BLANK.pdf SUBMISSIONS --dry-run` estimates the key and the grading, and sends nothing.
+
+Use the dry run of `run`, as the line says.
+
+> No student of the latest ingest has that student key. Each key is the name of a student's folder in practice-set-3.redpen/students.
+
+`redpen override` takes the student key, not the name: copy it from the folder's name, or from `review.md`, where it stands beside the name.
+
 > practice-set-3.redpen/key/key.yaml does not load. `redpen key check` lists its problems.
 
 > practice-set-3.redpen/key/key.yaml has problems, so nothing was graded.
@@ -314,6 +330,18 @@ A stored file was cut short, by a full disk or by hand. Do what the line says: t
 > practice-set-3.redpen/config.lock.toml is damaged (not a lock). Delete it and run `redpen prepare` again to have the models pinned again from redpen.toml.
 
 The lock was cut short or edited. Deleting it pins the models of `redpen.toml` afresh; if they are not the ones the key was made with, grading asks new questions and pays for them.
+
+> practice-set-3.redpen/config.lock.toml was pinned with strict_privacy off, and it is on now, so nothing is sent. Set strict_privacy = false in redpen.toml, or delete the lock and run `redpen prepare` again to pin endpoints that retain nothing.
+
+The models of this assignment were pinned with no check that their services keep nothing. Setting `strict_privacy = false` keeps the workspace as it is. Deleting the lock pins models whose services keep nothing, but grading then asks its questions again and pays for them; and if an earlier grade run had strict privacy off, the run report no longer says so.
+
+> redpen.toml: cannot be read as UTF-8 text (UnicodeDecodeError). Save it as UTF-8 text, or move it away to use the defaults.
+
+Save the settings file from your editor as UTF-8 (plain text).
+
+> practice-set-3.redpen cannot be written to (permission denied). Make it and the files in it writable, and run the same command again.
+
+The workspace or a file in it is read-only, or belongs to another user. Fix its permissions and run the command again.
 
 > Nothing was sent: the pinned endpoints are not verified to keep nothing.
 
@@ -337,7 +365,7 @@ The workspace folder's name is sent with every request, as a label for the sessi
 
 `strict_privacy`, on by default, sends every request only to services that keep nothing: no data retention, no "Safety Retention", no use of the data. `redpen models check` says, for each role, whether its model has such a service. `redpen models check --workspace DIR` prints the same table, then a line for each model pinned in that workspace that has a problem; no such line means none. Before the first student page is sent, the tool checks again that the services pinned for the assignment still keep nothing, and sends nothing if it cannot confirm it. With `strict_privacy = false` this is not checked, and the run report says so for good.
 
-`mask_names`, off by default, blanks each student's name in the images sent after the map: the mapper is asked where names are on each page, and sees each page before it is blanked. Once on for a workspace, it stays on for it. Both settings are read from `redpen.toml` in the folder you run redpen from.
+`mask_names`, off by default, blanks each student's name in the images sent after the map: the mapper is asked where names are on each page, and sees each page before it is blanked. Once on for a workspace, it stays on for it, and a grade run with the setting off says so in one line. Both settings are read from `redpen.toml` in the folder you run redpen from.
 
 The workspace holds copies of the students' PDFs, their pages, the readings and the scores. It gives itself a `.gitignore` so that git leaves it out. Keep it where you keep your gradebook. Nothing leaves your computer except the requests above, with the workspace folder's name.
 
@@ -363,12 +391,12 @@ referee = "~anthropic/claude-opus-latest"
 ```
 
 - `profile`: how much checking is done; see below. `--profile` on `run` or `prepare` sets it for a new workspace.
-- `image_budget`: the longest edge, in pixels, of an image sent to a model, from 256 to 4096. A change makes the images different, so a run asks its questions again and pays for them.
+- `image_budget`: the longest edge, in pixels, of an image sent to a model, from 256 to 4096; a value outside is refused, in a line that names the setting. A change makes the images different, so a run asks its questions again and pays for them.
 - `strict_privacy`: see "Privacy".
 - `mask_names`: see "Privacy".
 - `models`: the model behind each role: an OpenRouter model name, or a name such as `~anthropic/claude-sonnet-latest` that stands for that family's newest model and is fixed when a key is prepared. `checker` must be of another company than `solver`, and `second` of another company than `reader`, or the tool refuses to run: a model checking itself would agree with itself. The roles are `parser`, `solver`, `checker`, `referee`, `mapper`, `reader`, `second` and `grader`; the grader also does the rubric's self-test, the second grade and the class audit.
 
-When a key is prepared, the models and the profile are pinned in the workspace's `config.lock.toml`. From then on that workspace keeps them, whatever `redpen.toml` or `--profile` says. A change of `redpen.toml` applies to new workspaces.
+When a key is prepared, the models and the profile are pinned in the workspace's `config.lock.toml`. From then on that workspace keeps them, whatever `redpen.toml` or `--profile` says. A change of `redpen.toml` applies to new workspaces. The lock also records the grade prompt and grader model of the latest `grade` or `regrade`; a part a model graded under others is shown without a score until it is graded again. So an update of redpen changes nothing stored until the next `grade` or `regrade`, and that run asks again, and pays for, every question whose prompt the update changed.
 
 The profiles:
 
@@ -396,4 +424,6 @@ These were measured while the tool was built. Read them before you trust a score
 - **Names.** Replacing names in text needs the whole name of two or more words as the tool knows it: a first name alone, initials, a nickname or a misspelt name gets through. `mask_names` blanks the regions the mapper finds; a name it does not find, or one that overlaps an answer, stays.
 - **Reviews open again** when anything the entry shows changes, the bytes of its crop images included: an update of the PDF or image library can open every review again.
 - **`duplicate_response` is never raised** in this version.
-- **The estimate.** The estimate for preparing a key came out 26 to 36% under the real cost on a test class. On the practice class the estimate was $2.36 and the work cost $1.72: the key cost 7% more than estimated, and the grading 38% less. The estimate for grading does not know what the cache already holds, so a resumed run costs less than it says.
+- **Folders that cannot be written to.** `run` or `prepare` on a folder that cannot be written to, with no `--workspace`, still ends in a long error (a traceback) instead of one line; so do a read-only disk, and `key verify` on a full disk.
+- **Links in feedback.** A web address in the grader's feedback is still shown as a link by some Markdown viewers.
+- **The estimate.** The estimate for preparing a key came out 26 to 36% under the real cost on a test class. On the practice class the estimate was $2.36 and the work cost $1.72: the key cost 7% more than estimated, and the grading 38% less. The estimate for grading does not know what the cache already holds, so a resumed run costs less than it says. The estimate of `regrade --dry-run` leaves out the class audit.
