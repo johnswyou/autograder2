@@ -86,7 +86,11 @@ def open_pdf(source: Path | bytes) -> pdfium.PdfDocument:
     """Open a PDF so that filled form fields render: pdfium draws them only through
     a form environment, which must exist before any page is loaded."""
     pdf = pdfium.PdfDocument(source)
-    pdf.init_forms()
+    try:
+        pdf.init_forms()
+    except BaseException:  # a raise here never reaches the caller's `with`
+        pdf.close()
+        raise
     return pdf
 
 

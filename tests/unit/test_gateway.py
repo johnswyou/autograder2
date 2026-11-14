@@ -739,6 +739,26 @@ def test_offline_a_hit_returns_and_a_miss_raises_without_a_request(
     assert server.requests == []
 
 
+def test_a_gateway_on_a_file_that_is_not_a_database_raises_and_closes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    damaged = tmp_path / "cache.sqlite"
+    damaged.write_bytes(b"not a database " * 200)
+    opened: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    def kept(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+        opened.append(connect(*args, **kwargs))
+        return opened[-1]
+
+    monkeypatch.setattr(sqlite3, "connect", kept)
+    with pytest.raises(sqlite3.DatabaseError):
+        Gateway(damaged, "test-key")
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")
+
+
 def test_dump_and_load_round_trip_the_cache_without_images(tmp_path: Path) -> None:
     db, copy, recording = (
         tmp_path / name for name in ("a.sqlite", "b.sqlite", "r.jsonl")

@@ -154,21 +154,26 @@ class Gateway:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._db = sqlite3.connect(db_path, autocommit=True)
-        self._cache = CallCache(self._db)
-        self._ledger = Ledger(self._db)
-        self._http = httpx.AsyncClient(
-            base_url=API_URL,
-            headers=authorization(api_key),
-            timeout=httpx.Timeout(600, connect=10),
-            transport=transport,
-        )
-        self._names = _names_pattern(names)
+        try:  # a raise here never reaches __aexit__, which closes the connection
+            self._cache = CallCache(self._db)
+            self._ledger = Ledger(self._db)
+            self._names = _names_pattern(names)
+            self._slots = asyncio.Semaphore(max_concurrency)
+            self._interval = 1 / requests_per_second
+            # Last, so that nothing after it can raise: it closes only when awaited.
+            self._http = httpx.AsyncClient(
+                base_url=API_URL,
+                headers=authorization(api_key),
+                timeout=httpx.Timeout(600, connect=10),
+                transport=transport,
+            )
+        except BaseException:
+            self._db.close()
+            raise
         self._strict_privacy = strict_privacy
         self._offline = offline
         self.max_concurrency = max_concurrency
         """The most requests in flight at once."""
-        self._slots = asyncio.Semaphore(max_concurrency)
-        self._interval = 1 / requests_per_second
         self._next_start: dict[str, float] = {}
         self._held: dict[str, float] = {}  # by model: until when a Retry-After holds it
         self._sleep = sleep

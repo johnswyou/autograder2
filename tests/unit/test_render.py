@@ -206,3 +206,19 @@ def test_an_answer_typed_into_a_form_field_shows_in_page_and_region(
     # Without the form environment the field renders empty.
     bare = render_page(pdfium.PdfDocument(path)[0], "other")
     assert darkest(crop(bare.image, field)[0]) > 200
+
+
+def test_a_pdf_whose_form_environment_fails_is_closed_before_the_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[pdfium.PdfDocument] = []
+
+    def fails(pdf: pdfium.PdfDocument) -> None:
+        opened.append(pdf)
+        raise pdfium.PdfiumError("no form environment")
+
+    monkeypatch.setattr(pdfium.PdfDocument, "init_forms", fails)
+    with pytest.raises(pdfium.PdfiumError):
+        open_pdf(BLANK)
+
+    assert opened[0].raw is None
