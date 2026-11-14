@@ -1,5 +1,8 @@
 """Quarter turns, contrast correction and crops (src/redpen/imaging/prep.py)."""
 
+import io
+import random
+
 import pypdfium2 as pdfium
 import pytest
 from hypothesis import given
@@ -9,8 +12,10 @@ from PIL import Image, ImageOps, ImageStat
 from redpen.imaging.prep import (
     box_from_rotated,
     box_to_rotated,
+    box_within,
     correct_contrast,
     crop,
+    reduced_png,
     rotate,
     white_share,
 )
@@ -83,6 +88,42 @@ def test_crop_widens_a_box_to_whole_pixels() -> None:
 
     assert used == [0.1, 0.1, 0.5, 0.5]
     assert part.size == (4, 4)
+
+
+def test_the_part_of_a_box_inside_a_frame_is_given_in_the_frame_s_fractions() -> None:
+    frame = [0.2, 0.4, 0.6, 0.8]
+
+    assert box_within([0.3, 0.5, 0.4, 0.6], frame) == pytest.approx(
+        [0.25, 0.25, 0.5, 0.5]
+    )
+    assert box_within([0.0, 0.0, 0.4, 0.6], frame) == pytest.approx(
+        [0.0, 0.0, 0.5, 0.5]
+    )
+    assert box_within([0.0, 0.0, 0.2, 0.9], frame) is None  # touching shares no area
+    assert box_within([0.7, 0.1, 0.9, 0.3], frame) is None
+
+
+def noise(size: tuple[int, int]) -> Image.Image:
+    rng = random.Random(repr(size))
+    data = bytes(rng.randrange(1, 256) for _ in range(size[0] * size[1] * 3))
+    return Image.frombytes("RGB", size, data)
+
+
+def test_a_blanked_box_is_flat_black_on_every_pixel_it_touches_and_nothing_else() -> (
+    None
+):
+    image = noise((300, 200))
+
+    plain = Image.open(io.BytesIO(reduced_png(image, 150)))
+    blanked = Image.open(io.BytesIO(reduced_png(image, 150, [[0.101, 0.2, 0.5, 0.35]])))
+
+    assert reduced_png(image, 150, []) == reduced_png(image, 150)
+    assert blanked.size == plain.size == (150, 100)
+    inside = {(x, y) for x in range(15, 75) for y in range(20, 35)}
+    for x in range(150):
+        for y in range(100):
+            want = (0, 0, 0) if (x, y) in inside else plain.getpixel((x, y))
+            assert blanked.getpixel((x, y)) == want, (x, y)
 
 
 # The truth file has no rotation field. It implies a page's turn through its boxes:
