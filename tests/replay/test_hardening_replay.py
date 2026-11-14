@@ -37,6 +37,7 @@ from redpen.cli import app
 from redpen.config import Lock, write_lock
 from redpen.grade.audit import MAX_CASES, audit_class
 from redpen.grade.ingest import IngestSummary
+from redpen.llm.cache import CallCache
 from redpen.llm.client import MAX_ATTEMPTS, STOPS, Gateway
 from redpen.prepare.key import save_key
 from redpen.prepare.parse import render_blank
@@ -535,8 +536,14 @@ while True:  # five answers written over and over, as `forget` and a new answer 
 
 def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
     db = tmp_path / "cache.sqlite"
+    # A journal that rolls a killed write back on the next open (sqlite's atomic
+    # commit); `off` and `memory` leave a torn page behind.
+    with closing(sqlite3.connect(db, autocommit=True)) as connection:
+        CallCache(connection)
+        [(mode,)] = connection.execute("PRAGMA journal_mode")
+    assert mode in ("delete", "truncate", "persist", "wal")
     env = {**os.environ, "PYTHONPATH": str(REPO)}
-    for _ in range(10):  # each kill lands somewhere in a stream of writes
+    for _ in range(20):  # each kill lands somewhere in a stream of writes
         child = subprocess.Popen([sys.executable, "-c", WRITER, str(db)], env=env)
         rows = 0
         deadline = time.monotonic() + 120
