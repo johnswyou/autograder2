@@ -3113,8 +3113,9 @@ def test_the_terminal_shows_the_entry_its_criteria_and_where_each_file_is(
     four_entries(built, workspace)
     write_report(workspace, KEY, review_students(workspace))
     [(_, entry), *_] = listed(workspace)
+    monkeypatch.chdir(tmp_path)  # the workspace given relative, as it may be typed
 
-    result = session(workspace, "quit")
+    result = session(Workspace(Path("ws")), "quit")
 
     out = result.stdout.splitlines()
     at = out.index("### `A Student` (`s1`), Q4.b")
@@ -3353,12 +3354,18 @@ def test_one_session_clears_a_list_of_every_kind_of_entry(
     result = session(
         workspace,
         *("accept", "accept", "accept", "accept"),  # the key's Q2, s1, s5, s6
-        *("correct", "1", "", "Check line 2."),  # s2's Q4.b: c1 to 1, c2 kept
-        *("accept", "accept"),  # s3, s4
+        *("correct", "1", "0.5", "Check line 2."),  # s2's Q4.b: both criteria
+        *("correct", "", ""),  # s3's Q5.b: both kept, so accepted
+        "accept",  # s4
     )
 
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines()[-1] == counts(7, 1, 0, 0)
+    # The note on the first criterion typed alone.
+    assert [
+        (o["student"], o["criterion"], str(o["points"]), o.get("note"))
+        for o in yaml_reader().load(workspace.overrides_yaml)
+    ] == [("s2", "Q4.b.c1", "1", "Check line 2."), ("s2", "Q4.b.c2", "0.5", None)]
     assert session(workspace, listing=True).stdout == f"{NOTHING_TO_REVIEW}\n"
     states = {r["student"]: r["status"] for r in rows(workspace.scores_by_problem_csv)}
     assert states == {
