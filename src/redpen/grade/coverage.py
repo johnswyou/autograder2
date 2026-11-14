@@ -42,6 +42,13 @@ INK = 40
 # in every channel) is another rendering, not comparable: a photo pasted on a
 # fixture slide covers 0.29 to 0.54 of it, the most ink a student added 0.008.
 NEARLY = 0.1
+# A page lighter than the background by more than INK on more than LIGHTER of the
+# print, where every other comparable page is dark (a channel under PRINT), is
+# another rendering too: shifted by a pixel or resampled, its print edges would show
+# as ink. A fixture page reaches 0.059 of it, a page among others who wrote at the
+# same place 0.079, a slide shifted by one pixel 0.163 and more (task 4.3 fix 1).
+LIGHTER = 0.12
+PRINT = 128
 # Leftover ink is judged in square cells of CELL pixels; a cell with DENSE of it ink
 # raises the flag. A stroke w pixels wide fills at most 1.41 w / CELL of a cell, so
 # no lone stroke up to 3 px wide does.
@@ -180,15 +187,17 @@ def _background(
 ) -> tuple[Image.Image | None, dict[str, Reason]]:
     """The background of one page from the students' images of it at `paths`, all
     of one size, and why each student not compared was not. Each image is read
-    twice, one at a time: for a first background of them all, and to keep those with
-    little ink on its paper, whose background is the one returned. Another
-    rendering (a photo, a scan) is darker than the slide's paper nearly everywhere.
-    None when fewer than FEWEST are comparable."""
+    three times, one at a time: for a first background of them all; to keep those
+    with little ink on its paper, whose background is the one returned; and to
+    leave out those lighter than it on much of the print (the rest read once more
+    when one is). Another rendering (a
+    photo, a scan) is darker than the slide's paper nearly everywhere; one shifted
+    by a pixel is lighter along every printed line. None when fewer than FEWEST are
+    comparable."""
     few: Reason = "few comparable"
     if len(paths) < FEWEST:
         return None, dict.fromkeys(paths, few)
-    first = _lightest(_load(p) for p in paths.values())
-    assert first is not None
+    first = _kth(_lightest(_load(p) for p in paths.values()), len(paths))
     paper = _paper(first)
     kept: list[str] = []
 
@@ -199,23 +208,30 @@ def _background(
                 kept.append(key)
                 yield page
 
-    background = _lightest(comparable())
+    top = _lightest(comparable())
     why: dict[str, Reason] = {k: "other rendering" for k in paths if k not in kept}
-    if background is None:
-        why |= dict.fromkeys(kept, few)
-    return background, why
+    # The second lightest is dark where every page but one is: there, the print.
+    if len(kept) >= FEWEST and (printed := _print(top[1])).getbbox():
+        background = _kth(top, len(kept))
+        lighter = {  # where the background is darker than the page
+            k
+            for k in kept
+            if _share(_ink(background, _load(paths[k])), printed) > LIGHTER
+        }
+        if lighter:
+            why |= dict.fromkeys(lighter, "other rendering")
+            kept = [k for k in kept if k not in lighter]
+            top = _lightest(_load(paths[k]) for k in kept)
+    if len(kept) < FEWEST:
+        return None, why | dict.fromkeys(kept, few)
+    return _kth(top, len(kept)), why
 
 
-def _lightest(pages: Iterable[Image.Image]) -> Image.Image | None:
-    """Per pixel and channel, the k-th lightest value of the n `pages`, k = min(3,
-    n - 2): ink darkens a page, so any number of students writing at a pixel leave
-    it while two do not, and from five students on, two whose pages are lighter
-    there (white over the print) cannot move it either. Three images are kept
-    besides the page read. None for fewer than FEWEST pages."""
+def _lightest(pages: Iterable[Image.Image]) -> list[Image.Image]:
+    """Per pixel and channel, the three lightest values of `pages`, the lightest
+    first: three images kept besides the page read."""
     top: list[Image.Image] = []
-    count = 0
     for page in pages:
-        count += 1
         for i in range(len(top)):  # no name keeps a page alive past its turn
             top[i], page = (
                 ImageChops.lighter(top[i], page),
@@ -223,7 +239,15 @@ def _lightest(pages: Iterable[Image.Image]) -> Image.Image | None:
             )
         if len(top) < 3:
             top.append(page)
-    return top[min(3, count - 2) - 1] if count >= FEWEST else None
+    return top
+
+
+def _kth(top: Sequence[Image.Image], count: int) -> Image.Image:
+    """Of the lightest values `top` of `count` pages (FEWEST or more), the k-th, k =
+    min(3, count - 2): ink darkens a page, so any number of students writing at a
+    pixel leave it while two do not, and from five students on, two whose pages are
+    lighter there (white over the print) cannot move it either."""
+    return top[min(3, count - 2) - 1]
 
 
 def _ink(page: Image.Image, background: Image.Image) -> Image.Image:
@@ -235,9 +259,18 @@ def _ink(page: Image.Image, background: Image.Image) -> Image.Image:
 
 def _paper(background: Image.Image) -> Image.Image:
     """Where `background` is blank paper or canvas."""
-    r, g, b = background.split()
-    least = ImageChops.darker(ImageChops.darker(r, g), b)
-    return _over(least, WHITE_LEVEL - 1)
+    return _over(_least(background), WHITE_LEVEL - 1)
+
+
+def _print(image: Image.Image) -> Image.Image:
+    """Where a channel of `image` is under PRINT."""
+    return _over(ImageChops.invert(_least(image)), 255 - PRINT)
+
+
+def _least(image: Image.Image) -> Image.Image:
+    """Each pixel's darkest channel."""
+    r, g, b = image.split()
+    return ImageChops.darker(ImageChops.darker(r, g), b)
 
 
 def _over(band: Image.Image, level: int) -> Image.Image:

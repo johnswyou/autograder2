@@ -294,6 +294,57 @@ def test_a_page_of_another_rendering_is_left_out_and_marked_not_comparable(
         assert holds(patch, spot)
 
 
+def dense_print() -> Image.Image:
+    """A slide of dense print in its upper half, rules 2 px tall every 6 px as lines
+    of small type are, and white below."""
+    image = Image.new("RGB", (W, H), "white")
+    draw = ImageDraw.Draw(image)
+    for y in range(40, 400, 6):
+        draw.rectangle((30, y, 370, y + 1), fill=PRINT)
+    return image
+
+
+def moved(page: Image.Image, down: int) -> Image.Image:
+    out = Image.new("RGB", page.size, "white")
+    out.paste(page, (0, down))
+    return out
+
+
+@pytest.mark.parametrize("count", [4, 5])
+def test_a_page_shifted_by_a_pixel_over_dense_print_is_another_rendering(
+    tmp_path: Path, count: int
+) -> None:
+    pages = {f"s{n}": [scribble(dense_print(), SPOTS[n % 3])] for n in range(count)}
+    pages["s0"] = [moved(pages["s0"][0], 1)]
+    maps = {key: mapped(("Q1", SPOTS[n % 3])) for n, key in enumerate(pages)}
+    workspace, students = make_class(tmp_path, pages, maps)
+
+    check_class(workspace, students)
+
+    assert stored(workspace, "s0").pages[0].not_compared == "other rendering"
+    for n in range(1, count):
+        [page] = stored(workspace, f"s{n}").pages
+        assert (page.not_compared, page.patches) == (None, [])
+
+
+def test_a_page_lighter_than_the_print_in_one_small_place_is_compared(
+    tmp_path: Path,
+) -> None:
+    pages = {f"s{n}": [scribble(dense_print(), SPOTS[n % 3])] for n in range(5)}
+    out = dense_print()
+    ImageDraw.Draw(out).rectangle((100, 100, 160, 120), fill="white")  # white-out
+    pages["s0"] = [scribble(out, SPOTS[0])]
+    maps = {f"s{n}": mapped(("Q1", SPOTS[n % 3])) for n in range(1, 5)}
+    workspace, students = make_class(tmp_path, pages, maps)
+
+    check_class(workspace, students)
+
+    [page] = stored(workspace, "s0").pages
+    assert page.not_compared is None
+    [patch] = page.patches  # its own response, unmapped: found
+    assert holds(patch, SPOTS[0])
+
+
 def test_with_fewer_than_three_comparable_students_no_page_is_compared(
     tmp_path: Path,
 ) -> None:

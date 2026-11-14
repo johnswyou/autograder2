@@ -35,6 +35,7 @@ from typer.testing import CliRunner, Result
 
 from redpen.cli import app
 from redpen.config import Lock, write_lock
+from redpen.grade.coverage import COMPARED
 from redpen.grade.ingest import IngestSummary
 from redpen.grade.read import problem_of
 from redpen.llm.cache import CallCache
@@ -164,6 +165,16 @@ def test_the_class_is_graded_with_nothing_failed(graded: Graded) -> None:
     log = graded.workspace.run_log
     assert graded.result.exit_code == 0, graded.result.output
     assert not log.exists()
+
+
+def test_every_page_is_compared_with_the_class_s_background_and_none_has_ink_left(
+    graded: Graded,
+) -> None:
+    # Three of the five wrote their work at the same place: a page is not left out
+    # for being lighter where their strokes cross.
+    report = graded.workspace.run_report_md.read_text().splitlines()
+
+    assert COMPARED.format(compared=10, pages=10, flagged=0) in report
 
 
 @pytest.mark.parametrize("layout, part", CASES, ids=[f"{c}-{p}" for c, p in CASES])
