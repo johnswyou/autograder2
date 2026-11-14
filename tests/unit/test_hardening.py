@@ -673,6 +673,41 @@ def test_a_lock_that_does_not_load_is_called_damaged_by_each_command(
     assert runner.invoke(app, ["review", "--list", "--workspace", "ws"]).exit_code == 0
 
 
+PINNED_RELAXED = (
+    "ws/config.lock.toml was pinned with strict_privacy off, and it is on now, so"
+    " nothing is sent. Set strict_privacy = false in redpen.toml, or delete the lock"
+    " and run `redpen prepare` again to pin endpoints that retain nothing."
+)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["prepare", "no spec"], ["prepare", "no key"], ["key", "verify"], ["grade"]],
+    ids=lambda c: " ".join(c),
+)
+def test_a_lock_pinned_without_strict_privacy_is_refused_in_one_line_once_it_is_on(
+    class_folder: Path, command: list[str]
+) -> None:
+    models = {**KEY_MODELS, **GRADE_MODELS}
+    relaxed = {
+        r: m.model_copy(update={"providers": frozenset()}) for r, m in models.items()
+    }
+    write_lock(WS.config_lock_toml, Lock(profile="balanced", models=relaxed))
+    args = {
+        "prepare": ["prepare", str(FIXTURES / "blank.pdf")],
+        "key": ["key", "verify"],
+        "grade": ["grade", "subs"],
+    }[command[0]]
+    if command[1:] == ["no spec"]:  # probe e8: the parse would be asked
+        WS.spec_json.unlink()
+    elif command[1:] == ["no key"]:
+        WS.key_yaml.unlink()
+
+    result = runner.invoke(app, [*args, "--workspace", "ws"])
+
+    assert_one_line(result, PINNED_RELAXED)
+
+
 # --- the stored blank and its page images (final fix round) --------------------------
 
 

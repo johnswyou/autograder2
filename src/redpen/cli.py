@@ -348,6 +348,8 @@ def prepare(
             _fail(f"{ws.config_lock_toml}: {found}.")
         if not ws.key_yaml.exists():  # a key will be solved and verified
             _can_verify(ws, lock.models)
+        if not (ws.spec_json.exists() and ws.key_yaml.exists()):  # a model is asked
+            _pinned_as_set(ws, config, lock)
         if ws.spec_json.exists():
             typer.echo(f"Reusing {ws.spec_json}")
             spec = _checked(ws.spec_json, pages)
@@ -489,6 +491,18 @@ def _can_verify(ws: Workspace, models: Mapping[str, ModelInfo]) -> None:
     than the solver's."""
     if found := role_problems(models):
         _fail(f"{ws.config_lock_toml}: {'; '.join(found)}.")
+
+
+def _pinned_as_set(ws: Workspace, config: Config, lock: Lock) -> None:
+    """Exit with one line, before any call, when strict privacy is on and the lock
+    was pinned with it off: its models have no endpoint that retains nothing."""
+    if config.strict_privacy and any(not m.providers for m in lock.models.values()):
+        _fail(
+            f"{ws.config_lock_toml} was pinned with strict_privacy off, and it is on"
+            " now, so nothing is sent. Set strict_privacy = false in redpen.toml, or"
+            " delete the lock and run `redpen prepare` again to pin endpoints that"
+            " retain nothing."
+        )
 
 
 def _write_verification(ws: Workspace, record: Verification, key: Key) -> None:
@@ -741,6 +755,7 @@ def key_verify(workspace: KeyWorkspace) -> None:
     if problems:
         _fail(f"{ws.key_yaml} has problems, so it was not verified.")
     _can_verify(ws, lock.models)
+    _pinned_as_set(ws, config, lock)
     lock = _with_prompts(ws, lock)
     # The key's own answer and solution stand in for the first solver's.
     first = {
@@ -871,6 +886,7 @@ def _graded(ws: Workspace, dry_run: bool) -> tuple[Config, str, Spec, Lock, Key]
 def _gate(ws: Workspace, config: Config, lock: Lock, api_key: str) -> Lock:
     """Exit, with nothing sent, unless the pinned endpoints keep nothing; then the
     lock, written with the prompt versions and the strict privacy of this run."""
+    _pinned_as_set(ws, config, lock)
     strict = config.strict_privacy
     gate = privacy_problems(lock, api_key, strict)
     if found := asyncio.run(gate):
