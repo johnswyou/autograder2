@@ -498,11 +498,16 @@ def graded_from(
     change_grades(workspace, student, "Q4", made)
 
 
-def other_reading(workspace: Workspace, student: IngestRecord) -> None:
-    def earlier(r: ReadingRecord) -> str:
-        return digest(r.model_copy(update={"crops": []}))
+def earlier(r: ReadingRecord) -> str:
+    return digest(r.model_copy(update={"crops": []}))
 
+
+def other_reading(workspace: Workspace, student: IngestRecord) -> None:
     graded_from(workspace, student, earlier)
+
+
+def other_key_and_reading(workspace: Workspace, student: IngestRecord) -> None:
+    graded_from(workspace, student, earlier, key_part_hash="000000000000")
 
 
 def no_grade_file(workspace: Workspace, student: IngestRecord) -> None:
@@ -519,6 +524,7 @@ def no_reading_file(workspace: Workspace, student: IngestRecord) -> None:
         (no_option, ["Q1"], NO_OPTION),
         (other_key, ["Q4.b"], OTHER_KEY),
         (other_reading, ["Q4.b"], OTHER_READING),
+        (other_key_and_reading, ["Q4.b"], OTHER_KEY),
         (no_grade_file, ["Q5.a", "Q5.b", "Q5.c"], UNGRADED),
         (no_reading_file, ["Q4.a", "Q4.b", "Q4.c"], UNGRADED),
     ],
@@ -526,6 +532,7 @@ def no_reading_file(workspace: Workspace, student: IngestRecord) -> None:
         "choice with no option",
         "another key",
         "another reading",
+        "another key and another reading",
         "no grade file",
         "no reading file",
     ],
@@ -562,6 +569,9 @@ def test_a_withheld_part_has_an_empty_cell_an_incomplete_flag_and_its_reason(
             assert r["awarded"] != ""
     scored = sum((cell(r["awarded"]) for r in detail), Decimal(0))
     assert Decimal(by_problem["total"]) == scored
+    # Each entry links the readings, never a grade withheld.
+    for head, lines in listed(workspace):
+        assert lines[-1].startswith("- Files:") and "[grade]" not in lines[-1], head
 
 
 @pytest.mark.parametrize(
@@ -2162,13 +2172,18 @@ def test_a_withheld_part_is_scored_once_every_criterion_is_corrected(
         assert "- Proposed score: 2 / 3." in entry_of(workspace, "Q4.b")
         return
     assert (row["Q4"], row["status"]) == ("", "incomplete")
+    # How many criteria are open is for the instructor's two files only.
     why = f"{UNREADABLE} Criteria with no correction from the instructor: 1 of 2."
-    assert detail_of(workspace, "Q4.b.c1") == ("", why)
-    assert detail_of(workspace, "Q4.b.c2") == ("", why)
-    assert f"- {why}" in feedback
+    assert detail_of(workspace, "Q4.b.c1") == ("", UNREADABLE)
+    assert detail_of(workspace, "Q4.b.c2") == ("", UNREADABLE)
+    assert f"- {UNREADABLE}" in feedback
+    assert "instructor" not in "\n".join(feedback)
     entry = entry_of(workspace, "Q4.b")
     assert f"- Proposed score: not scored, out of 3. {why}" in entry
     assert "- Corrected: Q4.b.c2, the grader's award none, the instructor's 1." in entry
+    assert f"- `{student.student_key}`: Q4.b. {why}" in (
+        workspace.run_report_md.read_text().splitlines()
+    )
 
 
 def test_a_correction_made_under_another_version_of_its_part_is_listed_not_applied(
@@ -2205,6 +2220,7 @@ def test_a_correction_made_under_another_version_of_its_part_is_listed_not_appli
         workspace,
         correction(student, "Q4.b.c1", "0.5"),  # made before the edit
         correction(student, "Q5.a.c1", "1", part="Q4.a"),  # made for another part
+        correction(student, "Q4.a.c1", "5", part="Q4.b"),  # above full, but stale
     )
 
     write_report(workspace, edited, [student])
@@ -2218,6 +2234,7 @@ def test_a_correction_made_under_another_version_of_its_part_is_listed_not_appli
         "",
         f"- `{student.student_key}`, Q4.b.c1: 0.5.",
         f"- `{student.student_key}`, Q5.a.c1: 1.",
+        f"- `{student.student_key}`, Q4.a.c1: 5.",
     ]
     for path in (workspace.run_report_md, workspace.review_md):
         text = path.read_text().splitlines()
@@ -2225,7 +2242,10 @@ def test_a_correction_made_under_another_version_of_its_part_is_listed_not_appli
         assert text[start : start + len(section)] == section, path
 
 
-HOSTILE_NOTE = "Fine.\n# Total: 16 / 16\n<!-- x --> `` ``` [x](http://x.test)\n| a |"
+HOSTILE_NOTE = (
+    "Fine.\n# Total: 16 / 16\n<!-- x --> `` ``` [x](http://x.test)\n| a |"
+    " \u202eRTL\x00end\u200b"
+)
 
 
 def test_a_note_cannot_leave_its_place_in_the_feedback_file_or_the_review_list(
@@ -2241,6 +2261,7 @@ def test_a_note_cannot_leave_its_place_in_the_feedback_file_or_the_review_list(
     feedback = workspace.feedback_md(student.student_key).read_text().splitlines()
     [line] = [x for x in feedback if "Marked by your instructor" in x]
     assert line == "- Marked by your instructor: 1 / 2. " + one_line(HOSTILE_NOTE)
+    assert line.endswith("| a | RTLend")
     heads = [x.split(":")[0] for x in feedback if x.startswith("#")]
     assert heads == ["# ws", *(f"## Problem {q[1:]}" for q in PROBLEMS)]
     assert all(
@@ -2262,3 +2283,19 @@ def test_a_note_cannot_leave_its_place_in_the_feedback_file_or_the_review_list(
         "## Students",
         f"### `{student.student_name}` (`{student.student_key}`), Q4.b",
     ]
+
+
+def test_under_a_point_constraint_a_correction_s_line_gives_no_points(
+    built: Built, tmp_path: Path
+) -> None:
+    constrained = KEY.model_copy(update={"points": PointConstraint(total=Decimal(8))})
+    workspace = new_workspace(tmp_path)
+    student = copy_student(built, workspace, "typed-in-place")
+    corrections(workspace, correction(student, "Q4.b.c1", "1", "A note."))
+
+    write_report(workspace, constrained, [student])
+
+    feedback = workspace.feedback_md(student.student_key).read_text()
+    part = feedback.split("**4(b)")[1].split("**4(c)")[0]
+    assert part.splitlines()[1:] == ["- Marked by your instructor. A note.", ""]
+    assert detail_of(workspace, "Q4.b.c1") == ("1", CORRECTED)  # its own points

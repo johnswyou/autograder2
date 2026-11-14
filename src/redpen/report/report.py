@@ -71,11 +71,13 @@ UNGRADED = "No reading or no grade was recorded for it."
 # file never shows the audit's own reason.
 LOWERED = "This point was marked again for consistency across the class. What it needs:"
 # The instructor's corrections, in fixed words: the mark of a corrected award in
-# scores_detail.csv; the student's line in its place, before the note; what a part
-# still withheld lacks; and why a correction made before its part was edited is not
-# applied.
+# scores_detail.csv; the student's line in its place, before the note, with the
+# criterion's own points only when no constraint scales them (the part's line gives
+# the award); what a part still withheld lacks, for the instructor's files only;
+# and why a correction made before its part was edited is not applied.
 CORRECTED = "Corrected by the instructor."
-MARKED = "Marked by your instructor: {points} / {full}."
+MARKED = "Marked by your instructor."
+MARKED_POINTS = "Marked by your instructor: {points} / {full}."
 OPEN = "Criteria with no correction from the instructor: {open} of {all}."
 STALE = (
     "The key's part of each criterion below was edited after its correction was"
@@ -330,13 +332,8 @@ def score(key: Key, stored: Stored) -> list[Score]:
         why = withheld(key, part, stored)
         record = None if why else audited(stored, part)
         mine = {c.id: o for c in part.criteria if (o := stored.overrides.get(c.id))}
-        if why and mine and len(mine) < len(part.criteria):
-            gaps = OPEN.format(
-                all=len(part.criteria), open=len(part.criteria) - len(mine)
-            )
-            why = f"{why} {gaps}"
-        elif mine:
-            why, record = None, corrected(key, part, record, mine)
+        if mine and (not why or len(mine) == len(part.criteria)):
+            why, record = None, _corrected(key, part, record, mine)
         awarded = None
         if record:
             earned, weight = part_points(record, key)
@@ -347,7 +344,7 @@ def score(key: Key, stored: Stored) -> list[Score]:
     return scores
 
 
-def corrected(
+def _corrected(
     key: Key, part: KeyPart, record: GradeRecord | None, mine: Mapping[str, Override]
 ) -> GradeRecord:
     """`record` with the instructor's award in place of the grader's on each
@@ -379,7 +376,13 @@ def corrected(
             evidence_element=None,
             awarded=o.points,
             feedback=" ".join(
-                [MARKED.format(points=number(o.points), full=number(c.points))]
+                [
+                    MARKED
+                    if key.points is not None
+                    else MARKED_POINTS.format(
+                        points=number(o.points), full=number(c.points)
+                    )
+                ]
                 + ([o.note] if o.note else [])
             ),
         )
@@ -616,11 +619,14 @@ def _feedback(
 
 
 def one_line(note: str) -> str:
-    """`note` as one line of plain text: each run of white space as one space, and
-    every backslash, `<` and `#` escaped, so text a model wrote cannot start a
+    """`note` as one line of plain text: each run of white space as one space, every
+    other control or format character (a NUL, a bidi override, a zero-width space)
+    left out, so that nothing can reorder or hide the text, and every backslash,
+    `<` and `#` escaped, so text a model or the instructor wrote cannot start a
     heading, open an HTML comment or forge a score line. (The backslash is escaped
     too, or a note holding `\\<!--` would undo the escape of its `<`.)"""
-    text = " ".join(note.split())
+    plain = "".join(c for c in note if unicodedata.category(c)[0] != "C" or c.isspace())
+    text = " ".join(plain.split())
     return text.replace("\\", "\\\\").replace("<", "\\<").replace("#", "\\#")
 
 
@@ -728,8 +734,9 @@ def _run_report(
     if short:
         lines.append("")
     for s, scores in short:
-        for why in dict.fromkeys(x.withheld for x in scores if x.withheld):
-            parts = ", ".join(x.part.id for x in scores if x.withheld == why)
+        withheld = [(x, f"{x.withheld}{_still_open(x)}") for x in scores if x.withheld]
+        for why in dict.fromkeys(w for _, w in withheld):
+            parts = ", ".join(x.part.id for x, w in withheld if w == why)
             lines.append(f"- `{s.student.student_key}`: {parts}. {why}")
     if not_ingested:
         lines += ["", "## Files not ingested", ""]
@@ -860,7 +867,8 @@ def review(
         worth = _out_of(s.awarded, points_of(key, [s.part]), "not scored")
         lines += [f"### {name}, {part_id}", "", *_flagged(found, _causes(record, base))]
         lines.append(
-            f"- Proposed score: {worth}." + (f" {s.withheld}" if s.withheld else "")
+            f"- Proposed score: {worth}."
+            + (f" {s.withheld}{_still_open(s)}" if s.withheld else "")
         )
         lines += _corrections(s, base)
         codes = {f.code for f in found}
@@ -877,13 +885,22 @@ def review(
             lines += _transcript(
                 "Second reading, by another vendor's model", second.second
             )
-        if record:
+        if base:  # a grade withheld is not linked: the score shown is not from it
             files.append(("grade", workspace.grade_json(who, problem_of(part_id))))
         # The grade file holds the awards before the audit; its file, the change.
         if FlagCode.AUDIT_CHANGED in codes:
             files.append(("audit", workspace.audit_json(part_id)))
         lines += [_files(out, files), ""]
     return "\n".join([*lines[:-1], *_stale(stale), ""])
+
+
+def _still_open(s: Score) -> str:
+    """After the reason a part is withheld, how many of its criteria have no
+    correction yet, when some have; for the instructor's files only."""
+    if not (s.withheld and s.overrides):
+        return ""
+    count = len(s.part.criteria)
+    return " " + OPEN.format(all=count, open=count - len(s.overrides))
 
 
 def _corrections(s: Score, base: GradeRecord | None) -> list[str]:
