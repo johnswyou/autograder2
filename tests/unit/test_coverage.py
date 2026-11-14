@@ -277,7 +277,11 @@ def test_a_page_of_another_rendering_is_left_out_and_marked_not_comparable(
 ) -> None:
     pages = {f"s{n}": [scribble(slide(), s)] for n, s in enumerate(SPOTS, 1)}
     pages["s4"] = [photo()]
-    pages["s5"] = [slide().resize((W, H + 40))]  # another size
+    # The same slide on a taller canvas: Pillow's channel operations would take
+    # only the part two images share, so nothing but its size tells it apart.
+    taller = Image.new("RGB", (W, H + 40), "white")
+    taller.paste(slide())
+    pages["s5"] = [taller]
     workspace, students = make_class(tmp_path, pages)
 
     check_class(workspace, students)
