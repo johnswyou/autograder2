@@ -340,6 +340,19 @@ def shape(spec: Spec) -> Shape:
     )
 
 
+def grade_cost(model: ModelInfo, spec: Spec, calls: float) -> Decimal:
+    """What `calls` grade requests to `model` cost as `estimate` prices the grade
+    stage: each with a grade call's measured text and output tokens and its share of
+    the crops `spec` gives."""
+    found = shape(spec)
+    crops = found.crops * GRADE_CROP / found.grades if found.grades else 0
+    text, out = TOKENS["grade"]
+    return (
+        Decimal(round(calls * (text + crops))) * model.prompt_price
+        + Decimal(round(calls * out)) * model.completion_price
+    )
+
+
 def blank_sizes(blank: Path) -> list[tuple[int, int]]:
     """The size of each page image of `blank`, rendered as `parse` renders it."""
     with render.open_pdf(blank) as pdf:

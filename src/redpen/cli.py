@@ -76,6 +76,7 @@ from redpen.orchestrator import (
     blank_sizes,
     estimate,
     grade_class,
+    grade_cost,
     privacy_problems,
     uncached,
 )
@@ -1212,6 +1213,15 @@ def regrade(
             _fail(f"{ws.config_lock_toml}: no model is pinned for grader.")
         count = asyncio.run(uncached(ws, key, grader, students, lock.profile))
         typer.echo(f"Grade requests the call cache would not answer: {count}.")
+        usd = grade_cost(grader, spec, count)
+        typer.echo(
+            f"Their estimate, with nothing sent: ${usd:.4f}, each as `run --dry-run`"
+            " prices a grade call: the text and output tokens measured on the"
+            f" fixture run, {GRADE_CROP} tokens a crop, and"
+            f" {grader.slug} at {number(grader.prompt_price * 10**6)} in and"
+            f" {number(grader.completion_price * 10**6)} out per million tokens. No"
+            " retry; prompt caching, not counted, costs less."
+        )
         return
     # No map or read: the images it sends are as the grade run masked them.
     config = config.model_copy(update={"mask_names": bool(lock.mask_names)})

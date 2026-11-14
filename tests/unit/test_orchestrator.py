@@ -41,10 +41,11 @@ from redpen.orchestrator import (
     TOKENS,
     Cost,
     estimate,
+    grade_cost,
     image_tokens,
     shape,
 )
-from redpen.prepare.key import load_key, part_hash, save_key, yaml_reader
+from redpen.prepare.key import load_key, number, part_hash, save_key, yaml_reader
 from redpen.report.report import (
     NOTHING_TO_REVIEW,
     OTHER_READING,
@@ -1156,6 +1157,25 @@ def test_the_shape_per_page_is_the_fixture_assignment_s() -> None:
     assert with_spec["prepare"].usd < without["prepare"].usd  # parse is still to do
 
 
+def test_regrade_s_dry_run_prices_a_grade_request_as_the_estimate_does() -> None:
+    slides = [
+        IngestPage(
+            number=n, width_px=1004, height_px=2008, slide_number=n, native_ppi=None
+        )
+        for n in range(1, 5)
+    ]
+    student = IngestRecord(
+        student_name="A", student_key="A", source_kind="classkick", pages=slides
+    )
+    blank = [(1700, 2200)] * 4
+
+    one = estimate(ROLES, blank, SPEC, True, [student], 1536, "economy")["grade"]
+
+    assert one.usd > 0
+    assert grade_cost(ROLES["grader"], SPEC, one.calls) == one.usd
+    assert grade_cost(ROLES["grader"], SPEC, 0) == 0
+
+
 def test_the_estimate_counts_a_checker_call_per_problem_and_the_referee_s() -> None:
     models = {
         **ROLES,
@@ -1358,6 +1378,19 @@ def regrade(*options: str) -> Any:
     return runner.invoke(app, ["regrade", "--workspace", "ws", *options])
 
 
+def regrade_estimate(requests: int) -> str:
+    """The line under the count of `regrade --dry-run`, for the fixture's grader."""
+    usd = grade_cost(ROLES["grader"], SPEC, requests)
+    return (
+        f"Their estimate, with nothing sent: ${usd:.4f}, each as `run --dry-run`"
+        " prices a grade call: the text and output tokens measured on the fixture"
+        f" run, 383 tokens a crop, and {ROLES['grader'].slug} at"
+        f" {number(ROLES['grader'].prompt_price * 10**6)} in and"
+        f" {number(ROLES['grader'].completion_price * 10**6)} out per million"
+        " tokens. No retry; prompt caching, not counted, costs less."
+    )
+
+
 def own_pages() -> None:
     """Each student's page their own, so that no student's grade request is
     another's."""
@@ -1459,7 +1492,10 @@ def test_regrade_with_nothing_changed_asks_nothing_and_writes_the_same(
     dry = regrade("--dry-run")
     result = regrade()
 
-    assert dry.stdout == "Grade requests the call cache would not answer: 0.\n"
+    assert dry.stdout.splitlines() == [
+        "Grade requests the call cache would not answer: 0.",
+        regrade_estimate(0),
+    ]
     assert result.exit_code == 0, result.output
     assert router.chats == []
     assert grade_files() == files
@@ -1493,7 +1529,8 @@ def test_regrade_sends_nothing_past_a_failed_gate_or_a_bad_key_or_in_a_dry_run(
         assert router.requests == []
         # Each student's Q4, and its second grade under the lock's balanced.
         assert result.stdout.splitlines() == [
-            f"Grade requests the call cache would not answer: {2 * len(NAMES)}."
+            f"Grade requests the call cache would not answer: {2 * len(NAMES)}.",
+            regrade_estimate(2 * len(NAMES)),
         ]
         assert WS.cache_sqlite.read_bytes() == cache
         assert not WS.run_log.exists()
@@ -2194,8 +2231,8 @@ def test_a_workspace_graded_before_the_second_grade_reports_then_grades_again_fo
     }
     if command == "regrade":
         dry = regrade("--dry-run")
-        assert dry.stdout == (
-            f"Grade requests the call cache would not answer: {2 * len(NAMES)}.\n"
+        assert dry.stdout.splitlines()[0] == (
+            f"Grade requests the call cache would not answer: {2 * len(NAMES)}."
         )
     router.reads = True
 
@@ -2238,9 +2275,10 @@ def test_regrade_s_dry_run_counts_the_requests_regrade_then_makes(
     assert stored_files() == stored
     real = regrade()
     assert real.exit_code == 0, real.output
-    assert dry.stdout == (
-        f"Grade requests the call cache would not answer: {len(router.chats)}.\n"
-    )
+    assert dry.stdout.splitlines() == [
+        f"Grade requests the call cache would not answer: {len(router.chats)}.",
+        regrade_estimate(len(router.chats)),
+    ]
 
 
 @pytest.mark.parametrize(
