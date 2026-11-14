@@ -195,16 +195,24 @@ def test_items_the_provider_always_fails_end_incomplete_and_are_all_a_rerun_asks
 # --- rule 3: a failure no retry cures stops the run at once ---------------------
 
 
+@pytest.mark.parametrize(
+    ("at", "later"),
+    [(13, ("read", "second", "grade", "second grade")), (25, ())],
+    # The map stage's last, with two students' maps stored; and among the second
+    # grade's, whose units each catch their own failures.
+    ids=["in the map stage", "in the second grade"],
+)
 @pytest.mark.parametrize("code", [402])  # each line: test_gateway
 def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resumes(
     chained: tuple[Workspace, Path],
     monkeypatch: pytest.MonkeyPatch,
     uninterrupted: dict[str, bytes],
     code: int,
+    at: int,
+    later: tuple[str, ...],
 ) -> None:
     workspace, submissions = chained
     provider = Provider(CHAIN)
-    at = 13  # the map stage's last: two students' maps are stored before it
     provider.fault = lambda _, n: (
         httpx.Response(code, json={"error": {"code": code}}) if n >= at else None
     )
@@ -219,12 +227,14 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
     kept = cached(workspace)
     assert len(kept) == at - 1
     # At once: no later stage took a student, and no student's failure was logged.
-    for stage in ("read", "second", "grade", "second grade"):
+    for stage in later:
         assert any(re.match(rf"{stage} +0/3 ", line) for line in lines(stopped.output))
-    assert not list(workspace.students_dir.glob("*/readings"))
-    assert not list(workspace.students_dir.glob("*/coverage.json"))  # nor the check
+    if later:
+        assert not list(workspace.students_dir.glob("*/readings"))
+        assert not list(workspace.students_dir.glob("*/coverage.json"))  # the check
     assert not list(workspace.audit_dir.glob("*.json"))  # nor the class audit
-    assert not workspace.run_log.exists()
+    [logged] = workspace.run_log.read_text().splitlines()  # the stop, once
+    assert logged.endswith(f" stopped: {STOPS[code]}")
 
     healthy = Provider(CHAIN)
     healthy.install(monkeypatch)

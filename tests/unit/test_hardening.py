@@ -5,6 +5,7 @@ wrote; and the commands that need no API key run without one.
 No model is called: OpenRouter is a mock that answers the ZDR listing and refuses
 every chat request, and the map stage is a fake that finds no work."""
 
+import asyncio
 import functools
 import shutil
 import zipfile
@@ -19,7 +20,7 @@ from typer.testing import CliRunner
 
 from redpen.cli import app
 from redpen.config import Lock, read_lock, write_lock
-from redpen.llm.client import Gateway
+from redpen.llm.client import STOPS, Gateway, StopError
 from redpen.llm.models import recheck_providers
 from redpen.prepare.key import save_key
 from redpen.schemas.key import Key
@@ -522,6 +523,39 @@ def test_a_damaged_audit_file_is_named_and_stops_the_command(
         result = runner.invoke(app, [*command, "--workspace", "ws"])
         assert result.exit_code == 1, (command, result.output)
         assert said(result)[-1] == damaged_line(audit), command
+
+
+def test_after_a_stop_the_run_log_has_a_line_for_it_and_any_other_fault(
+    class_folder: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[str] = []
+
+    async def stopping(
+        workspace: Workspace, student: str, spec: Spec, gateway: Gateway, *_: object
+    ) -> None:
+        started.append(student)
+        if len(started) == 1:  # the first student's map meets a 401
+            for _turn in range(5):  # once the other's has started
+                await asyncio.sleep(0)
+            gateway.stopped = StopError(STOPS[401])
+            raise gateway.stopped
+        while gateway.stopped is None:
+            await asyncio.sleep(0)
+        raise LookupError("a fault of the map stage")  # in the same window
+
+    monkeypatch.setattr("redpen.orchestrator.map_student", stopping)
+
+    result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
+
+    assert result.exit_code == 1
+    assert said(result)[-1] == STOPS[401]
+    log = WS.run_log.read_text()
+    entries = [
+        line.split(" ", 2)[2] for line in log.splitlines() if line.startswith("--- ")
+    ]
+    assert entries == [f"map {started[1]}", f"stopped: {STOPS[401]}"]
+    assert "LookupError: a fault of the map stage" in log
+    assert "StopError" not in log
 
 
 # --- the lock (task 5.4a, fix round 1) -----------------------------------------------

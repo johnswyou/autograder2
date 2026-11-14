@@ -422,6 +422,7 @@ async def finish_all[T](awaitables: Iterable[Awaitable[T]]) -> list[T]:
     does not cut the others' calls short, so none of them is paid for twice."""
     results = await asyncio.gather(*awaitables, return_exceptions=True)
     errors = [r for r in results if isinstance(r, BaseException)]
+    errors.sort(key=lambda e: isinstance(e, StopError))  # a fault before the stop
     if errors:
         for later in errors[1:]:
             errors[0].add_note(f"also failed: {type(later).__name__}: {later}")

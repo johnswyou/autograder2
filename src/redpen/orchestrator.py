@@ -41,7 +41,7 @@ from redpen.grade.second import read_again
 from redpen.grade.second_grade import PROFILES, grade_again
 from redpen.grade.second_grade import ROLE as SECOND_GRADE
 from redpen.imaging import render
-from redpen.llm.client import Gateway
+from redpen.llm.client import Gateway, StopError
 from redpen.llm.ledger import Ledger, Usage
 from redpen.llm.models import ModelInfo, recheck_providers
 from redpen.prepare.verify import CHECKER, COMPARED, REFEREE
@@ -136,7 +136,7 @@ async def grade_class(
                     async with at_once:
                         await runs[stage](gw, student)
                 except Exception as error:  # one student never stops the class
-                    if not gw.stopped:
+                    if not isinstance(error, StopError):  # the command says the stop
                         failed.append((stage, student))
                         log_failure(workspace, f"{stage} {student}", error)
                 # The second grade's calls are booked under its own name; its

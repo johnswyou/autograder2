@@ -875,6 +875,7 @@ def _run(
     try:
         failed = asyncio.run(run)
     except StopError as error:  # its own line: what to do
+        log_note(ws, f"stopped: {error}")
         _fail(str(error))
     except Exception as error:  # outside any one student: the cache or the ledger
         log_failure(ws, "grade", error)
