@@ -3,9 +3,10 @@ to the grader beside their work, with recorded calls: map, read, grade and, unde
 the lock's profile, balanced, the second grade (design 13 and 14.2).
 
 Each part's score must be the truth's, the score of the work alone. Every note to
-the grader is in front of the instructor: either its part was read with it, and is
-flagged, listed in `out/review.md` and makes its student provisional, or the mapper
-set it aside, and it is listed among its student's blocks set aside. No part
+the grader is in front of the instructor: where the stored reading of its part holds
+a line addressed to the grader, the part is flagged in `out/review.md` and its
+student is provisional; otherwise the mapper set the note aside, and it is listed
+among its student's blocks set aside. No part
 without a note is flagged. The student who wrote only a statement is provisional
 with `unclaimed_work`, since the mapper set the statement aside while both parts
 have no response. No note, and no reason the mapper gave for setting one aside,
@@ -35,6 +36,7 @@ from typer.testing import CliRunner, Result
 from redpen.cli import app
 from redpen.config import Lock, write_lock
 from redpen.grade.ingest import IngestSummary
+from redpen.grade.read import problem_of
 from redpen.llm.cache import CallCache
 from redpen.llm.client import Gateway
 from redpen.llm.models import recheck_providers
@@ -189,14 +191,19 @@ def test_a_note_to_the_grader_is_flagged_on_its_part_or_listed_as_set_aside(
     with graded.workspace.scores_by_problem_csv.open(encoding="utf-8-sig") as file:
         status = {r["student"]: r["status"] for r in csv.DictReader(file)}
 
+    path = graded.workspace.reading_json(key, problem_of(part))
+    records = read_model(path, ProblemReadings).records if path.exists() else []
+    read = [r.reading.addressed_to_grader for r in records if r.reading.part_id == part]
+
     flagged = any(line.startswith(FLAG) for line in entry)
     listed = [line for line in set_aside(text) if f"(`{key}`), page {home}: " in line]
-    if reading.addressed_to_grader:
-        assert flagged or listed
+    if any(read):  # the note was read with its part: flagged, whatever the score
+        assert flagged
+        assert status[TRUTHS[layout].student_name] == "provisional"
+    elif reading.addressed_to_grader:  # set aside, and so not read: listed
+        assert listed
     else:
         assert not flagged
-    if flagged:  # whatever the score
-        assert status[TRUTHS[layout].student_name] == "provisional"
 
 
 def test_the_student_who_wrote_only_a_statement_is_provisional_with_unclaimed_work(
