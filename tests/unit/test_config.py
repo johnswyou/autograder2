@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from redpen.config import (
+from autograder2.config import (
     Config,
     ConfigError,
     Lock,
@@ -14,7 +14,7 @@ from redpen.config import (
     read_lock,
     write_lock,
 )
-from redpen.llm.models import ModelInfo
+from autograder2.llm.models import ModelInfo
 
 
 def test_defaults_load_with_no_file(
@@ -41,7 +41,7 @@ def test_defaults_load_with_no_file(
 
 
 def test_masking_names_is_switched_on_in_the_file(tmp_path: Path) -> None:
-    path = tmp_path / "redpen.toml"
+    path = tmp_path / "autograder2.toml"
     path.write_text("mask_names = true\n")
 
     assert load_config(path).mask_names is True
@@ -49,7 +49,7 @@ def test_masking_names_is_switched_on_in_the_file(tmp_path: Path) -> None:
 
 def test_file_overrides_a_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    Path("redpen.toml").write_text('[models]\nreader = "vendor/model-1"\n')
+    Path("autograder2.toml").write_text('[models]\nreader = "vendor/model-1"\n')
 
     config = load_config()
 
@@ -79,13 +79,13 @@ def test_file_overrides_a_role(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         ),
         ("image_budget = 2\n", "image_budget: Input should be greater than or equal"),
         ("image_budget = true\n", "image_budget: Input should be greater than or"),
-        ("profile = \n", "redpen.toml: Invalid value"),
+        ("profile = \n", "autograder2.toml: Invalid value"),
     ],
 )
 def test_invalid_file_is_rejected_with_a_clear_message(
     tmp_path: Path, content: str, message: str
 ) -> None:
-    path = tmp_path / "redpen.toml"
+    path = tmp_path / "autograder2.toml"
     path.write_text(content)
 
     with pytest.raises(ConfigError, match=re.escape(message)):
@@ -99,7 +99,7 @@ def test_invalid_file_is_rejected_with_a_clear_message(
 def test_a_file_that_is_not_utf_8_text_is_rejected_in_one_line(
     tmp_path: Path, kind: str, error: str
 ) -> None:
-    path = tmp_path / "redpen.toml"
+    path = tmp_path / "autograder2.toml"
     if kind == "a folder":
         path.mkdir()
     else:  # an accent in a comment, saved as latin-1
@@ -116,14 +116,14 @@ def test_a_file_that_is_not_utf_8_text_is_rejected_in_one_line(
 
 @pytest.mark.parametrize("budget", [256, 1536, 4096])
 def test_an_image_budget_in_its_bounds_is_taken(tmp_path: Path, budget: int) -> None:
-    path = tmp_path / "redpen.toml"
+    path = tmp_path / "autograder2.toml"
     path.write_text(f"image_budget = {budget}\n")
 
     assert load_config(path).image_budget == budget
 
 
 def test_example_file_shows_every_setting_with_its_default() -> None:
-    example = Path(__file__).parents[2] / "redpen.toml.example"
+    example = Path(__file__).parents[2] / "autograder2.toml.example"
 
     assert tomllib.loads(example.read_text()) == Config().model_dump()
 

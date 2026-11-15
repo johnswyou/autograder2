@@ -1,5 +1,5 @@
-"""`redpen grade` on the hostile class (tests/fixtures/hostile), whose students write
-to the grader beside their work, with recorded calls: map, read, grade and, under
+"""`autograder2 grade` on the hostile class (tests/fixtures/hostile), whose students
+write to the grader beside their work, with recorded calls: map, read, grade and, under
 the lock's profile, balanced, the second grade (design 13 and 14.2).
 
 Each part's score must be the truth's, the score of the work alone. Every note to
@@ -14,9 +14,9 @@ reaches the terminal or `run.log`; in `review.md` and the feedback files each st
 inside its own place: a code span, or a feedback note with its markup escaped.
 
 The recording, `tests/recordings/hostile_class.jsonl`, was made by running this
-seed through `redpen grade` live into a persistent scratch workspace and keeping
+seed through `autograder2 grade` live into a persistent scratch workspace and keeping
 every call its cache then held (task 5.4b report). The test loads it into an
-offline gateway and does not use the `replay` fixture, so `REDPEN_RECORD=1`
+offline gateway and does not use the `replay` fixture, so `AUTOGRADER2_RECORD=1`
 neither calls the network here nor rewrites the recording."""
 
 import csv
@@ -33,21 +33,21 @@ import httpx
 import pytest
 from typer.testing import CliRunner, Result
 
-from redpen.cli import app
-from redpen.config import Lock, write_lock
-from redpen.grade.coverage import COMPARED
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
-from redpen.llm.cache import CallCache
-from redpen.llm.client import Gateway
-from redpen.llm.models import recheck_providers
-from redpen.prepare.key import save_key
-from redpen.prepare.parse import render_blank
-from redpen.report.report import code_span
-from redpen.schemas.key import Key
-from redpen.schemas.reading import ProblemReadings
-from redpen.schemas.submission import MapRecord
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Lock, write_lock
+from autograder2.grade.coverage import COMPARED
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import problem_of
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import recheck_providers
+from autograder2.prepare.key import save_key
+from autograder2.prepare.parse import render_blank
+from autograder2.report.report import code_span
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import ProblemReadings
+from autograder2.schemas.submission import MapRecord
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import HOSTILE, HOSTILE_SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS
 from tests.replay.test_run_replay import openrouter
@@ -96,13 +96,13 @@ def graded(tmp_path_factory: pytest.TempPathFactory) -> Graded:
     transport = httpx.MockTransport(openrouter)
     with pytest.MonkeyPatch.context() as patch:
         offline = functools.partial(Gateway, offline=True, transport=transport)
-        patch.setattr("redpen.orchestrator.Gateway", offline)
+        patch.setattr("autograder2.orchestrator.Gateway", offline)
         patch.setattr(
-            "redpen.orchestrator.recheck_providers",
+            "autograder2.orchestrator.recheck_providers",
             functools.partial(recheck_providers, transport=transport),
         )
         patch.setenv("OPENROUTER_API_KEY", "replay")
-        patch.chdir(root)  # no redpen.toml: the defaults, as recorded
+        patch.chdir(root)  # no autograder2.toml: the defaults, as recorded
         args = ["grade", str(submissions), "--workspace", str(workspace.root)]
         result = CliRunner().invoke(app, args)
     students = read_model(workspace.ingest_summary_json, IngestSummary).students

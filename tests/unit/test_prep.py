@@ -1,4 +1,4 @@
-"""Quarter turns, contrast correction and crops (src/redpen/imaging/prep.py)."""
+"""Quarter turns, contrast correction and crops (src/autograder2/imaging/prep.py)."""
 
 import io
 import random
@@ -9,7 +9,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from PIL import Image, ImageOps, ImageStat
 
-from redpen.imaging.prep import (
+from autograder2.imaging.prep import (
     box_from_rotated,
     box_to_rotated,
     box_within,
@@ -19,9 +19,9 @@ from redpen.imaging.prep import (
     rotate,
     white_share,
 )
-from redpen.imaging.render import render_page
-from redpen.schemas.key import Key
-from redpen.schemas.submission import MapEntry
+from autograder2.imaging.render import render_page
+from autograder2.schemas.key import Key
+from autograder2.schemas.submission import MapEntry
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
 
 

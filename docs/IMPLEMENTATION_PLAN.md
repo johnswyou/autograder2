@@ -1,4 +1,4 @@
-# redpen: implementation plan
+# autograder2: implementation plan
 
 How to build the system described in `SYSTEM_DESIGN.md`, in what order, and how to know each step is finished.
 
@@ -17,7 +17,7 @@ The plan builds a thin version of the whole pipeline first, measures it against 
 |---|---|---|
 | 0. Groundwork | Repository scaffolded, schemas and synthetic fixtures in place | 3 |
 | 1. Gateway | Cached, schema-checked, resumable calls to OpenRouter | 3 |
-| 2. Walking skeleton | `redpen run` works end to end in its simplest form, on fixtures | 7 |
+| 2. Walking skeleton | `autograder2 run` works end to end in its simplest form, on fixtures | 7 |
 | 3. Measurement | Real exports collected, and baseline accuracy against human grades broken down by stage | 5 |
 | 4. Accuracy | The design's checks and verification, each kept only if it earns its place | 11.5 |
 | 5. Operations | Re-grading, overrides, review, privacy, packaging | 5 |
@@ -47,18 +47,18 @@ A hand-graded past assignment is not available yet, and the plan is arranged aro
 ## 3. Repository layout
 
 ```
-redpen/
+autograder2/
   pyproject.toml
   README.md
-  redpen.toml.example
+  autograder2.toml.example
   docs/
     SYSTEM_DESIGN.md
     IMPLEMENTATION_PLAN.md
     export-notes.md            findings from task 3.1
     baseline.md                results from Phase 3
-  src/redpen/
+  src/autograder2/
     cli.py                     Typer app, one function per command
-    config.py                  redpen.toml and config.lock.toml
+    config.py                  autograder2.toml and config.lock.toml
     workspace.py               paths, artifact read and write, hashing
     orchestrator.py            the loop over students and problems
     schemas/
@@ -100,7 +100,7 @@ Each stage in the design maps to one module. Model-facing text lives only under 
 
 | # | Task | Days | Done when |
 |---|---|---|---|
-| 0.1 | Scaffold the project: package, CLI with every command stubbed, configuration loading, workspace paths, logging, and CI running ruff, pyright and pytest. | 1 | `redpen --help` lists every command in design section 12, and CI passes. |
+| 0.1 | Scaffold the project: package, CLI with every command stubbed, configuration loading, workspace paths, logging, and CI running ruff, pyright and pytest. | 1 | `autograder2 --help` lists every command in design section 12, and CI passes. |
 | 0.2 | Write the Pydantic models for the spec, key, fingerprint, map, reading, grade and flags. Export JSON Schemas and lint them against strict-mode limits (every field required, no extra properties, no unions of objects). | 1 | Round-trip tests pass, and a test confirms every schema passes the lint. |
 | 0.3 | Write the synthetic fixture generator. It builds a four-page assignment (three multiple-choice questions and two free-response problems, one with a free-body diagram) and renders submissions for each layout class in the table below, with ground truth alongside. | 1 | Fixtures build deterministically and are committed. |
 
@@ -130,7 +130,7 @@ Everything that talks to OpenRouter is built and tested before any stage uses it
 | 1.1 | Client: async requests, message builder for text and image parts, JSON Schema response format, provider preferences, parameters filtered by what the model supports, error classes for retryable, fatal and validation failures. | 1 | A call with an image returns a validated object. |
 | 1.2 | Call cache and usage ledger in SQLite. | 0.5 | A repeated call is served from the cache and the ledger records no new spend. |
 | 1.3 | Retries with backoff, one repair attempt on a validation failure, concurrency limit, per-model rate limit. | 0.5 | A response that violates the schema is repaired once and then raised. A simulated rate limit is retried and succeeds. |
-| 1.4 | `redpen models check`, alias resolution, and pinning to `config.lock.toml`. | 0.5 | A text-only model is rejected with a clear message. An alias resolves to a concrete slug, and a response from any other slug raises an error. |
+| 1.4 | `autograder2 models check`, alias resolution, and pinning to `config.lock.toml`. | 0.5 | A text-only model is rejected with a clear message. An alias resolves to a concrete slug, and a response from any other slug raises an error. |
 | 1.5 | Record and replay for tests. | 0.5 | The test suite runs from recorded responses with the network disabled. Killing a batch midway and restarting finishes it without repeating completed calls. |
 
 ### Phase 2: Walking skeleton (7 days)
@@ -140,12 +140,12 @@ The simplest version of every stage: one model call each, no second opinions, no
 | # | Task | Days | Done when |
 |---|---|---|---|
 | 2.1 | Ingest and image preparation: read a folder or ZIP, take student names from file names (with an optional roster), render PDFs to images, and handle rotation and contrast correction. Render any region of a page straight from the PDF at a chosen scale, and record the native resolution of each embedded photo (design 7.7). Each transform is recorded so that boxes can be mapped back to the original page. | 1 | Unit tests pass on the fixtures, including the rotated class. A ZIP and a folder of the same files give identical results. A region rendered from the PDF at three times scale is measurably sharper than the same region enlarged from the 200 DPI page. |
-| 2.2 | Prepare, first version: parse per page and stitch, one solver, rubric with one point per criterion, `key.yaml` written, `solutions.md` and `rubric.md` rendered, `redpen key check`. | 2 | On the fixture assignment the spec lists every part with the right type, and the key's answers match ground truth. |
+| 2.2 | Prepare, first version: parse per page and stitch, one solver, rubric with one point per criterion, `key.yaml` written, `solutions.md` and `rubric.md` rendered, `autograder2 key check`. | 2 | On the fixture assignment the spec lists every part with the right type, and the key's answers match ground truth. |
 | 2.3 | Map, first version: per-page inventory and a resolve call, with the completeness check only. | 1 | Every layout class yields a map that points each answered part at the right page. |
 | 2.4 | Read, first version: one read per unit (multiple choice by page, free response by problem). Each mapped region is rendered from the PDF to fill the model's image budget and sent with the full page as an overview. No tiling yet. | 1 | Multiple-choice selections are read correctly in every layout class. |
 | 2.5 | Grade, first version: multiple choice and blanks scored in code, one grader call per problem, bounds and sums enforced in code. | 1 | Fixture scores match ground truth. An award outside the listed levels is rejected. |
 | 2.6 | Report, first version: the three outputs, with each part's points placed on the page where the part is printed (design 8.2), and a run report with cost. | 0.5 | Page totals equal problem totals for every student. A part answered on a foreign page still scores under its printed page. |
-| 2.7 | `redpen run`: wiring, progress display, `--dry-run`, resumption. | 0.5 | The run completes on every fixture class and writes every output. The dry-run estimate is within 30% of the actual spend. |
+| 2.7 | `autograder2 run`: wiring, progress display, `--dry-run`, resumption. | 0.5 | The run completes on every fixture class and writes every output. The dry-run estimate is within 30% of the actual spend. |
 
 ### Phase 3: Measurement (5 days)
 
@@ -153,8 +153,8 @@ This is where real data enters. The phase cannot start without the material in t
 
 | # | Task | Days | Done when |
 |---|---|---|---|
-| 3.1 | Collect one assignment that has been graded by hand: the blank PDF, every student's PDF, and the page scores. Make a copy with names replaced by codes and keep it outside the repository. Read five of the exports by hand and record what they contain. Correct the fixture assumptions and the ingest stage to match, then run the skeleton on the full set. | 2 | `docs/export-notes.md` answers the questions below. An anonymised set of at least 25 submissions with human page scores exists. `redpen run` completes on it and writes every output. |
-| 3.2 | `redpen eval`: gold CSV loader (by page or by problem), the metrics in design section 15, and a listing of the largest disagreements with links to artifacts. | 1 | The command runs on the real set and prints the table. |
+| 3.1 | Collect one assignment that has been graded by hand: the blank PDF, every student's PDF, and the page scores. Make a copy with names replaced by codes and keep it outside the repository. Read five of the exports by hand and record what they contain. Correct the fixture assumptions and the ingest stage to match, then run the skeleton on the full set. | 2 | `docs/export-notes.md` answers the questions below. An anonymised set of at least 25 submissions with human page scores exists. `autograder2 run` completes on it and writes every output. |
+| 3.2 | `autograder2 eval`: gold CSV loader (by page or by problem), the metrics in design section 15, and a listing of the largest disagreements with links to artifacts. | 1 | The command runs on the real set and prints the table. |
 | 3.3 | Labelling script. It pre-fills a map and final answers from the tool's own output, and a person corrects them. This produces stage-level gold for about twenty submissions. | 1 | Twenty submissions are labelled. |
 | 3.4 | Stage metrics: mapping accuracy, reading accuracy on final answers, and grading accuracy when given gold readings. Then a comparison of three or four candidate models for the reader role, and the same for the grader. Reading accuracy is also measured against line height in pixels, which sets the zoom target and confirms each model's image budget. | 1 | `docs/baseline.md` holds one table per stage and records which models were chosen, with the numbers behind the choice. The zoom target and each model's image budget are recorded there too. |
 
@@ -193,14 +193,14 @@ For 4.5, released AP Physics 1 free-response questions and their published scori
 | # | Task | Days | Done when |
 |---|---|---|---|
 | 5.1 | Re-grading by part hash with dependency closure, and overrides with staleness (design 6.6 and 11). | 1.5 | Editing one criterion re-grades that part and its dependents with no map or read calls. An override survives the re-grade. |
-| 5.2 | `redpen review`: step through flags, show the transcript and the image path, accept or override. | 1 | A full review list can be cleared from the terminal. |
+| 5.2 | `autograder2 review`: step through flags, show the transcript and the image path, accept or override. | 1 | A full review list can be cleared from the terminal. |
 | 5.3 | Privacy (design 14.1): provider preferences on every request, name masking, `models check` under the privacy settings, and a `.gitignore` written into each workspace. | 1 | A test asserts that no request body contains a student name. Masked regions are visibly blanked in the images that are sent. |
 | 5.4 | Hardening: behaviour under rate limits, a kill-and-resume test, a 150-submission run from recordings, and clear messages for common mistakes (missing API key, wrong path, encrypted PDF, empty ZIP). | 1 | All of these are covered by tests. |
 | 5.5 | Packaging and documentation: install with `uv tool install`, a README quick start, and a short user guide. | 0.5 | Someone who has not seen the project can install it and grade the fixture class from the README alone. |
 
 ### Phase 6: Pilot
 
-For two or three live assignments the instructor grades by hand as usual and the tool runs alongside. `redpen eval` compares the two each time.
+For two or three live assignments the instructor grades by hand as usual and the tool runs alongside. `autograder2 eval` compares the two each time.
 
 The pilot ends in a decision against the targets in design section 15, with three possible outcomes:
 
@@ -242,7 +242,7 @@ The regression evaluation runs the anonymised real sets and compares against hum
 
 ## 7. Definition of done for version 1
 
-- `redpen run blank.pdf submissions.zip` completes unattended on the real set and writes every file listed in design section 8.
+- `autograder2 run blank.pdf submissions.zip` completes unattended on the real set and writes every file listed in design section 8.
 - The targets in design section 15 are met on at least two assignments, or the gaps are written down together with a decision on how the tool will be used.
 - Every flag in design section 9 has a test that raises it.
 - A re-grade after a key edit makes no map or read calls.

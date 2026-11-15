@@ -13,9 +13,9 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.prepare.assemble import assemble
-from redpen.prepare.key import (
+from autograder2.cli import app
+from autograder2.prepare.assemble import assemble
+from autograder2.prepare.key import (
     KeyFileError,
     grading_content,
     key_version,
@@ -25,12 +25,12 @@ from redpen.prepare.key import (
     save_key,
     solutions_md,
 )
-from redpen.prepare.rubric import PartRubric, ProposedCriterion
-from redpen.prepare.solve import Alternative, PartSolution
-from redpen.prepare.verify import State
-from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace
+from autograder2.prepare.rubric import PartRubric, ProposedCriterion
+from autograder2.prepare.solve import Alternative, PartSolution
+from autograder2.prepare.verify import State
+from autograder2.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
 
@@ -255,7 +255,7 @@ def test_a_file_that_would_not_read_back_is_not_written(
     path = tmp_path / "key.yaml"
     save_key(path, KEY)
     before = path.read_bytes()
-    monkeypatch.setattr("redpen.prepare.key._block_safe", lambda text: True)
+    monkeypatch.setattr("autograder2.prepare.key._block_safe", lambda text: True)
 
     with pytest.raises(KeyFileError, match="left as it is"):
         save_key(path, with_text("solution", "a\x02b\nc"))
@@ -554,7 +554,7 @@ TOO_LARGE = (
             ["key", "render"],
             [
                 "ws/key/key.yaml holds a number too large to work with."
-                " `redpen key check` lists its problems."
+                " `autograder2 key check` lists its problems."
             ],
         ),
     ],
@@ -579,21 +579,25 @@ def test_a_number_too_large_for_decimal_arithmetic_gives_one_readable_line(
 
 def test_the_key_file_module_loads_no_stage_and_no_pdf_library() -> None:
     code = (
-        "import sys, redpen.prepare.key; "
-        "print(sorted(m for m in sys.modules if m.startswith(('redpen', 'pypdfium2'))))"
+        "import sys, autograder2.prepare.key; "
+        "print(sorted(m for m in sys.modules"
+        " if m.startswith(('autograder2', 'pypdfium2'))))"
     )
     found = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
 
     loaded = ast.literal_eval(found.stdout)
-    assert "redpen.prepare.key" in loaded
+    assert "autograder2.prepare.key" in loaded
     assert not [
         m
         for m in loaded
-        if m.startswith(("redpen.prepare.", "pypdfium2")) and m != "redpen.prepare.key"
+        if m.startswith(("autograder2.prepare.", "pypdfium2"))
+        and m != "autograder2.prepare.key"
     ]
-    assert not [m for m in loaded if m.startswith(("redpen.llm", "redpen.imaging"))]
+    assert not [
+        m for m in loaded if m.startswith(("autograder2.llm", "autograder2.imaging"))
+    ]
 
 
 def test_key_check_passes_a_clean_key_and_render_writes_the_markdown(

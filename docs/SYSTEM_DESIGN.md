@@ -1,4 +1,4 @@
-# redpen: system design
+# autograder2: system design
 
 Automatic grading of student work for assignments where submissions follow no fixed layout.
 
@@ -8,11 +8,11 @@ Automatic grading of student work for assignments where submissions follow no fi
 | Date | 11 November 2026 |
 | Revision | 3. Adds resolution and zoom handling for small writing (section 7.7). Revision 2 recorded the instructor's answers on page scores, point allocation, school policy and pilot data. |
 | Companion document | `IMPLEMENTATION_PLAN.md` |
-| Working name | `redpen` (rename freely) |
+| Working name | `autograder2` (rename freely) |
 
 ## 1. Summary
 
-redpen is a command-line tool that grades one assignment for one class. The instructor supplies the blank assignment as a PDF and a folder or ZIP of student PDFs. The tool writes a solution manual and a rubric from the blank assignment, locates each student's response to each question wherever the student put it, grades the response against the rubric, and writes three things: scores per problem, scores per page, and written feedback for each student.
+autograder2 is a command-line tool that grades one assignment for one class. The instructor supplies the blank assignment as a PDF and a folder or ZIP of student PDFs. The tool writes a solution manual and a rubric from the blank assignment, locates each student's response to each question wherever the student put it, grades the response against the rubric, and writes three things: scores per problem, scores per page, and written feedback for each student.
 
 All model calls go through OpenRouter. Everything else (rendering, arithmetic, validation, file output) is ordinary Python.
 
@@ -236,7 +236,7 @@ Since nobody reviews the key before grading, the rubric is tried out first. The 
 
 `key.yaml` is the single source of truth for answers, solutions, criteria, points and policies. `solutions.md` and `rubric.md` are rendered from it for reading and printing, and are never read back.
 
-The key has a version, a short hash of its contents, and each part has its own hash. Every grade records the part hash it was graded under. If the instructor edits a criterion for `Q7.b`, `redpen regrade` re-grades only `Q7.b` and the parts that depend on it. Mapping and reading are untouched, because neither uses the key.
+The key has a version, a short hash of its contents, and each part has its own hash. Every grade records the part hash it was graded under. If the instructor edits a criterion for `Q7.b`, `autograder2 regrade` re-grades only `Q7.b` and the parts that depend on it. Mapping and reading are untouched, because neither uses the key.
 
 ## 7. Grading a submission
 
@@ -483,7 +483,7 @@ referee = "~anthropic/claude-opus-latest"
 
 The `~author/family-latest` form is an OpenRouter alias that always routes to the newest model in a family [6]. Aliases keep the default configuration from going stale, but a class must not be graded by a model that changes halfway through. So when an assignment is prepared, each alias is resolved to a concrete slug and written to `config.lock.toml` in the workspace. Every later call for that assignment uses the concrete slug, and the `model` field of each response is checked against it.
 
-`redpen models check` verifies, through OpenRouter's models API, that each configured model accepts image input and supports structured outputs, and that it is reachable under the privacy settings in use [8].
+`autograder2 models check` verifies, through OpenRouter's models API, that each configured model accepts image input and supports structured outputs, and that it is reachable under the privacy settings in use [8].
 
 ### 10.2 Request shape
 
@@ -553,14 +553,14 @@ How much checking is done is set by a profile.
 
 The 10% sample in the balanced profile is what produces the grader agreement rate in the run report.
 
-A rough estimate for the balanced profile, for a nine-page assignment with twelve multiple-choice questions and eight free-response problems, is about 170,000 input tokens and 20,000 output tokens per student. Most of the input is page images. A submission with dense photo pages costs more than this, because those pages are sent as several zoomed tiles. At $2 to $3 per million input tokens and $10 to $15 per million output tokens, which is roughly where flagship vision models are listed at the time of writing, that comes to between 50 and 85 cents per student, or $15 to $25 for a class of thirty. Preparing the key costs about as much as grading two or three students. These figures are estimates from assumed image and prompt sizes, to be replaced by measurements from the pilot. `redpen run --dry-run` prints an estimate from live prices before anything is spent.
+A rough estimate for the balanced profile, for a nine-page assignment with twelve multiple-choice questions and eight free-response problems, is about 170,000 input tokens and 20,000 output tokens per student. Most of the input is page images. A submission with dense photo pages costs more than this, because those pages are sent as several zoomed tiles. At $2 to $3 per million input tokens and $10 to $15 per million output tokens, which is roughly where flagship vision models are listed at the time of writing, that comes to between 50 and 85 cents per student, or $15 to $25 for a class of thirty. Preparing the key costs about as much as grading two or three students. These figures are estimates from assumed image and prompt sizes, to be replaced by measurements from the pilot. `autograder2 run --dry-run` prints an estimate from live prices before anything is spent.
 
 ## 11. Storage and reproducibility
 
 Each assignment has a workspace directory.
 
 ```
-unit4-forces.redpen/
+unit4-forces.autograder2/
   config.lock.toml          pinned models, prompt versions, profile, policies
   key/
     blank.pdf
@@ -601,21 +601,21 @@ The instructor's corrections live in `overrides.yaml`, keyed by student and crit
 
 | Command | Purpose |
 |---|---|
-| `redpen run BLANK.pdf SUBMISSIONS` | Everything, start to finish: prepare, grade, audit, report. Safe to re-run; finished work is skipped. |
-| `redpen prepare BLANK.pdf` | Build the key only. |
-| `redpen key check` | Validate `key.yaml` after a hand edit: schema, point sums, page maximums. |
-| `redpen key render` | Rebuild `solutions.md` and `rubric.md`. |
-| `redpen grade SUBMISSIONS` | Ingest, fingerprint, map, read, grade and audit against the existing key. |
-| `redpen regrade` | Re-grade whatever a key edit has invalidated. `--part` and `--student` narrow it. |
-| `redpen report` | Rebuild the files in `out/` from stored grades and overrides. |
-| `redpen review` | Step through open flags in the terminal and accept or override each. |
-| `redpen override STUDENT CRITERION POINTS` | Record a correction. |
-| `redpen eval --gold FILE.csv` | Compare the tool's scores with human scores (section 15). |
-| `redpen models check` | Verify the configured models. |
+| `autograder2 run BLANK.pdf SUBMISSIONS` | Everything, start to finish: prepare, grade, audit, report. Safe to re-run; finished work is skipped. |
+| `autograder2 prepare BLANK.pdf` | Build the key only. |
+| `autograder2 key check` | Validate `key.yaml` after a hand edit: schema, point sums, page maximums. |
+| `autograder2 key render` | Rebuild `solutions.md` and `rubric.md`. |
+| `autograder2 grade SUBMISSIONS` | Ingest, fingerprint, map, read, grade and audit against the existing key. |
+| `autograder2 regrade` | Re-grade whatever a key edit has invalidated. `--part` and `--student` narrow it. |
+| `autograder2 report` | Rebuild the files in `out/` from stored grades and overrides. |
+| `autograder2 review` | Step through open flags in the terminal and accept or override each. |
+| `autograder2 override STUDENT CRITERION POINTS` | Record a correction. |
+| `autograder2 eval --gold FILE.csv` | Compare the tool's scores with human scores (section 15). |
+| `autograder2 models check` | Verify the configured models. |
 
 Options on `run` and `prepare`: `--total`, `--page-points`, `--profile`, `--roster FILE.csv`, `--dry-run`, `--workspace DIR`.
 
-Global settings live in `redpen.toml`. The API key is read from `OPENROUTER_API_KEY`.
+Global settings live in `autograder2.toml`. The API key is read from `OPENROUTER_API_KEY`.
 
 ## 13. Failure modes
 
@@ -654,7 +654,7 @@ Expression checking needs a specific precaution. SymPy's own string parser evalu
 
 A grading tool is only useful if its agreement with a careful human is known. The measurement is built into the tool.
 
-`redpen eval --gold FILE.csv` compares the tool's scores with human scores for an assignment that has already been graded by hand. Classkick can export grades as CSV [11]. If that export is broken down by slide it serves as per-page gold scores directly. If it is not, the page scores can be typed into a small CSV. The command reports:
+`autograder2 eval --gold FILE.csv` compares the tool's scores with human scores for an assignment that has already been graded by hand. Classkick can export grades as CSV [11]. If that export is broken down by slide it serves as per-page gold scores directly. If it is not, the page scores can be typed into a small CSV. The command reports:
 
 - Mean absolute difference per page and per problem, in points and as a share of the maximum.
 - The share of scores that match within one point step.

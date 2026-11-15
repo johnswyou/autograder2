@@ -4,16 +4,16 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
-from redpen.config import Config
-from redpen.grade.read import problem_of, unit_images, units
-from redpen.schemas.common import Provenance, Schema
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.grade import Grade
-from redpen.schemas.key import Answer
-from redpen.schemas.reading import Crop, ProblemReadings, Reading, ReadingRecord
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import IngestPage, Map, MapPage, MapRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.config import Config
+from autograder2.grade.read import problem_of, unit_images, units
+from autograder2.schemas.common import Provenance, Schema
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.grade import Grade
+from autograder2.schemas.key import Answer
+from autograder2.schemas.reading import Crop, ProblemReadings, Reading, ReadingRecord
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import IngestPage, Map, MapPage, MapRecord
+from autograder2.workspace import Workspace, read_model, write_model
 
 FIXTURES = Path(__file__).parent / "fixtures" / "synthetic"
 SUBMISSIONS = sorted(FIXTURES.glob("* - *.pdf"))

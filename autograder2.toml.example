@@ -1,0 +1,33 @@
+# Copy to autograder2.toml in the directory you run autograder2 from. Every setting is
+# optional; the values below are the defaults. The OpenRouter API key is read
+# from the OPENROUTER_API_KEY environment variable, never from this file.
+
+# How much checking is done: "economy", "balanced" or "thorough".
+profile = "balanced"
+
+# Longest image edge, in pixels, sent to a model: from 256 to 4096.
+image_budget = 1536
+
+# Send student work only to endpoints that retain nothing: zero data retention,
+# no Safety Retention, no data collection. `autograder2 models check` says which
+# models have such an endpoint. Set to false only for a model that has none.
+strict_privacy = true
+
+# Blank each student's name in the images sent after the map: the mapper is
+# asked where names are written or printed, and sees each page before it is
+# blanked. A name that overlaps a response is left as it is. Once on for a
+# workspace, it stays on for it.
+mask_names = false
+
+# The model behind each role: an OpenRouter slug, or a ~author/family-latest
+# alias that is pinned to a concrete slug when an assignment is prepared.
+[models]
+parser  = "~anthropic/claude-sonnet-latest"
+solver  = "~anthropic/claude-opus-latest"
+checker = "~openai/gpt-sol-latest"         # second solver, different vendor on purpose
+mapper  = "~anthropic/claude-haiku-latest"
+reader  = "~anthropic/claude-sonnet-latest"
+grader  = "~anthropic/claude-sonnet-latest"
+second  = "~openai/gpt-sol-latest"         # second reader, different vendor from the reader's on purpose;
+                                           # the second grade asks the grader's own model again
+referee = "~anthropic/claude-opus-latest"

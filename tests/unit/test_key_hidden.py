@@ -1,6 +1,6 @@
 """The API key never shows in a formatted traceback, with locals or without, nor on
 the terminal or in `run.log` when a command fails. Every key here is made up, and
-no test frame holds one in a local of its own: only `redpen`'s frames are tried."""
+no test frame holds one in a local of its own: only `autograder2`'s frames are tried."""
 
 import asyncio
 import subprocess
@@ -14,13 +14,13 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from redpen.cli import _key, _parse
-from redpen.config import Config, Lock, openrouter_api_key, pin
-from redpen.llm.client import Gateway
-from redpen.llm.models import fetch_catalog, recheck_providers
-from redpen.orchestrator import grade_class, privacy_problems
-from redpen.schemas.key import Key
-from redpen.workspace import Workspace
+from autograder2.cli import _key, _parse
+from autograder2.config import Config, Lock, openrouter_api_key, pin
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import fetch_catalog, recheck_providers
+from autograder2.orchestrator import grade_class, privacy_problems
+from autograder2.schemas.key import Key
+from autograder2.workspace import Workspace
 from tests.fixture_truth import FIXTURES, SPEC
 from tests.pinned import GRADE_MODELS, GRADER, KEY_MODELS
 
@@ -143,19 +143,19 @@ def test_the_privacy_check_that_fails_never_names_the_key(
     async def refusing(*args: object, **kwargs: object) -> object:
         raise RuntimeError("the check could not be completed")
 
-    monkeypatch.setattr("redpen.orchestrator.recheck_providers", refusing)
+    monkeypatch.setattr("autograder2.orchestrator.recheck_providers", refusing)
     gated = asyncio.run(privacy_problems(lock, openrouter_api_key(), True))
     assert found and gated
     assert KEYS["ascii"] not in repr(found) + repr(gated)
 
 
-# Run as `python -c`: a `redpen grade` whose step raises with a plain copy of the
+# Run as `python -c`: a `autograder2 grade` whose step raises with a plain copy of the
 # key in a local, so that any printed local would show it.
 DRIVER = """
 import os, sys
 from pathlib import Path
 from tests.replay.test_run_replay import seed
-from redpen import cli
+from autograder2 import cli
 
 workspace, submissions = seed(Path(sys.argv[1]))
 
@@ -175,7 +175,7 @@ else:
     cli.privacy_problems = no_problems
     cli.grade_class = failing_async
 args = ["grade", str(submissions), "--workspace", str(workspace.root)]
-cli.app(args, prog_name="redpen")
+cli.app(args, prog_name="autograder2")
 """
 
 

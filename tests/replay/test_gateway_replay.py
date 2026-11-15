@@ -1,6 +1,6 @@
 """A recorded call to a real model, replayed with the network disabled.
 
-Re-record (paid) with `REDPEN_RECORD=1 uv run pytest tests/replay`.
+Re-record (paid) with `AUTOGRADER2_RECORD=1 uv run pytest tests/replay`.
 """
 
 import asyncio
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from redpen.llm.client import Gateway, Result
+from autograder2.llm.client import Gateway, Result
 from tests.pinned import MAPPER
 
 IMAGE = (Path(__file__).parents[1] / "fixtures" / "letter_b.png").read_bytes()

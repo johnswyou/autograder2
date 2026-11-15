@@ -1,4 +1,4 @@
-"""`redpen eval`: the tool's scores against a person's, from stored files only.
+"""`autograder2 eval`: the tool's scores against a person's, from stored files only.
 
 The workspace holds the fixture class as the report stage's tests store it: the
 truth's readings and grades under `key.json`, on the session's ingest. One part,
@@ -22,18 +22,18 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner, Result
 
-from redpen.cli import app
-from redpen.eval.eval import Evaluation, GoldError, evaluate, markdown, table
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
-from redpen.prepare.key import page_points, part_hash, save_key
-from redpen.report.report import write_report
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import GradeRecord, ProblemGrades
-from redpen.schemas.key import Key, PointConstraint
-from redpen.schemas.reading import Crop, ProblemReadings, ReadingRecord
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.cli import app
+from autograder2.eval.eval import Evaluation, GoldError, evaluate, markdown, table
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import problem_of
+from autograder2.prepare.key import page_points, part_hash, save_key
+from autograder2.report.report import write_report
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import GradeRecord, ProblemGrades
+from autograder2.schemas.key import Key, PointConstraint
+from autograder2.schemas.reading import Crop, ProblemReadings, ReadingRecord
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY, SUBMISSIONS, truth_of
 
 D = Decimal

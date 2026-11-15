@@ -1,4 +1,4 @@
-"""`redpen run`, `grade` and `report`: the stages in order over the ingested class,
+"""`autograder2 run`, `grade` and `report`: the stages in order over the ingested class,
 the privacy gate, one student's failure, the exit code, the dry run, the report
 rebuilt from stored files, and the lock's prompt versions.
 
@@ -27,16 +27,16 @@ from reportlab.pdfgen import canvas
 from rich.text import Text
 from typer.testing import CliRunner
 
-import redpen.prompts
-from redpen.cli import app
-from redpen.config import Lock, read_lock, write_lock
-from redpen.grade.audit import MAX_CASES
-from redpen.grade.grade import Grades
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import digest
-from redpen.llm.client import Gateway
-from redpen.llm.models import Catalog, ModelInfo, recheck_providers
-from redpen.orchestrator import (
+import autograder2.prompts
+from autograder2.cli import app
+from autograder2.config import Lock, read_lock, write_lock
+from autograder2.grade.audit import MAX_CASES
+from autograder2.grade.grade import Grades
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import digest
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import Catalog, ModelInfo, recheck_providers
+from autograder2.orchestrator import (
     PER_PAGE,
     TOKENS,
     Cost,
@@ -45,8 +45,8 @@ from redpen.orchestrator import (
     image_tokens,
     shape,
 )
-from redpen.prepare.key import load_key, number, part_hash, save_key, yaml_reader
-from redpen.report.report import (
+from autograder2.prepare.key import load_key, number, part_hash, save_key, yaml_reader
+from autograder2.report.report import (
     GONE,
     NOTHING_TO_REVIEW,
     OTHER_KEY,
@@ -54,12 +54,17 @@ from redpen.report.report import (
     STRICT_OFF_RUN,
     UNGRADED,
 )
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
-from redpen.schemas.key import Key
-from redpen.schemas.reading import FinalAnswer, ProblemReadings, Reading, ReadingRecord
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import (
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import CriterionGrade, Grade, GradeRecord, ProblemGrades
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import (
+    FinalAnswer,
+    ProblemReadings,
+    Reading,
+    ReadingRecord,
+)
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import (
     IngestPage,
     IngestRecord,
     Map,
@@ -68,7 +73,7 @@ from redpen.schemas.submission import (
     MapRecord,
     SetAside,
 )
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
 from tests.grader import grades
 from tests.pinned import (
@@ -207,10 +212,11 @@ def router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> OpenRouter:
     openrouter = OpenRouter()
     transport = httpx.MockTransport(openrouter)
     monkeypatch.setattr(
-        "redpen.orchestrator.Gateway", functools.partial(Gateway, transport=transport)
+        "autograder2.orchestrator.Gateway",
+        functools.partial(Gateway, transport=transport),
     )
     monkeypatch.setattr(
-        "redpen.orchestrator.recheck_providers",
+        "autograder2.orchestrator.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
     return openrouter
@@ -271,8 +277,12 @@ def test_run_prepares_then_grades(
 ) -> None:
     a_pdf_in_subs(tmp_path, monkeypatch)
     calls: list[tuple[str, tuple[object, ...]]] = []
-    monkeypatch.setattr("redpen.cli.prepare", lambda *a: calls.append(("prepare", a)))
-    monkeypatch.setattr("redpen.cli._grade", lambda *a, **k: calls.append(("grade", a)))
+    monkeypatch.setattr(
+        "autograder2.cli.prepare", lambda *a: calls.append(("prepare", a))
+    )
+    monkeypatch.setattr(
+        "autograder2.cli._grade", lambda *a, **k: calls.append(("grade", a))
+    )
     args = ["run", "b.pdf", "subs", "--workspace", "ws", "--profile", "economy"]
 
     result = runner.invoke(app, [*args, "--roster", "r.csv"])
@@ -295,8 +305,8 @@ def test_run_grades_nothing_when_prepare_fails(
     def failing(*args: object) -> None:
         raise SystemExit(1)
 
-    monkeypatch.setattr("redpen.cli.prepare", failing)
-    monkeypatch.setattr("redpen.cli._grade", lambda *a, **k: pytest.fail("graded"))
+    monkeypatch.setattr("autograder2.cli.prepare", failing)
+    monkeypatch.setattr("autograder2.cli._grade", lambda *a, **k: pytest.fail("graded"))
 
     assert runner.invoke(app, ["run", "b.pdf", "subs"]).exit_code == 1
 
@@ -312,7 +322,7 @@ def test_grade_runs_each_stage_over_the_ingested_class_in_order(
         ) -> None:
             calls.append((stage, student))
 
-        monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", fake)
+        monkeypatch.setattr(f"autograder2.orchestrator.{stage}_student", fake)
 
     result = grade()
 
@@ -332,7 +342,7 @@ def test_no_more_students_run_at_once_in_a_stage_than_the_gateway_s_limit(
         write_pdf(Path("subs") / f"HW 1 - {name}.pdf", "1. x = 4")
     transport = httpx.MockTransport(router)
     monkeypatch.setattr(
-        "redpen.orchestrator.Gateway",
+        "autograder2.orchestrator.Gateway",
         functools.partial(Gateway, transport=transport, max_concurrency=2),
     )
     running: list[str] = []
@@ -347,7 +357,7 @@ def test_no_more_students_run_at_once_in_a_stage_than_the_gateway_s_limit(
         running.remove(student)
         await mapped(workspace, student, *args)
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", fake)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", fake)
 
     assert grade().exit_code == 0
     assert len(students()) == 5 and peak == 2
@@ -370,7 +380,7 @@ def test_a_folder_in_students_not_in_the_ingest_summary_is_in_no_output(
         seen.append(student)
         await mapped(workspace, student, *args)
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", fake)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", fake)
 
     assert grade().exit_code == 0
     assert stale.student_key not in seen and len(seen) == 3
@@ -381,7 +391,7 @@ def test_a_folder_in_students_not_in_the_ingest_summary_is_in_no_output(
 def test_one_student_s_failure_is_recorded_and_the_class_goes_on(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map("Ben"))
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map("Ben"))
 
     result = grade()
 
@@ -430,7 +440,7 @@ def quiet(result: Any) -> None:
 def test_report_puts_no_stored_text_on_the_terminal(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, stored: str
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     assert grade().exit_code == 0
     path = WS.student_dir(students()[0]) / stored / "Q4.json"
     path.write_text(f'{{"records": [{{"reading": "{MARKER}"}}]}}')
@@ -491,8 +501,8 @@ def test_the_failures_are_named_even_when_the_report_cannot_be_written(
     def broken(*args: object) -> None:
         raise RuntimeError(MARKER)
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map("Ben"))
-    monkeypatch.setattr("redpen.cli.write_report", broken)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map("Ben"))
+    monkeypatch.setattr("autograder2.cli.write_report", broken)
 
     result = grade()
 
@@ -507,7 +517,7 @@ def test_the_failures_are_named_even_when_the_report_cannot_be_written(
 def test_report_rebuilds_out_byte_for_byte_with_no_api_key(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map("Ben"))
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map("Ben"))
     assert grade().exit_code == 1
     before = out_files(WS)
     shutil.rmtree(WS.root / "out")
@@ -524,7 +534,7 @@ def test_report_rebuilds_out_byte_for_byte_with_no_api_key(
 def test_a_file_that_cannot_be_ingested_fails_the_run_after_the_reports(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     Path("subs", "HW 1 - Dee `x`.pdf").write_bytes(b"%PDF-1.7 not really")
 
     result = grade()
@@ -541,7 +551,7 @@ def test_a_file_that_cannot_be_ingested_fails_the_run_after_the_reports(
 def test_what_the_roster_found_and_ingest_left_out_is_counted_on_the_terminal(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     Path("roster.csv").write_text("Ann Example\nMissing Student\n")
     Path("subs", "notes.txt").write_text("not a submission")
     roster = ["--roster", "roster.csv"]
@@ -639,7 +649,7 @@ def test_a_check_that_leaves_a_role_out_sends_nothing(
     async def partial_answer(models: dict[str, Any], *args: object, **kwargs: object):
         return {"mapper": []}
 
-    monkeypatch.setattr("redpen.orchestrator.recheck_providers", partial_answer)
+    monkeypatch.setattr("autograder2.orchestrator.recheck_providers", partial_answer)
 
     result = grade()
 
@@ -721,10 +731,10 @@ def test_with_the_privacy_check_passing_read_and_grade_send_crops_restricted(
     router.reads = True
     transport = httpx.MockTransport(router)
     monkeypatch.setattr(
-        "redpen.orchestrator.Gateway",
+        "autograder2.orchestrator.Gateway",
         functools.partial(Gateway, transport=transport, requests_per_second=1e6),
     )
-    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_everywhere)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", mapped_everywhere)
 
     result = grade()
 
@@ -742,10 +752,10 @@ def fast(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every part mapped in one box, and the gateway on `router` with no wait."""
     transport = httpx.MockTransport(router)
     monkeypatch.setattr(
-        "redpen.orchestrator.Gateway",
+        "autograder2.orchestrator.Gateway",
         functools.partial(Gateway, transport=transport, requests_per_second=1e6),
     )
-    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_everywhere)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", mapped_everywhere)
 
 
 def test_a_part_in_doubt_is_read_again_by_the_second_model_as_the_reader_was_asked(
@@ -797,10 +807,10 @@ def refuse(request: httpx.Request) -> httpx.Response:
 def refusing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every gateway and the privacy check on a transport that fails any request."""
     transport = httpx.MockTransport(refuse)
-    for where in ("redpen.orchestrator.Gateway", "redpen.cli.Gateway"):
+    for where in ("autograder2.orchestrator.Gateway", "autograder2.cli.Gateway"):
         monkeypatch.setattr(where, functools.partial(Gateway, transport=transport))
     monkeypatch.setattr(
-        "redpen.orchestrator.recheck_providers",
+        "autograder2.orchestrator.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
 
@@ -951,7 +961,7 @@ def test_a_dry_run_with_a_lock_that_cannot_verify_says_so_in_one_line(
 def test_a_dry_run_over_another_folder_leaves_the_stored_class_alone(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     assert grade().exit_code == 0
     before = out_files(WS)
     summary = WS.ingest_summary_json.read_bytes()
@@ -970,7 +980,7 @@ def test_a_dry_run_over_another_folder_leaves_the_stored_class_alone(
 
 
 def configured_not_pinned(monkeypatch: pytest.MonkeyPatch, settings: str = "") -> None:
-    """A redpen.toml naming one listed model for every role, after `settings`, and
+    """An autograder2.toml naming one listed model for every role, after `settings`, and
     the blank beside it, for a dry run of `run` on a new workspace."""
 
     async def fetch_catalog(api_key: str) -> Catalog:
@@ -982,10 +992,10 @@ def configured_not_pinned(monkeypatch: pytest.MonkeyPatch, settings: str = "") -
         }
         return Catalog({MAPPER.slug: entry}, ZDR)
 
-    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("autograder2.cli.fetch_catalog", fetch_catalog)
     prepare = ("parser", "solver", "checker", "referee")
     toml = "".join(f'{role} = "{MAPPER.slug}"\n' for role in prepare)
-    Path("redpen.toml").write_text(
+    Path("autograder2.toml").write_text(
         settings
         + "[models]\n"
         + toml
@@ -1014,8 +1024,8 @@ def test_a_dry_run_of_run_on_a_new_workspace_lists_models_and_spends_nothing(
 def test_the_lock_holds_the_version_of_every_prompt_file(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
-    folder = Path(redpen.prompts.__file__).parent
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
+    folder = Path(autograder2.prompts.__file__).parent
     files = sorted(folder.rglob("*.md"))  # every prompt file on disk
 
     assert grade().exit_code == 0
@@ -1040,9 +1050,9 @@ STRICT_OFF = (
 def test_strict_privacy_switched_off_is_said_and_recorded(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, strict: bool
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     if not strict:
-        Path("redpen.toml").write_text("strict_privacy = false\n")
+        Path("autograder2.toml").write_text("strict_privacy = false\n")
 
     result = grade()
 
@@ -1059,10 +1069,10 @@ def test_strict_privacy_switched_off_is_said_and_recorded(
 def test_strict_privacy_once_off_stays_recorded(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, gate_passes: bool
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
-    Path("redpen.toml").write_text("strict_privacy = false\n")
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
+    Path("autograder2.toml").write_text("strict_privacy = false\n")
     assert grade().exit_code == 0
-    Path("redpen.toml").unlink()  # strict privacy on again
+    Path("autograder2.toml").unlink()  # strict privacy on again
     lock = WS.config_lock_toml.read_bytes()
     if not gate_passes:
         router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
@@ -1120,9 +1130,9 @@ def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_repor
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, masked: bool
 ) -> None:
     asked: list[bool] = []
-    monkeypatch.setattr("redpen.orchestrator.map_student", masked_map(asked))
+    monkeypatch.setattr("autograder2.orchestrator.map_student", masked_map(asked))
     if masked:
-        Path("redpen.toml").write_text("mask_names = true\n")
+        Path("autograder2.toml").write_text("mask_names = true\n")
 
     result = grade()
 
@@ -1141,10 +1151,10 @@ def test_names_masked_are_asked_of_the_map_recorded_and_counted_in_the_run_repor
 def test_regrade_keeps_the_masking_of_the_grade_run_whatever_the_setting_says(
     router: OpenRouter, monkeypatch: pytest.MonkeyPatch, graded: bool
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", masked_map([]))
-    Path("redpen.toml").write_text(f"mask_names = {str(graded).lower()}\n")
+    monkeypatch.setattr("autograder2.orchestrator.map_student", masked_map([]))
+    Path("autograder2.toml").write_text(f"mask_names = {str(graded).lower()}\n")
     assert grade().exit_code == 0
-    Path("redpen.toml").write_text(f"mask_names = {str(not graded).lower()}\n")
+    Path("autograder2.toml").write_text(f"mask_names = {str(not graded).lower()}\n")
 
     again = regrade()
 
@@ -1320,7 +1330,7 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
         )
         provenance = Provenance(
             key_part_hash=part_hash(part, key.policies),
-            prompt_version=redpen.prompts.load("grade", "problem")[1],
+            prompt_version=autograder2.prompts.load("grade", "problem")[1],
             model_slug=model.slug,
         )
         write_model(
@@ -1338,9 +1348,9 @@ def test_the_class_audit_runs_in_grade_past_the_gate_on_the_grader_s_endpoints(
         )
 
     for stage in ("map", "read"):
-        monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", nothing)
-    monkeypatch.setattr("redpen.orchestrator.grade_student", graded)
-    monkeypatch.setattr("redpen.orchestrator.grade_again", nothing)
+        monkeypatch.setattr(f"autograder2.orchestrator.{stage}_student", nothing)
+    monkeypatch.setattr("autograder2.orchestrator.grade_student", graded)
+    monkeypatch.setattr("autograder2.orchestrator.grade_again", nothing)
     router.decides = True
     if gate == "fails":
         router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
@@ -1381,8 +1391,8 @@ def test_an_earlier_audit_is_removed_only_once_pages_may_be_sent(
         raise RuntimeError("the run died between grading and the audit")
 
     for stage in ("map", "read", "grade"):
-        monkeypatch.setattr(f"redpen.orchestrator.{stage}_student", nothing)
-    monkeypatch.setattr("redpen.orchestrator.audit_class", dies)
+        monkeypatch.setattr(f"autograder2.orchestrator.{stage}_student", nothing)
+    monkeypatch.setattr("autograder2.orchestrator.audit_class", dies)
     if how == "gate fails":
         router.zdr = lambda _: httpx.Response(500, json={"error": {"message": "down"}})
     earlier = WS.audit_json("Q4.c")
@@ -1396,7 +1406,7 @@ def test_an_earlier_audit_is_removed_only_once_pages_may_be_sent(
     assert earlier.exists() == (how != "dies before the audit")
 
 
-# --- redpen regrade ------------------------------------------------------------------
+# --- autograder2 regrade --------------------------------------------------------------
 
 
 def regrade(*options: str) -> Any:
@@ -1642,7 +1652,7 @@ def another_condition(how: str, monkeypatch: pytest.MonkeyPatch) -> None:
         models = {**lock.models, "grader": SECOND}
         write_lock(WS.config_lock_toml, lock.model_copy(update={"models": models}))
         return
-    real = redpen.prompts.load
+    real = autograder2.prompts.load
 
     def load(stage: str, name: str) -> tuple[str, str]:
         text, version = real(stage, name)
@@ -1655,9 +1665,9 @@ def another_condition(how: str, monkeypatch: pytest.MonkeyPatch) -> None:
             )
         )
 
-    monkeypatch.setattr(redpen.prompts, "load", load)
-    versions = {**redpen.prompts.versions(), "grade/problem": "edited"}
-    monkeypatch.setattr(redpen.prompts, "versions", lambda: versions)
+    monkeypatch.setattr(autograder2.prompts, "load", load)
+    versions = {**autograder2.prompts.versions(), "grade/problem": "edited"}
+    monkeypatch.setattr(autograder2.prompts, "versions", lambda: versions)
 
 
 def rationales() -> dict[tuple[str, str], str]:
@@ -1728,7 +1738,7 @@ def test_a_condition_changed_with_no_grade_run_since_changes_no_report(
     assert router.chats == []
 
 
-# --- redpen override -----------------------------------------------------------------
+# --- autograder2 override -------------------------------------------------------------
 
 
 def override(*args: str) -> Any:
@@ -1776,7 +1786,7 @@ def test_a_correction_survives_regrade_and_grade_and_its_removal_restores_the_aw
 
 def ungraded_class(router: OpenRouter, monkeypatch: pytest.MonkeyPatch) -> None:
     """The class graded with nothing found to read: its files, and no request."""
-    monkeypatch.setattr("redpen.orchestrator.map_student", unanswered_map())
+    monkeypatch.setattr("autograder2.orchestrator.map_student", unanswered_map())
     assert grade().exit_code == 0
     router.requests.clear()
 
@@ -2183,7 +2193,7 @@ def test_a_dry_run_changes_neither_the_real_cache_nor_its_ledger(
     edit_criterion("Q4.b")
     # Each student's new Q4 grade is answered twice: the first answer fails a check
     # and the second passes, and both are cached.
-    import redpen.grade.grade as stage
+    import autograder2.grade.grade as stage
 
     def first_answer_fails(body: dict[str, Any]) -> Grades:
         found = grades(body)
@@ -2220,7 +2230,7 @@ def test_a_dry_run_changes_neither_the_real_cache_nor_its_ledger(
         opened.append(Path(db))
         return gateway(db, *args, **kwargs)
 
-    monkeypatch.setattr("redpen.orchestrator.Gateway", recorded)
+    monkeypatch.setattr("autograder2.orchestrator.Gateway", recorded)
 
     dry = regrade("--dry-run")
 
@@ -2449,8 +2459,8 @@ def test_regrade_s_dry_run_counts_the_requests_regrade_then_makes(
         ("grade", "balanced", True),
         ("grade", "thorough", True),
         ("run", "--profile economy", False),
-        ("run", "redpen.toml economy", False),
-        ("run", "redpen.toml thorough", True),
+        ("run", "autograder2.toml economy", False),
+        ("run", "autograder2.toml thorough", True),
     ],
 )
 def test_the_dry_run_prices_the_second_grade_under_the_profiles_that_do_it(
@@ -2464,7 +2474,7 @@ def test_the_dry_run_prices_the_second_grade_under_the_profiles_that_do_it(
         profiled(profile)
         args = ["grade", "subs", "--workspace", "ws", "--dry-run"]
     else:
-        configured = profile.split()[-1] if profile.startswith("redpen") else None
+        configured = profile.split()[-1] if profile.startswith("autograder2") else None
         configured_not_pinned(
             monkeypatch, f'profile = "{configured}"\n' if configured else ""
         )
@@ -2502,7 +2512,7 @@ def test_nothing_is_graded_a_second_time_under_a_dry_run_or_past_a_failed_gate(
     assert {p: p.read_bytes() for p in stored} == stored
 
 
-# --- redpen review -------------------------------------------------------------------
+# --- autograder2 review ---------------------------------------------------------------
 
 
 def review(*options: str, answers: str = "") -> Any:
@@ -2611,7 +2621,7 @@ def test_a_whole_submission_s_review_holds_through_a_report_regrade_and_grade(
     own_pages()
     router.reads, router.grades = True, grades
     fast(router, monkeypatch)
-    monkeypatch.setattr("redpen.orchestrator.map_student", mapped_with_a_note)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", mapped_with_a_note)
     assert grade().exit_code == 0
     assert review("--list").stdout.splitlines() == [
         f"`{s}`, the whole submission: `unclaimed_work`." for s in sorted(students())

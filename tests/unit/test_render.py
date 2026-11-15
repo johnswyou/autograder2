@@ -1,4 +1,4 @@
-"""Page images, sidebars and regions (src/redpen/imaging/render.py).
+"""Page images, sidebars and regions (src/autograder2/imaging/render.py).
 
 The fixture submissions are checked against their truth files in test_ingest.py.
 """
@@ -11,8 +11,8 @@ import pytest
 from PIL import Image, ImageChops, ImageFilter, ImageStat
 from reportlab.pdfgen.canvas import Canvas
 
-from redpen.imaging.prep import crop
-from redpen.imaging.render import (
+from autograder2.imaging.prep import crop
+from autograder2.imaging.render import (
     DPI,
     MAX_EDGE,
     classkick_sidebars,

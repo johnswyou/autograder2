@@ -29,7 +29,7 @@ def test_record_mode_rewrites_a_recording_only_when_its_test_passes(
             use(replay, "passing", fail=False)
         """
     )
-    monkeypatch.setenv("REDPEN_RECORD", "1")
+    monkeypatch.setenv("AUTOGRADER2_RECORD", "1")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     result = pytester.runpytest()

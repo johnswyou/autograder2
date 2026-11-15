@@ -1,5 +1,5 @@
 """Ink drawn as vector paths has no resolution ceiling; a scan keeps its own
-(src/redpen/imaging/render.py, through the read stage and the flags it leads to).
+(src/autograder2/imaging/render.py, through the read stage and the flags it leads to).
 
 The three pages of tests/fixtures/ink answer Q4(b) of the synthetic assignment in
 small pen writing: as vector paths on a white page, the same paths over a worksheet
@@ -20,24 +20,24 @@ from PIL import Image, ImageFilter, ImageStat
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
-from redpen.grade.ingest import ingest
-from redpen.grade.read import Readings, read_student, unit_images, units
-from redpen.imaging import prep, render
-from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo
-from redpen.report.report import flags, load
-from redpen.schemas.common import Provenance
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.key import Key
-from redpen.schemas.reading import Reading
-from redpen.schemas.submission import (
+from autograder2.grade.ingest import ingest
+from autograder2.grade.read import Readings, read_student, unit_images, units
+from autograder2.imaging import prep, render
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import ModelInfo
+from autograder2.report.report import flags, load
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import Reading
+from autograder2.schemas.submission import (
     IngestRecord,
     Map,
     MapEntry,
     MapPage,
     MapRecord,
 )
-from redpen.workspace import Workspace, write_model
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, SPEC
 
 INK = Path(__file__).parents[1] / "fixtures" / "ink"

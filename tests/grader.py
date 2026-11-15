@@ -6,8 +6,8 @@ from collections.abc import Callable, Mapping
 from decimal import Decimal
 from typing import Any
 
-from redpen.grade.grade import Grades
-from redpen.schemas.grade import CriterionGrade, Grade
+from autograder2.grade.grade import Grades
+from autograder2.schemas.grade import CriterionGrade, Grade
 
 # Given a reading and a criterion of its part, as the request has them: the
 # rationale of a 0 award, or None for full points.

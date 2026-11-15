@@ -1,4 +1,4 @@
-"""The second read (src/redpen/grade/second.py): which parts are read again, the
+"""The second read (src/autograder2/grade/second.py): which parts are read again, the
 comparison of two readings, a failure, and a run again, on a fixture student's
 ingested pages and truth map, with readings stored by hand and a mock transport."""
 
@@ -12,21 +12,21 @@ from typing import Any
 import httpx
 import pytest
 
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import Readings, digest
-from redpen.grade.second import compared, read_again
-from redpen.llm.client import Gateway, StopError
-from redpen.prepare.key import part_hash
-from redpen.report.report import flags, load, write_report
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.key import Key
-from redpen.schemas.reading import (
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import Readings, digest
+from autograder2.grade.second import compared, read_again
+from autograder2.llm.client import Gateway, StopError
+from autograder2.prepare.key import part_hash
+from autograder2.report.report import flags, load, write_report
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import (
     ProblemReadings,
     Reading,
     SecondReadings,
 )
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
     SPEC,

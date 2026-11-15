@@ -5,42 +5,45 @@ from typing import NoReturn
 import pytest
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.llm.models import ModelError
-from redpen.schemas.submission import IngestPage, IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.cli import app
+from autograder2.llm.models import ModelError
+from autograder2.schemas.submission import IngestPage, IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES
 
 
 def test_paths_follow_the_design_layout() -> None:
-    ws = Workspace(Path("unit4-forces.redpen"))
+    ws = Workspace(Path("unit4-forces.autograder2"))
 
-    assert ws.config_lock_toml.as_posix() == "unit4-forces.redpen/config.lock.toml"
-    assert ws.key_yaml.as_posix() == "unit4-forces.redpen/key/key.yaml"
-    assert ws.key_page(1).as_posix() == "unit4-forces.redpen/key/pages/p01.png"
+    assert ws.config_lock_toml.as_posix() == "unit4-forces.autograder2/config.lock.toml"
+    assert ws.key_yaml.as_posix() == "unit4-forces.autograder2/key/key.yaml"
+    assert ws.key_page(1).as_posix() == "unit4-forces.autograder2/key/pages/p01.png"
     assert (
         ws.student_page("s1", 12).as_posix()
-        == "unit4-forces.redpen/students/s1/pages/p12.png"
+        == "unit4-forces.autograder2/students/s1/pages/p12.png"
     )
     assert (
         ws.crop_png("s1", "Q7.b", 1).as_posix()
-        == "unit4-forces.redpen/students/s1/crops/Q7.b-1.png"
+        == "unit4-forces.autograder2/students/s1/crops/Q7.b-1.png"
     )
     assert (
         ws.grade_json("s1", "Q7").as_posix()
-        == "unit4-forces.redpen/students/s1/grades/Q7.json"
+        == "unit4-forces.autograder2/students/s1/grades/Q7.json"
     )
-    assert ws.audit_json("Q7.b").as_posix() == "unit4-forces.redpen/audit/Q7.b.json"
-    assert ws.cache_sqlite.as_posix() == "unit4-forces.redpen/cache.sqlite"
     assert (
-        ws.scores_by_page_csv.as_posix() == "unit4-forces.redpen/out/scores_by_page.csv"
+        ws.audit_json("Q7.b").as_posix() == "unit4-forces.autograder2/audit/Q7.b.json"
+    )
+    assert ws.cache_sqlite.as_posix() == "unit4-forces.autograder2/cache.sqlite"
+    assert (
+        ws.scores_by_page_csv.as_posix()
+        == "unit4-forces.autograder2/out/scores_by_page.csv"
     )
 
 
 def test_default_workspace_is_named_after_the_blank_and_sits_beside_it() -> None:
     ws = Workspace.for_blank(Path("/term/unit4/ch4.2-forces.pdf"))
 
-    assert ws.root == Path("/term/unit4/ch4.2-forces.redpen")
+    assert ws.root == Path("/term/unit4/ch4.2-forces.autograder2")
 
 
 def test_workspace_option_overrides_the_default() -> None:
@@ -79,7 +82,7 @@ def test_prepare_gives_the_workspace_it_makes_a_gitignore_holding_everything(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.config.fetch_catalog", refused)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", refused)
     blank = tmp_path / "blank.pdf"
     shutil.copyfile(FIXTURES / "blank.pdf", blank)
 

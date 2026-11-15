@@ -5,13 +5,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from redpen.schemas.common import CriterionId, PartId, Points, StudentKey
-from redpen.schemas.flags import SEVERITY, Flag, FlagCode
-from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord
-from redpen.schemas.key import Key, KeyPart, Policies
-from redpen.schemas.reading import Reading, ReadingRecord
-from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import (
+from autograder2.schemas.common import CriterionId, PartId, Points, StudentKey
+from autograder2.schemas.flags import SEVERITY, Flag, FlagCode
+from autograder2.schemas.grade import CriterionGrade, Grade, GradeRecord
+from autograder2.schemas.key import Key, KeyPart, Policies
+from autograder2.schemas.reading import Reading, ReadingRecord
+from autograder2.schemas.spec import Part, Spec
+from autograder2.schemas.submission import (
     IngestRecord,
     Map,
     MapEntry,

@@ -7,7 +7,7 @@ ingest. Each layout class has its own recording,
 `tests/recordings/grade_<class>.jsonl`; the case of a later part worked afresh has
 `grade_fresh-route.jsonl`, and the hand-built routes to 5(b) `grade_methods.jsonl`.
 Re-record (paid) with
-`REDPEN_RECORD=1 uv run pytest tests/replay/test_grade_replay.py`.
+`AUTOGRADER2_RECORD=1 uv run pytest tests/replay/test_grade_replay.py`.
 """
 
 import asyncio
@@ -17,14 +17,19 @@ from pathlib import Path
 
 import pytest
 
-from redpen.grade.grade import grade_student
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
-from redpen.llm.client import Gateway
-from redpen.schemas.grade import GradeRecord
-from redpen.schemas.key import Key
-from redpen.schemas.reading import FinalAnswer, ProblemReadings, Reading, ReadingRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.grade.grade import grade_student
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import problem_of
+from autograder2.llm.client import Gateway
+from autograder2.schemas.grade import GradeRecord
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import (
+    FinalAnswer,
+    ProblemReadings,
+    Reading,
+    ReadingRecord,
+)
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
     NOBODY,

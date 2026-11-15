@@ -9,7 +9,7 @@ fixtures' own: `spec.json`, `key.json`, the session's ingest and the truth's map
 
 The recording, `tests/recordings/second_small-writing.jsonl`, was made by running
 `seed` and `read_again` live into a persistent scratch cache and keeping exactly
-the calls made (task 4.6a report). Under `REDPEN_RECORD=1` the `replay` fixture
+the calls made (task 4.6a report). Under `AUTOGRADER2_RECORD=1` the `replay` fixture
 would call the second reader again (paid) and rewrite it once the test passes."""
 
 import asyncio
@@ -18,15 +18,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from redpen.config import Config
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import digest
-from redpen.grade.second import read_again
-from redpen.llm.client import Gateway
-from redpen.prepare.key import part_hash
-from redpen.schemas.key import Key
-from redpen.schemas.reading import ProblemReadings, SecondReading
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.config import Config
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import digest
+from autograder2.grade.second import read_again
+from autograder2.llm.client import Gateway
+from autograder2.prepare.key import part_hash
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import ProblemReadings, SecondReading
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
     SPEC,

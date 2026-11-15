@@ -17,10 +17,10 @@ from typing import Any
 import pytest
 from PIL import Image, ImageChops, ImageDraw
 
-from redpen import orchestrator
-from redpen.config import Config
-from redpen.grade import coverage
-from redpen.grade.coverage import (
+from autograder2 import orchestrator
+from autograder2.config import Config
+from autograder2.grade import coverage
+from autograder2.grade.coverage import (
     ASIDE,
     LEFTOVER,
     check_class,
@@ -28,18 +28,18 @@ from redpen.grade.coverage import (
     unclaimed_flags,
     unclaimed_lines,
 )
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import MARGIN, digest, problem_of
-from redpen.imaging import prep
-from redpen.prepare.key import part_hash
-from redpen.report import report as reporting
-from redpen.report.report import code_span, write_report
-from redpen.schemas.common import Provenance
-from redpen.schemas.flags import Flag, FlagCode
-from redpen.schemas.grade import Grade, GradeRecord, ProblemGrades
-from redpen.schemas.key import Key
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import (
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import MARGIN, digest, problem_of
+from autograder2.imaging import prep
+from autograder2.prepare.key import part_hash
+from autograder2.report import report as reporting
+from autograder2.report.report import code_span, write_report
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.flags import Flag, FlagCode
+from autograder2.schemas.grade import Grade, GradeRecord, ProblemGrades
+from autograder2.schemas.key import Key
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import (
     Coverage,
     IngestPage,
     IngestRecord,
@@ -49,7 +49,7 @@ from redpen.schemas.submission import (
     MapRecord,
     SetAside,
 )
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import (
     FIXTURES,
     NOBODY,
@@ -1088,11 +1088,11 @@ def test_the_check_runs_after_the_map_stage_for_the_class_and_before_the_read(
         return None
 
     for stage in ("map_student", "read_student", "read_again", "grade_student"):
-        monkeypatch.setattr(f"redpen.orchestrator.{stage}", nothing)
-    monkeypatch.setattr("redpen.orchestrator.map_student", mapper)
-    monkeypatch.setattr("redpen.orchestrator.read_student", reader)
-    monkeypatch.setattr("redpen.orchestrator.audit_class", nothing)
-    monkeypatch.setattr("redpen.orchestrator.check_class", checked)
+        monkeypatch.setattr(f"autograder2.orchestrator.{stage}", nothing)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", mapper)
+    monkeypatch.setattr("autograder2.orchestrator.read_student", reader)
+    monkeypatch.setattr("autograder2.orchestrator.audit_class", nothing)
+    monkeypatch.setattr("autograder2.orchestrator.check_class", checked)
     key = Key.model_validate_json((FIXTURES / "key.json").read_text())
     spec = read_model(FIXTURES / "spec.json", Spec)
 

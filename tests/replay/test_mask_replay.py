@@ -5,8 +5,8 @@ chained: each is made from the map the mapper gave, its names blanked.
 The inputs are the quiz's own: `blank.pdf`, `spec.json` and a fresh ingest of its
 three submissions. The recording, `tests/recordings/mask_quiz.jsonl`, was made by
 running this test's calls live into a persistent scratch cache and keeping exactly
-the calls made (task 5.3 report). Under `REDPEN_RECORD=1` the `replay` fixture would
-call the models again (paid) and rewrite it once the test passes."""
+the calls made (task 5.3 report). Under `AUTOGRADER2_RECORD=1` the `replay` fixture
+would call the models again (paid) and rewrite it once the test passes."""
 
 import asyncio
 import shutil
@@ -14,16 +14,16 @@ from collections.abc import Callable
 
 import pytest
 
-from redpen.config import Config
-from redpen.grade.ingest import IngestSummary, ingest
-from redpen.grade.map import map_student
-from redpen.grade.read import read_student
-from redpen.llm.client import Gateway
-from redpen.prepare.parse import render_blank
-from redpen.schemas.reading import ReadingRecord
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import MapRecord
-from redpen.workspace import Workspace, read_model
+from autograder2.config import Config
+from autograder2.grade.ingest import IngestSummary, ingest
+from autograder2.grade.map import map_student
+from autograder2.grade.read import read_student
+from autograder2.llm.client import Gateway
+from autograder2.prepare.parse import render_blank
+from autograder2.schemas.reading import ReadingRecord
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import MapRecord
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import QUIZ, QUIZ_SUBMISSIONS, truth_of
 from tests.pinned import MAPPER, READER
 from tests.replay.test_map_replay import coverage

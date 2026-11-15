@@ -27,14 +27,14 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner, Result
 
-from redpen import cli
-from redpen.cli import app
-from redpen.grade import grade as stage
-from redpen.grade.audit import groups
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import digest, problem_of
-from redpen.llm.ledger import Ledger, Usage
-from redpen.prepare.key import (
+from autograder2 import cli
+from autograder2.cli import app
+from autograder2.grade import grade as stage
+from autograder2.grade.audit import groups
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import digest, problem_of
+from autograder2.llm.ledger import Ledger, Usage
+from autograder2.prepare.key import (
     load_key,
     number,
     page_points,
@@ -43,9 +43,9 @@ from redpen.prepare.key import (
     yaml_reader,
     yaml_writer,
 )
-from redpen.report import report as reporting
-from redpen.report.overrides import OverrideError, record_review
-from redpen.report.report import (
+from autograder2.report import report as reporting
+from autograder2.report.overrides import OverrideError, record_review
+from autograder2.report.report import (
     CLOSED,
     CORRECTED,
     DETAIL,
@@ -73,11 +73,11 @@ from redpen.report.report import (
     status,
     write_report,
 )
-from redpen.schemas.audit import Change as AuditChange
-from redpen.schemas.audit import PartAudit, Suspect
-from redpen.schemas.common import DiagramElement, Provenance
-from redpen.schemas.flags import Flag, FlagCode
-from redpen.schemas.grade import (
+from autograder2.schemas.audit import Change as AuditChange
+from autograder2.schemas.audit import PartAudit, Suspect
+from autograder2.schemas.common import DiagramElement, Provenance
+from autograder2.schemas.flags import Flag, FlagCode
+from autograder2.schemas.grade import (
     AnswerCheck,
     CriterionGrade,
     Grade,
@@ -88,8 +88,8 @@ from redpen.schemas.grade import (
     SecondGrade,
     SecondGrades,
 )
-from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
-from redpen.schemas.reading import (
+from autograder2.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
+from autograder2.schemas.reading import (
     FinalAnswer,
     ProblemReadings,
     Reading,
@@ -97,7 +97,7 @@ from redpen.schemas.reading import (
     SecondReading,
     SecondReadings,
 )
-from redpen.schemas.submission import (
+from autograder2.schemas.submission import (
     Coverage,
     CoveragePage,
     IngestRecord,
@@ -107,7 +107,7 @@ from redpen.schemas.submission import (
     MapRecord,
     SetAside,
 )
-from redpen.workspace import Workspace, keep_out_of_git, read_model, write_model
+from autograder2.workspace import Workspace, keep_out_of_git, read_model, write_model
 from tests.fixture_truth import (
     CIVICS,
     FIXTURES,
@@ -1466,8 +1466,8 @@ def test_model_written_feedback_cannot_forge_or_hide_a_score_line(
     assert r"- \\\<!--" in lines
 
 
-@pytest.mark.parametrize("folder", ["HW 3.2", "HW 3.2.redpen"])
-def test_the_feedback_title_is_the_folder_name_without_a_final_redpen(
+@pytest.mark.parametrize("folder", ["HW 3.2", "HW 3.2.autograder2"])
+def test_the_feedback_title_is_the_folder_name_without_a_final_autograder2(
     built: Built, tmp_path: Path, folder: str
 ) -> None:
     workspace = new_workspace(tmp_path, folder)
@@ -2026,7 +2026,7 @@ def test_weak_attribution_says_whose_doubt_it_is_and_follows_a_medium_flag_s_rul
     assert "| weak_attribution | medium | 1 |" in report
     assert "Flags raised: 1. Closed by review: 0. Open: 1." in report
     assert entries_line(1) in report
-    # `redpen review` lists it, shows it as the list does, and accepting closes it.
+    # `autograder2 review` lists it, shows it as the list does, and accepting closes it.
     assert session(workspace, listing=True).stdout.splitlines() == [
         "`s1`, Q4.b: `weak_attribution`. Proposed score: 3 / 3."
     ]
@@ -2895,7 +2895,7 @@ def test_under_a_point_constraint_a_correction_s_line_gives_no_points(
     assert detail_of(workspace, "Q4.b.c1") == ("1", CORRECTED)  # its own points
 
 
-# --- the instructor's reviews (`redpen review`) -----------------------------------
+# --- the instructor's reviews (`autograder2 review`) ----------------------------------
 
 
 def review_of(
@@ -2904,7 +2904,7 @@ def review_of(
     place: tuple[str | None, str | None],
     key: Key = KEY,
 ) -> None:
-    """Record the review of the entry at `place` as it stands, as `redpen review`'s
+    """Record the review of the entry at `place` as it stands, as `autograder2 review`'s
     accept does."""
     [entry] = [
         e
@@ -3619,7 +3619,7 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def session(workspace: Workspace, *answers: str, listing: bool = False) -> Result:
-    """`redpen review` on `workspace`, given `answers` one line each and then the
+    """`autograder2 review` on `workspace`, given `answers` one line each and then the
     end of input."""
     args = ["review", "--workspace", str(workspace.root)]
     return CliRunner().invoke(
@@ -3663,7 +3663,7 @@ def test_a_session_stores_each_action_as_it_is_taken_and_rebuilds_out(
     offline(monkeypatch)
     workspace = new_workspace(tmp_path)
     four_entries(built, workspace)
-    # What `redpen override` writes, from a copy of the workspace as it is now.
+    # What `autograder2 override` writes, from a copy of the workspace as it is now.
     shutil.copytree(workspace.root, tmp_path / "copy")
     by_hand = CliRunner().invoke(
         app,
@@ -3694,7 +3694,8 @@ def test_a_session_stores_each_action_as_it_is_taken_and_rebuilds_out(
     assert out[-1] == counts(2, 1, 1, 2)
     assert f"Wrote {workspace.root / 'out'}" in out
     assert result.stderr == ""
-    # Exactly the two actions stored, the correction as `redpen override` writes it.
+    # Exactly the two actions stored, the correction as `autograder2 override` writes
+    # it.
     reviews = yaml_reader().load(workspace.reviews_yaml)
     assert [(r["student"], r["part"]) for r in reviews] == [
         ("s1", "Q4.b"),

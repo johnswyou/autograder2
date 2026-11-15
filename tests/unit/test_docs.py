@@ -27,24 +27,24 @@ from typer._click.core import Command  # what typer.main.get_command returns
 from typer.core import TyperGroup
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Config, Lock, Models, Profile, write_lock
-from redpen.grade.ingest import IngestSummary
-from redpen.llm.cache import CallCache
-from redpen.llm.client import Gateway
-from redpen.llm.models import recheck_providers
-from redpen.prepare.key import save_key
-from redpen.prepare.parse import parse
-from redpen.schemas import key as key_schema
-from redpen.schemas.flags import SEVERITY, FlagCode
-from redpen.schemas.key import Key
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Config, Lock, Models, Profile, write_lock
+from autograder2.grade.ingest import IngestSummary
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import recheck_providers
+from autograder2.prepare.key import save_key
+from autograder2.prepare.parse import parse
+from autograder2.schemas import key as key_schema
+from autograder2.schemas.flags import SEVERITY, FlagCode
+from autograder2.schemas.key import Key
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS, KEY_MODELS, PARSER
 from tests.replay.test_run_replay import CLASSES, openrouter
 
 ROOT = Path(__file__).parents[2]
-SRC = ROOT / "src" / "redpen"
+SRC = ROOT / "src" / "autograder2"
 RECORDINGS = ROOT / "tests" / "recordings"
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 GUIDE = (ROOT / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
@@ -71,12 +71,12 @@ def spans(text: str) -> list[str]:
 
 
 def command_lines(text: str) -> list[list[str]]:
-    """Each `redpen` command in a code span or a line of a code block, as words."""
+    """Each `autograder2` command in a code span or a line of a code block, as words."""
     lines = [line.strip() for b in blocks(text) for line in b.splitlines()]
     return [
         shlex.split(line, comments=True)
         for line in [*lines, *spans(text)]
-        if line == "redpen" or line.startswith("redpen ")
+        if line == "autograder2" or line.startswith("autograder2 ")
     ]
 
 
@@ -107,13 +107,13 @@ def options(command: Command) -> set[str]:
 
 
 def commands(group: TyperGroup = COMMAND, path: tuple[str, ...] = ()) -> set[str]:
-    """Every command the code has, as `redpen` and its words."""
+    """Every command the code has, as `autograder2` and its words."""
     found: set[str] = set()
     for name, command in group.commands.items():
         if isinstance(command, TyperGroup):
             found |= commands(command, (*path, name))
         else:
-            found.add(" ".join(("redpen", *path, name)))
+            found.add(" ".join(("autograder2", *path, name)))
     return found
 
 
@@ -196,7 +196,7 @@ def test_every_command_and_option_named_exists(name: str) -> None:
 
 def test_the_guide_names_every_command() -> None:
     named = {
-        " ".join(["redpen", *path])
+        " ".join(["autograder2", *path])
         for path, problems in map(resolve, command_lines(GUIDE))
         if not problems
     }
@@ -305,14 +305,14 @@ def replayed(tmp_path_factory: pytest.TempPathFactory) -> Workspace:
     runner = CliRunner()
     at = ["--workspace", str(workspace.root)]
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("redpen.cli.Gateway", offline)
-        patch.setattr("redpen.orchestrator.Gateway", offline)
+        patch.setattr("autograder2.cli.Gateway", offline)
+        patch.setattr("autograder2.orchestrator.Gateway", offline)
         patch.setattr(
-            "redpen.orchestrator.recheck_providers",
+            "autograder2.orchestrator.recheck_providers",
             functools.partial(recheck_providers, transport=transport),
         )
         patch.setenv("OPENROUTER_API_KEY", "replay")
-        patch.chdir(root)  # no redpen.toml: the defaults, as recorded
+        patch.chdir(root)  # no autograder2.toml: the defaults, as recorded
         steps: list[tuple[list[str], str | None]] = [
             (["prepare", str(FIXTURES / "blank.pdf"), *at], None),
             (["grade", str(submissions), *at], None),

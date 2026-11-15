@@ -22,17 +22,17 @@ from PIL import Image
 from reportlab.pdfgen.canvas import Canvas
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Lock, read_lock, write_lock
-from redpen.llm.client import STOPS, Gateway, StopError
-from redpen.llm.ledger import Ledger, Usage
-from redpen.llm.models import Catalog, fetch_catalog, recheck_providers
-from redpen.prepare.key import save_key
-from redpen.prepare.parse import render_blank
-from redpen.schemas.key import Key
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import Map, MapPage, MapRecord
-from redpen.workspace import Workspace, write_model
+from autograder2.cli import app
+from autograder2.config import Lock, read_lock, write_lock
+from autograder2.llm.client import STOPS, Gateway, StopError
+from autograder2.llm.ledger import Ledger, Usage
+from autograder2.llm.models import Catalog, fetch_catalog, recheck_providers
+from autograder2.prepare.key import save_key
+from autograder2.prepare.parse import render_blank
+from autograder2.schemas.key import Key
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import Map, MapPage, MapRecord
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
 from tests.pinned import GRADE_MODELS, KEY_MODELS, ZDR
 
@@ -79,13 +79,14 @@ def class_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         pdf(subs / f"HW 1 - {name}.pdf")
     transport = httpx.MockTransport(openrouter)
     monkeypatch.setattr(
-        "redpen.orchestrator.Gateway", functools.partial(Gateway, transport=transport)
+        "autograder2.orchestrator.Gateway",
+        functools.partial(Gateway, transport=transport),
     )
     monkeypatch.setattr(
-        "redpen.orchestrator.recheck_providers",
+        "autograder2.orchestrator.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
-    monkeypatch.setattr("redpen.orchestrator.map_student", no_work)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", no_work)
     return subs
 
 
@@ -186,8 +187,8 @@ def test_a_catalog_the_network_does_not_give_is_said_in_one_line(
     async def fetch(api_key: str, **_: object) -> Catalog:
         return await fetch_catalog(api_key, transport=httpx.MockTransport(no_network))
 
-    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch)
-    monkeypatch.setattr("redpen.config.fetch_catalog", fetch)
+    monkeypatch.setattr("autograder2.cli.fetch_catalog", fetch)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", fetch)
     dry_run = "--dry-run" in command
 
     result = runner.invoke(app, command)
@@ -356,7 +357,7 @@ def test_run_checks_the_submissions_before_it_pays_for_a_key(
 
     transport = httpx.MockTransport(chat)
     monkeypatch.setattr(
-        "redpen.cli.Gateway", functools.partial(Gateway, transport=transport)
+        "autograder2.cli.Gateway", functools.partial(Gateway, transport=transport)
     )
     WS.key_yaml.unlink()  # prepare would solve one
     lock = Lock(profile="balanced", models={**KEY_MODELS, **GRADE_MODELS})
@@ -420,7 +421,7 @@ def test_submissions_with_no_pdf_leave_the_stored_class_as_it_was(
 
 def no_prepared_key(root: str) -> str:
     return (
-        f"{root} holds no prepared key. Run `redpen prepare BLANK.pdf --workspace"
+        f"{root} holds no prepared key. Run `autograder2 prepare BLANK.pdf --workspace"
         f" {root}` first."
     )
 
@@ -466,7 +467,7 @@ def test_a_workspace_with_no_class_stops_the_command_in_one_line(
 ) -> None:
     assert_one_line(
         runner.invoke(app, command),
-        "ws holds no ingest of a class. Run `redpen grade SUBMISSIONS --workspace"
+        "ws holds no ingest of a class. Run `autograder2 grade SUBMISSIONS --workspace"
         " ws` first.",
     )
 
@@ -526,7 +527,7 @@ def test_a_key_that_does_not_parse_is_named_with_its_line(class_folder: Path) ->
     for command in (["grade", "subs"], ["regrade"], ["grade", "subs", "--dry-run"]):
         assert_one_line(
             runner.invoke(app, [*command, "--workspace", "ws"]),
-            "ws/key/key.yaml does not parse as YAML at line 11. `redpen key check`"
+            "ws/key/key.yaml does not parse as YAML at line 11. `autograder2 key check`"
             " lists its problems.",
         )
 
@@ -536,8 +537,16 @@ def test_a_key_that_does_not_parse_is_named_with_its_line(class_folder: Path) ->
     [
         ("overrides.yaml", "- student: [\n", "ws/overrides.yaml does not parse"),
         ("reviews.yaml", "- student: [\n", "ws/reviews.yaml does not parse"),
-        ("redpen.toml", "profile = \n", "redpen.toml: Invalid value (at line 1"),
-        ("redpen.toml", "profil = 'x'\n", "redpen.toml: profil: Extra inputs"),
+        (
+            "autograder2.toml",
+            "profile = \n",
+            "autograder2.toml: Invalid value (at line 1",
+        ),
+        (
+            "autograder2.toml",
+            "profil = 'x'\n",
+            "autograder2.toml: profil: Extra inputs",
+        ),
     ],
 )
 def test_an_edited_file_that_does_not_parse_is_named_with_its_place(
@@ -557,15 +566,15 @@ def test_an_edited_file_that_does_not_parse_is_named_with_its_place(
 
 def damaged_line(path: Path, again: str = "grade") -> str:
     return (
-        f"{path} is damaged (not JSON). Delete it and run `redpen {again}` again to"
-        " have it made again."
+        f"{path} is damaged (not JSON). Delete it and run `autograder2 {again}` again"
+        " to have it made again."
     )
 
 
 def students_damaged(count: int) -> str:
     return (
         f"Stored files of students that are damaged (not JSON): {count}. ws/run.log"
-        " names them. Delete them and run `redpen grade` again to have them made"
+        " names them. Delete them and run `autograder2 grade` again to have them made"
         " again."
     )
 
@@ -638,7 +647,7 @@ def test_after_a_stop_the_run_log_has_a_line_for_it_and_any_other_fault(
             await asyncio.sleep(0)
         raise LookupError("a fault of the map stage")  # in the same window
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", stopping)
+    monkeypatch.setattr("autograder2.orchestrator.map_student", stopping)
 
     result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
 
@@ -684,8 +693,9 @@ def test_a_lock_whose_write_is_cut_short_stays_as_it_was(
 
 
 LOCK_DAMAGED = (
-    "ws/config.lock.toml is damaged (not a lock). Delete it and run `redpen prepare`"
-    " again to have the models pinned again from redpen.toml."
+    "ws/config.lock.toml is damaged (not a lock). Delete it and run"
+    " `autograder2 prepare` again to have the models pinned again from"
+    " autograder2.toml."
 )
 
 
@@ -724,8 +734,8 @@ def test_a_lock_that_does_not_load_is_called_damaged_by_each_command(
 
 PINNED_RELAXED = (
     "ws/config.lock.toml was pinned with strict_privacy off, and it is on now, so"
-    " nothing is sent. Set strict_privacy = false in redpen.toml, or delete the lock"
-    " and run `redpen prepare` again to pin endpoints that retain nothing."
+    " nothing is sent. Set strict_privacy = false in autograder2.toml, or delete the"
+    " lock and run `autograder2 prepare` again to pin endpoints that retain nothing."
 )
 
 
@@ -761,8 +771,8 @@ def test_a_lock_pinned_without_strict_privacy_is_refused_in_one_line_once_it_is_
 
 
 BLANK_DAMAGED = (
-    "ws/key/blank.pdf is damaged (not a PDF). Delete it and run `redpen prepare` again"
-    " with the same BLANK.pdf to have it copied again."
+    "ws/key/blank.pdf is damaged (not a PDF). Delete it and run `autograder2 prepare`"
+    " again with the same BLANK.pdf to have it copied again."
 )
 
 
@@ -867,9 +877,9 @@ def test_a_paid_command_ends_by_saying_what_it_spent(
 ) -> None:
     blank = str(FIXTURES / "blank.pdf")
 
-    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.125"))
+    monkeypatch.setattr("autograder2.orchestrator.map_student", booking("0.125"))
     graded = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
-    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.125"))
+    monkeypatch.setattr("autograder2.orchestrator.map_student", booking("0.125"))
     again = runner.invoke(app, ["run", blank, "subs", "--workspace", "ws"])
     prepared = runner.invoke(app, ["prepare", blank, "--workspace", "ws"])
 
@@ -890,7 +900,9 @@ def test_a_paid_command_ends_by_saying_what_it_spent(
 def test_a_paid_command_stopped_after_a_call_says_what_it_spent(
     class_folder: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("redpen.orchestrator.map_student", booking("0.5", stop=True))
+    monkeypatch.setattr(
+        "autograder2.orchestrator.map_student", booking("0.5", stop=True)
+    )
 
     result = runner.invoke(app, ["grade", "subs", "--workspace", "ws"])
 

@@ -1,0 +1,235 @@
+"""Paths inside an assignment's workspace directory (design section 11).
+
+Attribute names follow the file names, with the dot replaced by an underscore.
+"""
+
+import contextlib
+import traceback
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Self
+
+from pydantic import BaseModel
+
+
+def write_model(path: Path, model: BaseModel) -> None:
+    """Write `model` to `path` as JSON, replacing any earlier file in one step."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(model.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    partial.replace(path)
+
+
+def read_model[M: BaseModel](path: Path, model: type[M]) -> M:
+    return model.model_validate_json(path.read_bytes())
+
+
+@dataclass(frozen=True)
+class Workspace:
+    root: Path
+
+    @classmethod
+    def for_blank(cls, blank_pdf: Path, workspace: Path | None = None) -> Self:
+        """`workspace` if given, else `<blank file stem>.autograder2` beside the
+        blank."""
+        return cls(workspace or blank_pdf.with_suffix(".autograder2"))
+
+    @property
+    def config_lock_toml(self) -> Path:
+        return self.root / "config.lock.toml"
+
+    @property
+    def gitignore(self) -> Path:
+        return self.root / ".gitignore"
+
+    # key/
+
+    @property
+    def blank_pdf(self) -> Path:
+        return self.root / "key" / "blank.pdf"
+
+    def key_page(self, number: int) -> Path:
+        """Rendering of page `number` of the blank, counting from 1."""
+        return self.root / "key" / "pages" / f"p{number:02d}.png"
+
+    def key_page_json(self, number: int) -> Path:
+        """What the parser read on page `number` of the blank."""
+        return self.root / "key" / "pages" / f"p{number:02d}.json"
+
+    @property
+    def spec_json(self) -> Path:
+        return self.root / "key" / "spec.json"
+
+    @property
+    def spec_rejected_json(self) -> Path:
+        """A spec that failed its checks, kept for correction by hand."""
+        return self.root / "key" / "spec.rejected.json"
+
+    @property
+    def key_yaml(self) -> Path:
+        return self.root / "key" / "key.yaml"
+
+    @property
+    def solutions_md(self) -> Path:
+        return self.root / "key" / "solutions.md"
+
+    @property
+    def rubric_md(self) -> Path:
+        return self.root / "key" / "rubric.md"
+
+    @property
+    def verification_md(self) -> Path:
+        return self.root / "key" / "verification.md"
+
+    @property
+    def verification_json(self) -> Path:
+        return self.root / "key" / "verification.json"
+
+    # students/<student_key>/
+
+    @property
+    def ingest_summary_json(self) -> Path:
+        """The latest ingest's summary: the students every later stage takes."""
+        return self.root / "ingest_summary.json"
+
+    @property
+    def students_dir(self) -> Path:
+        return self.root / "students"
+
+    def student_dir(self, student: str) -> Path:
+        return self.students_dir / student
+
+    def source_pdf(self, student: str) -> Path:
+        return self.student_dir(student) / "source.pdf"
+
+    def student_page(self, student: str, number: int) -> Path:
+        """Rendering of page `number` of the student's submission, counting from 1."""
+        return self.student_dir(student) / "pages" / f"p{number:02d}.png"
+
+    def student_page_json(self, student: str, number: int) -> Path:
+        """What the mapper found on page `number` of the student's submission."""
+        return self.student_dir(student) / "pages" / f"p{number:02d}.json"
+
+    def ingest_json(self, student: str) -> Path:
+        return self.student_dir(student) / "ingest.json"
+
+    def map_json(self, student: str) -> Path:
+        return self.student_dir(student) / "map.json"
+
+    def coverage_json(self, student: str) -> Path:
+        """Where the student's ink lies that no region of the map claims."""
+        return self.student_dir(student) / "coverage.json"
+
+    def patch_png(self, student: str, page: int, index: int) -> Path:
+        """Patch `index` of ink on page `page` that no region of the map claims."""
+        return self.student_dir(student) / "unclaimed" / f"p{page:02d}-{index}.png"
+
+    def aside_png(self, student: str, index: int) -> Path:
+        """Block `index` of those the map set aside, counting from 1."""
+        return self.student_dir(student) / "unclaimed" / f"aside-{index}.png"
+
+    def crop_png(self, student: str, part: str, index: int) -> Path:
+        """Zoomed region `index` of `part`, as sent to a model."""
+        return self.student_dir(student) / "crops" / f"{part}-{index}.png"
+
+    def reading_json(self, student: str, problem: str) -> Path:
+        return self.student_dir(student) / "readings" / f"{problem}.json"
+
+    def second_json(self, student: str) -> Path:
+        """The parts read a second time, each compared with its first reading."""
+        return self.student_dir(student) / "readings" / "second.json"
+
+    def grade_json(self, student: str, problem: str) -> Path:
+        return self.student_dir(student) / "grades" / f"{problem}.json"
+
+    def second_grade_json(self, student: str) -> Path:
+        """The parts graded a second time, each compared with its first grade."""
+        return self.student_dir(student) / "grades" / "second.json"
+
+    # audit/, overrides and cache
+
+    @property
+    def audit_dir(self) -> Path:
+        return self.root / "audit"
+
+    def audit_json(self, part: str) -> Path:
+        return self.audit_dir / f"{part}.json"
+
+    @property
+    def overrides_yaml(self) -> Path:
+        return self.root / "overrides.yaml"
+
+    @property
+    def reviews_yaml(self) -> Path:
+        return self.root / "reviews.yaml"
+
+    @property
+    def cache_sqlite(self) -> Path:
+        return self.root / "cache.sqlite"
+
+    @property
+    def run_log(self) -> Path:
+        """The traceback of each failure a run recorded, appended."""
+        return self.root / "run.log"
+
+    # out/
+
+    @property
+    def scores_by_problem_csv(self) -> Path:
+        return self.root / "out" / "scores_by_problem.csv"
+
+    @property
+    def scores_by_page_csv(self) -> Path:
+        return self.root / "out" / "scores_by_page.csv"
+
+    @property
+    def scores_detail_csv(self) -> Path:
+        return self.root / "out" / "scores_detail.csv"
+
+    @property
+    def feedback_dir(self) -> Path:
+        return self.root / "out" / "feedback"
+
+    def feedback_md(self, student: str) -> Path:
+        """Named by the student key, never the display name: that comes from PDF
+        text or a file name, and is untrusted."""
+        return self.feedback_dir / f"{student}.md"
+
+    @property
+    def review_md(self) -> Path:
+        return self.root / "out" / "review.md"
+
+    @property
+    def run_report_md(self) -> Path:
+        return self.root / "out" / "run_report.md"
+
+    @property
+    def eval_md(self) -> Path:
+        return self.root / "out" / "eval.md"
+
+    @property
+    def eval_json(self) -> Path:
+        return self.root / "out" / "eval.json"
+
+
+def keep_out_of_git(workspace: Workspace) -> None:
+    """Give a workspace, a folder holding a blank, a `.gitignore` holding `*` when
+    it has none: it holds student work and scores (design 14.1). An existing one,
+    or anything else of that name, is left as it is, and a folder that cannot be
+    written to gets none: the command goes on."""
+    if not workspace.blank_pdf.exists():
+        return
+    with contextlib.suppress(OSError), workspace.gitignore.open("x") as file:
+        file.write("*\n")
+
+
+def log_failure(workspace: Workspace, what: str, error: BaseException) -> None:
+    """Append `error`'s traceback, under `what` and the time, to the run log."""
+    log_note(workspace, what, "".join(traceback.format_exception(error)))
+
+
+def log_note(workspace: Workspace, what: str, text: str = "") -> None:
+    """Append `text`, under `what` and the time, to the run log."""
+    with workspace.run_log.open("a", encoding="utf-8") as log:
+        log.write(f"--- {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {what}\n{text}")

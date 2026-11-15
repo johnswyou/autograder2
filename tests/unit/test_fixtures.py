@@ -10,10 +10,10 @@ import pypdfium2.raw as pdfium_c
 import pytest
 from PIL import Image, ImageChops
 
-from redpen.prepare.parse import check
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.key import Key
-from redpen.schemas.spec import Spec
+from autograder2.prepare.parse import check
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.key import Key
+from autograder2.schemas.spec import Spec
 from tests.fixture_truth import (
     CIVICS,
     CIVICS_SUBMISSIONS,
@@ -331,7 +331,8 @@ def test_each_line_of_the_hostile_truth_is_a_line_of_ink_in_its_part_s_box(
 
 
 @pytest.mark.skipif(
-    not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
+    not os.environ.get("AUTOGRADER2_REAL_DATA"),
+    reason="AUTOGRADER2_REAL_DATA is not set",
 )
 def test_fixture_page_has_the_structure_of_a_real_export() -> None:
     for pdf in (p for f in submission_folders() for p in sorted(f.glob("*.pdf"))):
@@ -339,5 +340,5 @@ def test_fixture_page_has_the_structure_of_a_real_export() -> None:
         if real[1] and real[1][0][0] == "Student":
             break
     else:
-        pytest.fail("no Classkick export under REDPEN_REAL_DATA")
+        pytest.fail("no Classkick export under AUTOGRADER2_REAL_DATA")
     assert real == structure(pdfium.PdfDocument(CLASSKICK[0])[0])

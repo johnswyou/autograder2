@@ -1,4 +1,4 @@
-"""`redpen grade` end to end on three fixture submissions, with recorded calls.
+"""`autograder2 grade` end to end on three fixture submissions, with recorded calls.
 
 This is the one replay test that chains stages: the reader is given the mapper's
 map and the grader the reader's readings, not the truth's, and under the lock's
@@ -8,7 +8,7 @@ change to any map, read or grade prompt orphans its recording,
 by running this seed live into a scratch workspace with a persistent call cache and
 keeping exactly the calls the run made (task 2.7 report; the second grade's four
 calls were added so in task 4.6b). This test loads the recording itself into an
-offline gateway and does not use the `replay` fixture, so `REDPEN_RECORD=1`
+offline gateway and does not use the `replay` fixture, so `AUTOGRADER2_RECORD=1`
 neither calls the network here nor rewrites the recording.
 
 The workspace holds the fixtures' key (`spec.json`, and `key.yaml` written from
@@ -27,19 +27,19 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Lock, write_lock
-from redpen.grade.coverage import COMPARED
-from redpen.grade.ingest import IngestSummary
-from redpen.llm.cache import CallCache
-from redpen.llm.client import Gateway
-from redpen.llm.models import recheck_providers
-from redpen.prepare.key import save_key
-from redpen.prepare.parse import render_blank
-from redpen.schemas.key import Key
-from redpen.schemas.reading import ProblemReadings
-from redpen.schemas.submission import MapRecord
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Lock, write_lock
+from autograder2.grade.coverage import COMPARED
+from autograder2.grade.ingest import IngestSummary
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import recheck_providers
+from autograder2.prepare.key import save_key
+from autograder2.prepare.parse import render_blank
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import ProblemReadings
+from autograder2.schemas.submission import MapRecord
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS, ZDR
 
@@ -87,13 +87,13 @@ def test_three_students_are_graded_end_to_end_and_again_for_nothing(
         CallCache(db).load(RECORDING)
     transport = httpx.MockTransport(openrouter)
     gateway = functools.partial(Gateway, offline=True, transport=transport)
-    monkeypatch.setattr("redpen.orchestrator.Gateway", gateway)
+    monkeypatch.setattr("autograder2.orchestrator.Gateway", gateway)
     monkeypatch.setattr(
-        "redpen.orchestrator.recheck_providers",
+        "autograder2.orchestrator.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
     monkeypatch.setenv("OPENROUTER_API_KEY", "replay")
-    monkeypatch.chdir(tmp_path)  # no redpen.toml: the defaults, as recorded
+    monkeypatch.chdir(tmp_path)  # no autograder2.toml: the defaults, as recorded
     args = ["grade", str(submissions), "--workspace", str(workspace.root)]
 
     first = CliRunner().invoke(app, args)

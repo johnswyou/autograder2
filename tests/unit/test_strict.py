@@ -3,15 +3,15 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from redpen.grade.audit import Decisions
-from redpen.schemas.audit import PartAudit
-from redpen.schemas.flags import Flag
-from redpen.schemas.grade import Grade, GradeRecord, Override, Review, SecondGrades
-from redpen.schemas.key import Key
-from redpen.schemas.reading import Reading, ReadingRecord, SecondReadings
-from redpen.schemas.spec import Spec
-from redpen.schemas.strict import strict_problems
-from redpen.schemas.submission import (
+from autograder2.grade.audit import Decisions
+from autograder2.schemas.audit import PartAudit
+from autograder2.schemas.flags import Flag
+from autograder2.schemas.grade import Grade, GradeRecord, Override, Review, SecondGrades
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import Reading, ReadingRecord, SecondReadings
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.strict import strict_problems
+from autograder2.schemas.submission import (
     Coverage,
     IngestRecord,
     Map,

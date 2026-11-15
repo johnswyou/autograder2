@@ -30,14 +30,14 @@ import pytest
 from PIL import Image, ImageChops
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Lock, read_lock, write_lock
-from redpen.grade.ingest import IngestSummary
-from redpen.llm.client import NAME as TOKEN
-from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo, recheck_providers
-from redpen.prepare.key import load_key, save_key
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Lock, read_lock, write_lock
+from autograder2.grade.ingest import IngestSummary
+from autograder2.llm.client import NAME as TOKEN
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import ModelInfo, recheck_providers
+from autograder2.prepare.key import load_key, save_key
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import QUIZ, QUIZ_SUBMISSIONS, truth_of
 from tests.grader import grades
 from tests.pinned import (
@@ -305,14 +305,14 @@ def run_class(root: Path, masked: bool) -> tuple[OpenRouter, Workspace]:
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(root)
         patch.setenv("OPENROUTER_API_KEY", "test-key")
-        for where in ("redpen.cli.Gateway", "redpen.orchestrator.Gateway"):
+        for where in ("autograder2.cli.Gateway", "autograder2.orchestrator.Gateway"):
             patch.setattr(where, gateway)
         patch.setattr(
-            "redpen.orchestrator.recheck_providers",
+            "autograder2.orchestrator.recheck_providers",
             functools.partial(recheck_providers, transport=transport),
         )
         if masked:
-            Path("redpen.toml").write_text("mask_names = true\n")
+            Path("autograder2.toml").write_text("mask_names = true\n")
         (root / "blank.pdf").write_bytes((QUIZ / "blank.pdf").read_bytes())
         (root / "subs").mkdir()
         for pdf in QUIZ_SUBMISSIONS:
@@ -538,7 +538,7 @@ def test_with_names_masked_the_mapper_is_sent_each_page_whole(
 
 MASK_KEPT = (
     "ws/config.lock.toml has mask_names on, which holds once on: names are blanked"
-    " though redpen.toml has it off."
+    " though autograder2.toml has it off."
 )
 
 
@@ -556,13 +556,13 @@ def test_names_stay_masked_in_a_workspace_once_a_grade_run_masked_them(
         patch.chdir(root)
         patch.setenv("OPENROUTER_API_KEY", "test-key")
         offline = functools.partial(Gateway, transport=transport)
-        for where in ("redpen.cli.Gateway", "redpen.orchestrator.Gateway"):
+        for where in ("autograder2.cli.Gateway", "autograder2.orchestrator.Gateway"):
             patch.setattr(where, offline)
         patch.setattr(
-            "redpen.orchestrator.recheck_providers",
+            "autograder2.orchestrator.recheck_providers",
             functools.partial(recheck_providers, transport=transport),
         )
-        Path("redpen.toml").unlink()  # mask_names off
+        Path("autograder2.toml").unlink()  # mask_names off
 
         result = CliRunner().invoke(app, ["grade", "subs", "--workspace", "ws"])
 

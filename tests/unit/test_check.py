@@ -1,5 +1,5 @@
-"""The answer check in code (src/redpen/grade/check.py): the table of pairs, hostile
-input, and the property that an expression is equivalent to itself."""
+"""The answer check in code (src/autograder2/grade/check.py): the table of pairs,
+hostile input, and the property that an expression is equivalent to itself."""
 
 import time
 from typing import Any
@@ -8,10 +8,10 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from redpen.grade import check
-from redpen.grade.check import MATCH, NO_MATCH, UNSURE, check_answer
-from redpen.schemas.key import Key, KeyPart, Policies
-from redpen.schemas.reading import FinalAnswer, Reading
+from autograder2.grade import check
+from autograder2.grade.check import MATCH, NO_MATCH, UNSURE, check_answer
+from autograder2.schemas.key import Key, KeyPart, Policies
+from autograder2.schemas.reading import FinalAnswer, Reading
 from tests.fixture_truth import FIXTURES, answer
 
 KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())

@@ -1,5 +1,5 @@
 """The read stage with hand-built maps and a mock transport, on the fixtures' ingested
-pages (src/redpen/grade/read.py)."""
+pages (src/autograder2/grade/read.py)."""
 
 import asyncio
 import io
@@ -15,9 +15,9 @@ import httpx
 import pytest
 from PIL import Image, ImageChops
 
-from redpen import prompts
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import (
+from autograder2 import prompts
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import (
     Readings,
     problems,
     read_student,
@@ -25,21 +25,21 @@ from redpen.grade.read import (
     unit_images,
     units,
 )
-from redpen.imaging import prep, render
-from redpen.llm.client import Gateway, StageError
-from redpen.llm.models import ModelInfo
-from redpen.schemas.common import Provenance
-from redpen.schemas.key import Key
-from redpen.schemas.reading import (
+from autograder2.imaging import prep, render
+from autograder2.llm.client import Gateway, StageError
+from autograder2.llm.models import ModelInfo
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import (
     Crop,
     FinalAnswer,
     ProblemReadings,
     Reading,
     ReadingRecord,
 )
-from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import Map, MapEntry, MapPage, MapRecord, Role
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.spec import Part, Spec
+from autograder2.schemas.submission import Map, MapEntry, MapPage, MapRecord, Role
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, map_of, truth_of
 
 MODEL = ModelInfo(
@@ -462,7 +462,7 @@ def test_a_name_on_a_turned_page_is_blanked_where_the_page_turned_upright_has_it
 
 
 # The review's probe, taken over: where a turn puts a box, by PIL's own transposes
-# rather than redpen's box arithmetic.
+# rather than autograder2's box arithmetic.
 TRANSPOSE = {
     1: Image.Transpose.ROTATE_270,
     2: Image.Transpose.ROTATE_180,

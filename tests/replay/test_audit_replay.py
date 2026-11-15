@@ -10,7 +10,7 @@ disagree. The audit's calls are `tests/recordings/audit_class.jsonl`: the seeded
 group, and 4(a) c2, where partly-blank's drawing rightly earns less for the same
 cited arrow. It was made by running this seed live into a persistent scratch cache
 and dumping exactly the calls made (task 4.7 report, fix round 1). Under
-`REDPEN_RECORD=1` the `replay` fixture would call the grader again (paid) and
+`AUTOGRADER2_RECORD=1` the `replay` fixture would call the grader again (paid) and
 rewrite it once the test passes; it was not made that way, and should not be
 remade that way."""
 
@@ -19,20 +19,20 @@ from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
 
-from redpen.grade.audit import audit_class
-from redpen.grade.check import check_answer
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
-from redpen.llm.client import Gateway
-from redpen.prepare.key import part_hash
-from redpen.report.report import load, score
-from redpen.schemas.audit import PartAudit
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import AnswerCheck, GradeRecord, ProblemGrades
-from redpen.schemas.key import Key
-from redpen.schemas.reading import ProblemReadings, ReadingRecord
-from redpen.schemas.spec import CHOICE_TYPES
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.grade.audit import audit_class
+from autograder2.grade.check import check_answer
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import problem_of
+from autograder2.llm.client import Gateway
+from autograder2.prepare.key import part_hash
+from autograder2.report.report import load, score
+from autograder2.schemas.audit import PartAudit
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import AnswerCheck, GradeRecord, ProblemGrades
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import ProblemReadings, ReadingRecord
+from autograder2.schemas.spec import CHOICE_TYPES
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY, SUBMISSIONS, truth_of
 from tests.pinned import GRADER
 

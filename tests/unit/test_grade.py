@@ -1,5 +1,5 @@
 """The grade stage with stored readings and a mock transport
-(src/redpen/grade/grade.py)."""
+(src/autograder2/grade/grade.py)."""
 
 import asyncio
 import base64
@@ -14,25 +14,25 @@ from typing import Any
 import httpx
 import pytest
 
-from redpen import prompts
-from redpen.grade import grade as stage
-from redpen.grade.grade import (
+from autograder2 import prompts
+from autograder2.grade import grade as stage
+from autograder2.grade.grade import (
     Grades,
     grade_student,
     graded_from,
     part_points,
     problems,
 )
-from redpen.grade.read import digest
-from redpen.grade.second_grade import grade_again
-from redpen.llm import client
-from redpen.llm.client import Gateway, ResponseValidationError, StageError
-from redpen.llm.models import ModelInfo
-from redpen.prepare.key import grading_content, number, part_hash
-from redpen.report.report import audited, load
-from redpen.schemas.audit import Change, PartAudit
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import (
+from autograder2.grade.read import digest
+from autograder2.grade.second_grade import grade_again
+from autograder2.llm import client
+from autograder2.llm.client import Gateway, ResponseValidationError, StageError
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare.key import grading_content, number, part_hash
+from autograder2.report.report import audited, load
+from autograder2.schemas.audit import Change, PartAudit
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import (
     AnswerCheck,
     CriterionGrade,
     Grade,
@@ -40,16 +40,16 @@ from redpen.schemas.grade import (
     ProblemGrades,
     SecondGrade,
 )
-from redpen.schemas.key import Key, KeyPart
-from redpen.schemas.reading import (
+from autograder2.schemas.key import Key, KeyPart
+from autograder2.schemas.reading import (
     Crop,
     FinalAnswer,
     ProblemReadings,
     Reading,
     ReadingRecord,
 )
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
 from tests.unit.test_gateway import base_cache_key
 

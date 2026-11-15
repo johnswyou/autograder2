@@ -55,12 +55,19 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Paragraph
 
-from redpen.schemas.common import DiagramElement
-from redpen.schemas.grade import CriterionGrade, Grade
-from redpen.schemas.key import Answer, Criterion, Key, KeyPart, PartialCredit, Policies
-from redpen.schemas.reading import Reading
-from redpen.schemas.spec import Figure, Part, Spec
-from redpen.schemas.submission import IngestPage, Map, MapEntry, SetAside
+from autograder2.schemas.common import DiagramElement
+from autograder2.schemas.grade import CriterionGrade, Grade
+from autograder2.schemas.key import (
+    Answer,
+    Criterion,
+    Key,
+    KeyPart,
+    PartialCredit,
+    Policies,
+)
+from autograder2.schemas.reading import Reading
+from autograder2.schemas.spec import Figure, Part, Spec
+from autograder2.schemas.submission import IngestPage, Map, MapEntry, SetAside
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "synthetic"
 TITLE = "Practice Set 3 - Forces and Functions"

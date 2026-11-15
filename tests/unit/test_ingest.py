@@ -1,4 +1,4 @@
-"""Ingest of a folder or ZIP of submissions (src/redpen/grade/ingest.py)."""
+"""Ingest of a folder or ZIP of submissions (src/autograder2/grade/ingest.py)."""
 
 import os
 import shutil
@@ -16,10 +16,10 @@ import pytest
 from PIL import Image, ImageChops
 from reportlab.pdfgen.canvas import Canvas
 
-from redpen.grade import ingest as ingest_module
-from redpen.grade.ingest import IngestSummary, ingest
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model
+from autograder2.grade import ingest as ingest_module
+from autograder2.grade.ingest import IngestSummary, ingest
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import SUBMISSIONS, truth_of
 from tests.real_data import submission_folders
 
@@ -235,9 +235,9 @@ def test_a_zip_and_a_folder_with_subfolders_give_identical_results(
         os.utime(source / name, (stamp, stamp))
     archive = zip_of(source, tmp_path / "submissions.zip")
 
-    from_folder = ingest(source, Workspace(tmp_path / "folder.redpen"))
+    from_folder = ingest(source, Workspace(tmp_path / "folder.autograder2"))
 
-    assert ingest(archive, Workspace(tmp_path / "zip.redpen")) == from_folder
+    assert ingest(archive, Workspace(tmp_path / "zip.autograder2")) == from_folder
     assert [d.used for d in from_folder.duplicates] == [
         "c/Title - Quinn.pdf",
         "c/Title - Pat.pdf",
@@ -517,7 +517,8 @@ def test_a_changed_submission_leaves_nothing_of_the_old_one(tmp_path: Path) -> N
 
 
 @pytest.mark.skipif(
-    not os.environ.get("REDPEN_REAL_DATA"), reason="REDPEN_REAL_DATA is not set"
+    not os.environ.get("AUTOGRADER2_REAL_DATA"),
+    reason="AUTOGRADER2_REAL_DATA is not set",
 )
 def test_real_submissions_ingest() -> None:
     """Each real `student_submissions` folder, ingested into a temporary workspace

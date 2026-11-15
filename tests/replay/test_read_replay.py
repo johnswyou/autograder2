@@ -4,7 +4,7 @@ The inputs are the fixtures' own: `spec.json`, a fresh ingest of the submission
 (the session's `fixture_workspace`) and the map record its truth file gives, never
 another stage's recording. Each layout class has its own recording,
 `tests/recordings/read_<class>.jsonl`. Re-record (paid) with
-`REDPEN_RECORD=1 uv run pytest tests/replay/test_read_replay.py`.
+`AUTOGRADER2_RECORD=1 uv run pytest tests/replay/test_read_replay.py`.
 """
 
 import asyncio
@@ -22,13 +22,13 @@ from sympy.parsing.sympy_parser import (
     standard_transformations,
 )
 
-from redpen.config import Config
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import read_student
-from redpen.llm.client import Gateway
-from redpen.schemas.reading import ReadingRecord
-from redpen.schemas.spec import CHOICE_TYPES, Spec
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.config import Config
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import read_student
+from autograder2.llm.client import Gateway
+from autograder2.schemas.reading import ReadingRecord
+from autograder2.schemas.spec import CHOICE_TYPES, Spec
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, map_of, truth_of
 from tests.pinned import READER
 

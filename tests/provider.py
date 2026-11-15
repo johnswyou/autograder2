@@ -5,8 +5,8 @@ nothing leaves the machine.
 A request carries no cache key (its prompt version is never sent), so the key the
 gateway makes for each call is kept in a context variable that the transport reads:
 the transport runs in the task that made the call. `install` patches
-`redpen.llm.client.cache_key` to keep it, and gives the orchestrator's and the CLI's
-gateways and the privacy gate this transport and an injected sleep."""
+`autograder2.llm.client.cache_key` to keep it, and gives the orchestrator's and the
+CLI's gateways and the privacy gate this transport and an injected sleep."""
 
 import asyncio
 import functools
@@ -19,9 +19,9 @@ from typing import Any
 import httpx
 import pytest
 
-from redpen.llm.cache import cache_key
-from redpen.llm.client import Gateway
-from redpen.llm.models import recheck_providers
+from autograder2.llm.cache import cache_key
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import recheck_providers
 from tests.pinned import ZDR
 
 RECORDINGS = Path(__file__).parent / "recordings"
@@ -82,12 +82,12 @@ class Provider:
         monkeypatch: pytest.MonkeyPatch,
         sleep: Callable[[float], Any] = no_wait,
     ) -> None:
-        monkeypatch.setattr("redpen.llm.client.cache_key", _keyed)
+        monkeypatch.setattr("autograder2.llm.client.cache_key", _keyed)
         transport = httpx.MockTransport(self)
         gateway = functools.partial(Gateway, transport=transport, sleep=sleep)
-        monkeypatch.setattr("redpen.orchestrator.Gateway", gateway)
-        monkeypatch.setattr("redpen.cli.Gateway", gateway)
+        monkeypatch.setattr("autograder2.orchestrator.Gateway", gateway)
+        monkeypatch.setattr("autograder2.cli.Gateway", gateway)
         monkeypatch.setattr(
-            "redpen.orchestrator.recheck_providers",
+            "autograder2.orchestrator.recheck_providers",
             functools.partial(recheck_providers, transport=transport),
         )

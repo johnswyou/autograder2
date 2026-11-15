@@ -1,6 +1,6 @@
-"""The class audit (src/redpen/grade/audit.py) over readings and grades built by
+"""The class audit (src/autograder2/grade/audit.py) over readings and grades built by
 hand, with a mock model, and how what it records shows in the report stage's files
-and in `redpen eval`."""
+and in `autograder2 eval`."""
 
 import asyncio
 import csv
@@ -15,18 +15,18 @@ from typing import Any
 import httpx
 import pytest
 
-from redpen.eval.eval import evaluate
-from redpen.grade.audit import MAX_CASES, audit_class, suspect
-from redpen.grade.grade import graded_from
-from redpen.grade.read import digest, problem_of
-from redpen.llm.client import Gateway, StopError
-from redpen.llm.models import ModelInfo
-from redpen.prepare.key import part_hash
-from redpen.report.report import LOWERED, flags, load, one_line, write_report
-from redpen.schemas.audit import Change, PartAudit, Suspect
-from redpen.schemas.common import Provenance
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.grade import (
+from autograder2.eval.eval import evaluate
+from autograder2.grade.audit import MAX_CASES, audit_class, suspect
+from autograder2.grade.grade import graded_from
+from autograder2.grade.read import digest, problem_of
+from autograder2.llm.client import Gateway, StopError
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare.key import part_hash
+from autograder2.report.report import LOWERED, flags, load, one_line, write_report
+from autograder2.schemas.audit import Change, PartAudit, Suspect
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.grade import (
     AnswerCheck,
     CriterionGrade,
     Grade,
@@ -34,15 +34,15 @@ from redpen.schemas.grade import (
     ProblemGrades,
     Verdict,
 )
-from redpen.schemas.key import Key, KeyPart
-from redpen.schemas.reading import (
+from autograder2.schemas.key import Key, KeyPart
+from autograder2.schemas.reading import (
     FinalAnswer,
     ProblemReadings,
     Reading,
     ReadingRecord,
 )
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
 
 MODEL = ModelInfo(
@@ -332,7 +332,7 @@ def test_the_same_evidence_given_different_awards_is_decided_again_in_one_call(
     assert "| audit_changed | low | 1 |" in report
 
 
-def test_redpen_eval_reads_the_award_after(tmp_path: Path) -> None:
+def test_autograder2_eval_reads_the_award_after(tmp_path: Path) -> None:
     workspace = new_workspace(tmp_path)
     inconsistent(workspace)
     audit(workspace, Q4C, Grader())

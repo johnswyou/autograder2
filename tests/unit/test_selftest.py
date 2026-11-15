@@ -18,16 +18,16 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from redpen import prompts
-from redpen.cli import app
-from redpen.grade.grade import Grades, grade_student
-from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo
-from redpen.prepare.key import load_key
-from redpen.prepare.rubric import PartRubric, ProposedCriterion, Rubric
-from redpen.prepare.selftest import NotEarned, response, self_test, trial
-from redpen.prepare.solve import PartSolution
-from redpen.prepare.verify import (
+from autograder2 import prompts
+from autograder2.cli import app
+from autograder2.grade.grade import Grades, grade_student
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare.key import load_key
+from autograder2.prepare.rubric import PartRubric, ProposedCriterion, Rubric
+from autograder2.prepare.selftest import NotEarned, response, self_test, trial
+from autograder2.prepare.solve import PartSolution
+from autograder2.prepare.verify import (
     AGREE,
     Lost,
     Trial,
@@ -37,12 +37,12 @@ from redpen.prepare.verify import (
     verification,
     verification_md,
 )
-from redpen.schemas.common import DiagramElement
-from redpen.schemas.grade import AnswerCheck, CriterionGrade, Grade
-from redpen.schemas.key import Key, KeyPart
-from redpen.schemas.reading import ProblemReadings, ReadingRecord
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.common import DiagramElement
+from autograder2.schemas.grade import AnswerCheck, CriterionGrade, Grade
+from autograder2.schemas.key import Key, KeyPart
+from autograder2.schemas.reading import ProblemReadings, ReadingRecord
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY, answer
 from tests.grader import Loses, grades
 
@@ -389,7 +389,7 @@ def test_the_message_is_the_grade_stage_s_and_moves_with_its_prompt(
         text, version = original(stage, name)
         return (text + "\nChanged.", "changed") if stage == "grade" else (text, version)
 
-    monkeypatch.setattr("redpen.prompts.load", changed)
+    monkeypatch.setattr("autograder2.prompts.load", changed)
     again = Router()
     run(tmp_path / "again", verdicts(KEY), again)
 
@@ -442,12 +442,12 @@ FIRST = {
 def fresh_prepare(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, router: Router
 ) -> tuple[Workspace, Any]:
-    """`redpen prepare` of SPEC with fake solve and verify (every part verified, the
-    second solution agreeing) and the rubric writer and grader behind `router`."""
+    """`autograder2 prepare` of SPEC with fake solve and verify (every part verified,
+    the second solution agreeing) and the rubric writer and grader behind `router`."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
-        "redpen.cli.Gateway",
+        "autograder2.cli.Gateway",
         functools.partial(
             Gateway, transport=httpx.MockTransport(router), requests_per_second=1e6
         ),
@@ -489,8 +489,8 @@ def fresh_prepare(
             for id, s in first.items()
         }
 
-    monkeypatch.setattr("redpen.cli.solve", solve)
-    monkeypatch.setattr("redpen.cli.verify", verify)
+    monkeypatch.setattr("autograder2.cli.solve", solve)
+    monkeypatch.setattr("autograder2.cli.verify", verify)
     return workspace, runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
 
@@ -581,8 +581,8 @@ def test_a_fresh_prepare_finishes_when_the_test_call_fails(
     }
     assert len(router.of("Rubric")) == 2  # a call that failed is no rubric's fault
     assert (
-        "3 parts are unverified because a call failed; `redpen key verify` tries them"
-        " again." in result.stderr.splitlines()
+        "3 parts are unverified because a call failed; `autograder2 key verify` tries"
+        " them again." in result.stderr.splitlines()
     )
     assert "self-test Q2" in workspace.run_log.read_text()
 
@@ -691,7 +691,7 @@ def test_the_need_a_look_line_names_the_check_that_left_each_part_unverified(
     assert (
         "Parts that need a look: Q4.a (the two solutions), Q4.b (the rubric's"
         " self-test), Q4.c (both). For each, correct key.yaml if it is wrong, then"
-        " run `redpen key verify` again."
+        " run `autograder2 key verify` again."
     ) in report.splitlines()
     assert (
         "A part a model grades passes the rubric's self-test when the key's own"

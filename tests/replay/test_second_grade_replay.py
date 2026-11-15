@@ -10,7 +10,7 @@ own request for those readings, at the second draw. Its answers are
 `tests/recordings/second_grade_class.jsonl`, one call for each problem a model
 grades. It was made by running this seed and `grade_again` live into a persistent
 scratch cache and keeping exactly the calls made (task 4.6b report). Under
-`REDPEN_RECORD=1` the `replay` fixture would call the grader again (paid) and
+`AUTOGRADER2_RECORD=1` the `replay` fixture would call the grader again (paid) and
 rewrite it once the test passes."""
 
 import asyncio
@@ -19,14 +19,19 @@ from pathlib import Path
 
 import pytest
 
-from redpen.grade.grade import by_problem, graded_from, request
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.second_grade import grade_again
-from redpen.llm.client import Gateway
-from redpen.prepare.key import part_hash
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import AnswerCheck, GradeRecord, ProblemGrades, SecondGrade
-from redpen.workspace import Workspace, write_model
+from autograder2.grade.grade import by_problem, graded_from, request
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.second_grade import grade_again
+from autograder2.llm.client import Gateway
+from autograder2.prepare.key import part_hash
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import (
+    AnswerCheck,
+    GradeRecord,
+    ProblemGrades,
+    SecondGrade,
+)
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import (
     SUBMISSIONS,
     SubmissionTruth,

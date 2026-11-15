@@ -1,4 +1,4 @@
-"""Paid calls through the real gateway. Run with `REDPEN_LIVE=1 uv run pytest -s
+"""Paid calls through the real gateway. Run with `AUTOGRADER2_LIVE=1 uv run pytest -s
 tests/live`."""
 
 import asyncio
@@ -13,16 +13,16 @@ import pytest
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, ConfigDict
 
-from redpen.config import openrouter_api_key
-from redpen.llm.client import Gateway, Result
-from redpen.llm.ledger import Ledger
-from redpen.llm.models import fetch_catalog
-from redpen.schemas.grade import Grade
+from autograder2.config import openrouter_api_key
+from autograder2.llm.client import Gateway, Result
+from autograder2.llm.ledger import Ledger
+from autograder2.llm.models import fetch_catalog
+from autograder2.schemas.grade import Grade
 
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        os.environ.get("REDPEN_LIVE") != "1", reason="paid; set REDPEN_LIVE=1"
+        os.environ.get("AUTOGRADER2_LIVE") != "1", reason="paid; set AUTOGRADER2_LIVE=1"
     ),
 ]
 

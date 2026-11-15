@@ -1,5 +1,5 @@
 """The map stage on hand-built pages, inventories and resolver outputs, with a mock
-transport (src/redpen/grade/map.py)."""
+transport (src/autograder2/grade/map.py)."""
 
 import asyncio
 import base64
@@ -17,8 +17,8 @@ import pytest
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel
 
-from redpen import prompts
-from redpen.grade.map import (
+from autograder2 import prompts
+from autograder2.grade.map import (
     Aside,
     Block,
     Entry,
@@ -32,17 +32,17 @@ from redpen.grade.map import (
     problems,
     to_map,
 )
-from redpen.imaging.prep import rotate
-from redpen.llm.client import (
+from autograder2.imaging.prep import rotate
+from autograder2.llm.client import (
     FatalError,
     Gateway,
     ResponseValidationError,
     StageError,
 )
-from redpen.llm.models import ModelInfo
-from redpen.schemas.common import Provenance
-from redpen.schemas.spec import Part, Spec
-from redpen.schemas.submission import (
+from autograder2.llm.models import ModelInfo
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.spec import Part, Spec
+from autograder2.schemas.submission import (
     IngestPage,
     IngestRecord,
     Map,
@@ -50,7 +50,7 @@ from redpen.schemas.submission import (
     MapRecord,
     Role,
 )
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.workspace import Workspace, read_model, write_model
 
 MODEL = ModelInfo(
     slug="vendor/vision-1",

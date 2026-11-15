@@ -15,10 +15,10 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.read import problem_of
-from redpen.prepare.key import (
+from autograder2.cli import app
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.read import problem_of
+from autograder2.prepare.key import (
     allocation,
     load_key,
     number,
@@ -30,13 +30,13 @@ from redpen.prepare.key import (
     scaled,
     weight,
 )
-from redpen.report.report import Stored, points_of, score, sum_of
-from redpen.schemas.common import Provenance
-from redpen.schemas.grade import CriterionGrade, Grade, GradeRecord
-from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
-from redpen.schemas.reading import FinalAnswer, Reading, ReadingRecord
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, write_model
+from autograder2.report.report import Stored, points_of, score, sum_of
+from autograder2.schemas.common import Provenance
+from autograder2.schemas.grade import CriterionGrade, Grade, GradeRecord
+from autograder2.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
+from autograder2.schemas.reading import FinalAnswer, Reading, ReadingRecord
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, NOBODY, answer
 
 D = Decimal

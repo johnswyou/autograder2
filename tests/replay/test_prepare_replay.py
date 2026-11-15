@@ -3,7 +3,7 @@ referee and grader models.
 
 The run starts from the fixtures' spec.json, not from a recorded parse, so that
 recording the parse again never orphans these recordings. The recording is a dump
-of the calls a live `redpen prepare` made in a scratch workspace (about $0.53).
+of the calls a live `autograder2 prepare` made in a scratch workspace (about $0.53).
 """
 
 import os
@@ -24,15 +24,15 @@ from sympy.parsing.sympy_parser import (
 )
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Lock, write_lock
-from redpen.llm.client import Gateway
-from redpen.prepare.key import load_key, part_hash, save_key
-from redpen.prepare.verify import Trial, Verification
-from redpen.schemas.common import DiagramElement
-from redpen.schemas.key import Answer, Key
-from redpen.schemas.spec import CHOICE_TYPES
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Lock, write_lock
+from autograder2.llm.client import Gateway
+from autograder2.prepare.key import load_key, part_hash, save_key
+from autograder2.prepare.verify import Trial, Verification
+from autograder2.schemas.common import DiagramElement
+from autograder2.schemas.key import Answer, Key
+from autograder2.schemas.spec import CHOICE_TYPES
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
 from tests.pinned import KEY_MODELS
@@ -155,7 +155,9 @@ def test_the_fixture_key_is_prepared_from_its_spec_and_matches_the_truth(
     monkeypatch.chdir(tmp_path)
     if not os.environ.get("OPENROUTER_API_KEY"):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.cli.Gateway", lambda *a, **k: replay("prepare_blank"))
+    monkeypatch.setattr(
+        "autograder2.cli.Gateway", lambda *a, **k: replay("prepare_blank")
+    )
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     workspace = Workspace(Path("ws"))
     workspace.spec_json.parent.mkdir(parents=True)
@@ -206,7 +208,7 @@ def test_key_verify_of_the_truth_key_moves_no_part_hash(
     monkeypatch.chdir(tmp_path)
     if not os.environ.get("OPENROUTER_API_KEY"):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.cli.Gateway", lambda *a, **k: replay("key_verify"))
+    monkeypatch.setattr("autograder2.cli.Gateway", lambda *a, **k: replay("key_verify"))
     workspace = Workspace(Path("ws"))
     workspace.spec_json.parent.mkdir(parents=True)
     shutil.copy(FIXTURES / "blank.pdf", workspace.blank_pdf)

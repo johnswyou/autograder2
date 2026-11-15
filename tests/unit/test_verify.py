@@ -15,14 +15,14 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo
-from redpen.prepare import verify as stage
-from redpen.prepare.key import load_key, part_hash, save_key
-from redpen.prepare.rubric import PartRubric, ProposedCriterion
-from redpen.prepare.solve import PartSolution, Solution
-from redpen.prepare.verify import (
+from autograder2.cli import app
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare import verify as stage
+from autograder2.prepare.key import load_key, part_hash, save_key
+from autograder2.prepare.rubric import PartRubric, ProposedCriterion
+from autograder2.prepare.solve import PartSolution, Solution
+from autograder2.prepare.verify import (
     AGREE,
     DIFFER,
     NOT_COMPARED,
@@ -41,10 +41,10 @@ from redpen.prepare.verify import (
     verification_md,
     verify,
 )
-from redpen.schemas.common import DiagramElement, ResponseType
-from redpen.schemas.key import Key, KeyPart, Policies
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.common import DiagramElement, ResponseType
+from autograder2.schemas.key import Key, KeyPart, Policies
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, answer
 from tests.grader import Loses, grades
 
@@ -637,7 +637,7 @@ def keyed_workspace(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
-        "redpen.cli.Gateway",
+        "autograder2.cli.Gateway",
         functools.partial(Gateway, transport=httpx.MockTransport(router)),
     )
     workspace = Workspace(Path("ws"))
@@ -727,7 +727,7 @@ def test_key_verify_changes_nothing_but_state(
     causes = ", ".join(f"{id} (the two solutions)" for id in look)
     assert (
         f"Parts that need a look: {causes}. For each, correct key.yaml if it is"
-        " wrong, then run `redpen key verify` again."
+        " wrong, then run `autograder2 key verify` again."
         if look
         else "Parts that need a look: none."
     ) in report.splitlines()
@@ -893,7 +893,7 @@ def test_a_lock_that_cannot_verify_stops_before_any_call(
 
     workspace = keyed_workspace(tmp_path, monkeypatch, OpenRouter({}))
     monkeypatch.setattr(
-        "redpen.cli.Gateway",
+        "autograder2.cli.Gateway",
         functools.partial(Gateway, transport=httpx.MockTransport(refuse)),
     )
     workspace.config_lock_toml.write_text(lock)
@@ -926,8 +926,8 @@ def test_key_check_names_a_part_changed_after_it_was_verified(
     assert result.exit_code == 0, result.output
     assert result.output.splitlines()[:2] == [
         "Q4.b was changed after it was verified.",
-        "`redpen regrade` grades the class again under the edited key;"
-        " `redpen key verify` has the edit checked.",
+        "`autograder2 regrade` grades the class again under the edited key;"
+        " `autograder2 key verify` has the edit checked.",
     ]
     assert sum("was changed" in line for line in result.output.splitlines()) == 1
     assert workspace.key_yaml.read_bytes() == edited  # no state changed
@@ -961,7 +961,7 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
     shutil.copy("blank.pdf", workspace.blank_pdf)
     workspace.config_lock_toml.write_text(LOCK)
     monkeypatch.setattr(  # only the self-test's grader is asked
-        "redpen.cli.Gateway",
+        "autograder2.cli.Gateway",
         functools.partial(Gateway, transport=httpx.MockTransport(OpenRouter({}))),
     )
     spec = Spec(
@@ -1016,9 +1016,9 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
             for id in args[4]
         }
 
-    monkeypatch.setattr("redpen.cli.solve", solve)
-    monkeypatch.setattr("redpen.cli.verify", fake_verify)
-    monkeypatch.setattr("redpen.cli.write_rubric", write_rubric)
+    monkeypatch.setattr("autograder2.cli.solve", solve)
+    monkeypatch.setattr("autograder2.cli.verify", fake_verify)
+    monkeypatch.setattr("autograder2.cli.write_rubric", write_rubric)
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
@@ -1048,7 +1048,7 @@ def test_a_fresh_prepare_writes_the_rubric_from_the_solution_that_stands(
     def broken(*args: object) -> None:
         raise OSError("the disk is full")
 
-    monkeypatch.setattr("redpen.cli.save_key", broken)
+    monkeypatch.setattr("autograder2.cli.save_key", broken)
     failed = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert failed.exit_code == 1 and failed.stderr == "the disk is full\n"

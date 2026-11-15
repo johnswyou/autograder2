@@ -8,9 +8,9 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from redpen.config import Config, Lock, Models, pin, read_lock
-from redpen.llm.client import FatalError, Gateway
-from redpen.llm.models import (
+from autograder2.config import Config, Lock, Models, pin, read_lock
+from autograder2.llm.client import FatalError, Gateway
+from autograder2.llm.models import (
     Catalog,
     ModelError,
     ModelInfo,
@@ -18,7 +18,7 @@ from redpen.llm.models import (
     fetch_catalog,
     recheck_providers,
 )
-from redpen.workspace import Workspace
+from autograder2.workspace import Workspace
 
 
 def model(

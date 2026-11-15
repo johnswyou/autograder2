@@ -1,5 +1,5 @@
 """Hardening, from the recordings (task 5.4a): a provider that fails, a failure no
-retry cures, kills and resumes, and damaged stored files, each a `redpen` command
+retry cures, kills and resumes, and damaged stored files, each a `autograder2` command
 run as the instructor runs it over the three fixture students whose calls
 `run_chain.jsonl` chains (see test_run_replay), with a cold call cache and a mock
 OpenRouter that answers from the recording (`tests/provider.py`)."""
@@ -33,20 +33,20 @@ import pypdfium2.raw as pdfium_c  # pyright: ignore[reportMissingTypeStubs]
 import pytest
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Lock, write_lock
-from redpen.grade.audit import MAX_CASES, audit_class
-from redpen.grade.ingest import IngestSummary
-from redpen.llm.cache import CallCache
-from redpen.llm.client import MAX_ATTEMPTS, STOPS, Gateway
-from redpen.prepare.key import save_key
-from redpen.prepare.parse import render_blank
-from redpen.report.report import write_report
-from redpen.schemas.audit import PartAudit
-from redpen.schemas.grade import ProblemGrades
-from redpen.schemas.key import Key
-from redpen.schemas.reading import ProblemReadings, ReadingRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.cli import app
+from autograder2.config import Lock, write_lock
+from autograder2.grade.audit import MAX_CASES, audit_class
+from autograder2.grade.ingest import IngestSummary
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import MAX_ATTEMPTS, STOPS, Gateway
+from autograder2.prepare.key import save_key
+from autograder2.prepare.parse import render_blank
+from autograder2.report.report import write_report
+from autograder2.schemas.audit import PartAudit
+from autograder2.schemas.grade import ProblemGrades
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import ProblemReadings, ReadingRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.fixture_truth import FIXTURES, NOBODY, SUBMISSIONS, truth_of
 from tests.pinned import GRADE_MODELS, GRADER, KEY_MODELS
 from tests.provider import Provider, recorded
@@ -58,15 +58,15 @@ KEY = Key.model_validate_json((FIXTURES / "key.json").read_text())
 CHAIN = recorded("run_chain")
 PREPARE = recorded("prepare_blank")
 REPO = Path(__file__).parents[2]
-# What a child process imports: the code under test, whatever redpen is installed.
+# What a child process imports: the code under test, whatever autograder2 is installed.
 CODE = f"{REPO / 'src'}:{REPO}"
 runner = CliRunner()
-# Every N of a sweep, and the class of 150, run under REDPEN_SLOW=1 only (`pytest -m
-# slow` selects them); a few N run in every suite.
+# Every N of a sweep, and the class of 150, run under AUTOGRADER2_SLOW=1 only
+# (`pytest -m slow` selects them); a few N run in every suite.
 SLOW = [
     pytest.mark.slow,
     pytest.mark.skipif(
-        os.environ.get("REDPEN_SLOW") != "1", reason="slow; set REDPEN_SLOW=1"
+        os.environ.get("AUTOGRADER2_SLOW") != "1", reason="slow; set AUTOGRADER2_SLOW=1"
     ),
 ]
 
@@ -121,7 +121,7 @@ def chained(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[Workspace, Path]]:
     """A seeded workspace, an API key made up, and the folder as cwd (no
-    redpen.toml: the defaults, as recorded)."""
+    autograder2.toml: the defaults, as recorded)."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "made-up")
     monkeypatch.chdir(tmp_path)
     yield seed(tmp_path)
@@ -429,7 +429,7 @@ CHILD = """
 import sys, time
 import pytest
 from typer.testing import CliRunner
-from redpen.cli import app
+from autograder2.cli import app
 from tests.provider import Provider, recorded
 
 marker, at, *args = sys.argv[1:]
@@ -518,7 +518,7 @@ def test_damaged_files_are_each_named_in_one_line_and_grade_makes_them_again(
         # Counted: a student's key holds the student's name. The run log names them.
         assert said[-1] == (
             f"Stored files of students that are damaged (not JSON): {len(damaged)}."
-            f" {workspace.run_log} names them. Delete them and run `redpen grade`"
+            f" {workspace.run_log} names them. Delete them and run `autograder2 grade`"
             " again to have them made again."
         ), name
         assert not any(p.name in result.output for p in (first, second))
@@ -544,7 +544,7 @@ def test_damaged_files_are_each_named_in_one_line_and_grade_makes_them_again(
 # the child is killed.
 WRITER = """
 import json, sqlite3, sys
-from redpen.llm.cache import CallCache
+from autograder2.llm.cache import CallCache
 
 cache = CallCache(sqlite3.connect(sys.argv[1], autocommit=True))
 n = 0
@@ -744,7 +744,7 @@ FILE_LIMIT = 256  # macOS's default soft limit on open files
 
 
 def graded_class(root: Path, monkeypatch: pytest.MonkeyPatch, size: int) -> Graded:
-    """`redpen grade` of a class of `size` from the recordings, with the network
+    """`autograder2 grade` of a class of `size` from the recordings, with the network
     disabled and at most FILE_LIMIT files open; what it took, said and wrote."""
     workspace, folder = a_class(root, size)
     provider = Provider(CHAIN)

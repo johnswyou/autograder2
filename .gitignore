@@ -3,6 +3,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .hypothesis/
-*.redpen/
+*.autograder2/
 .superpowers/
 .env

@@ -1,6 +1,7 @@
 """Parsing the fixture blanks with recorded calls to the real parser model.
 
-Re-record (paid) with `REDPEN_RECORD=1 uv run pytest tests/replay/test_parse_replay.py`.
+Re-record (paid) with
+`AUTOGRADER2_RECORD=1 uv run pytest tests/replay/test_parse_replay.py`.
 The `prepare` test always replays the recording of `blank.pdf`, so it spends nothing.
 """
 
@@ -17,17 +18,17 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.config import Config, Models, read_lock
-from redpen.llm.cache import CallCache
-from redpen.llm.client import Gateway
-from redpen.llm.models import Catalog
-from redpen.prepare.key import load_key, save_key
-from redpen.prepare.parse import parse
-from redpen.prepare.verify import Verification
-from redpen.schemas.key import Key
-from redpen.schemas.spec import Spec
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.config import Config, Models, read_lock
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import Catalog
+from autograder2.prepare.key import load_key, save_key
+from autograder2.prepare.parse import parse
+from autograder2.prepare.verify import Verification
+from autograder2.schemas.key import Key
+from autograder2.schemas.spec import Spec
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
 from tests.pinned import CHECKER, PARSER
 
@@ -139,9 +140,9 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
-    monkeypatch.setattr("redpen.cli.Gateway", recorded)
-    monkeypatch.setattr("redpen.cli._key", truth_key)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("autograder2.cli.Gateway", recorded)
+    monkeypatch.setattr("autograder2.cli._key", truth_key)
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     runner = CliRunner()
 
@@ -161,8 +162,8 @@ def test_prepare_writes_the_key_files_and_a_second_run_calls_no_model(
     assert "Total points: 16\n  page 1: 3\n" in result.output
     written = workspace.key_yaml.read_bytes()
 
-    monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
-    monkeypatch.setattr("redpen.cli.Gateway", refuse)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", refuse)
+    monkeypatch.setattr("autograder2.cli.Gateway", refuse)
     again = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws"])
 
     assert again.exit_code == 0, again.output
@@ -179,9 +180,9 @@ def test_prepare_after_a_file_it_cannot_open_works_in_the_same_workspace(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
-    monkeypatch.setattr("redpen.cli.Gateway", recorded)
-    monkeypatch.setattr("redpen.cli._key", truth_key)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("autograder2.cli.Gateway", recorded)
+    monkeypatch.setattr("autograder2.cli._key", truth_key)
     Path("blank.pdf").write_bytes(b"Questions 1 to 5, typed in a text file.")
     runner = CliRunner()
 
@@ -202,9 +203,9 @@ def test_prepare_parses_again_when_the_key_exists_but_the_spec_does_not(
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.config.fetch_catalog", fetch_catalog)
-    monkeypatch.setattr("redpen.cli.Gateway", recorded)
-    monkeypatch.setattr("redpen.cli._key", refuse)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("autograder2.cli.Gateway", recorded)
+    monkeypatch.setattr("autograder2.cli._key", refuse)
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     workspace = Workspace(Path("ws"))
     save_key(workspace.key_yaml, TRUTH_KEY)

@@ -20,9 +20,9 @@ import pytest
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from redpen.llm import client
-from redpen.llm.cache import CallCache, cache_key
-from redpen.llm.client import (
+from autograder2.llm import client
+from autograder2.llm.cache import CallCache, cache_key
+from autograder2.llm.client import (
     BACKOFF_SECONDS,
     MAX_ATTEMPTS,
     MAX_WAIT,
@@ -39,8 +39,8 @@ from redpen.llm.client import (
     finish_all,
     without_validation_keywords,
 )
-from redpen.llm.ledger import Ledger, Usage
-from redpen.llm.models import ModelInfo
+from autograder2.llm.ledger import Ledger, Usage
+from autograder2.llm.models import ModelInfo
 
 MODEL = ModelInfo(
     slug="vendor/model-1",

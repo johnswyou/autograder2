@@ -1,4 +1,4 @@
-"""The second grade (src/redpen/grade/second_grade.py): which problems are graded
+"""The second grade (src/autograder2/grade/second_grade.py): which problems are graded
 again, the request, the two answers kept apart, the comparison, a failure, and a
 run again, with readings stored by hand and a mock transport. What a result does to
 the flags, the scores and the report is in test_report.py; the commands are in
@@ -17,24 +17,24 @@ from typing import Any
 import httpx
 import pytest
 
-from redpen.grade.grade import Grades, grade_student
-from redpen.grade.read import digest
-from redpen.grade.second_grade import ROLE, differing, grade_again
-from redpen.llm.client import Gateway, StageError, StopError
-from redpen.llm.ledger import Ledger
-from redpen.report.report import flags, load
-from redpen.schemas.flags import FlagCode
-from redpen.schemas.grade import (
+from autograder2.grade.grade import Grades, grade_student
+from autograder2.grade.read import digest
+from autograder2.grade.second_grade import ROLE, differing, grade_again
+from autograder2.llm.client import Gateway, StageError, StopError
+from autograder2.llm.ledger import Ledger
+from autograder2.report.report import flags, load
+from autograder2.schemas.flags import FlagCode
+from autograder2.schemas.grade import (
     Grade,
     GradeRecord,
     ProblemGrades,
     SecondGrade,
     SecondGrades,
 )
-from redpen.schemas.key import Key
-from redpen.schemas.reading import FinalAnswer, Reading
-from redpen.schemas.submission import IngestRecord
-from redpen.workspace import Workspace, read_model, write_model
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import FinalAnswer, Reading
+from autograder2.schemas.submission import IngestRecord
+from autograder2.workspace import Workspace, read_model, write_model
 from tests.unit.test_grade import (
     ASKED,
     MODEL,
@@ -395,7 +395,7 @@ def test_a_raised_flag_stays_while_the_first_grade_it_was_raised_on_stands(
         async def interrupted(*args: object, **kwargs: object) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("redpen.grade.second_grade.ask_grader", interrupted)
+        monkeypatch.setattr("autograder2.grade.second_grade.ask_grader", interrupted)
         with pytest.raises(KeyboardInterrupt):
             second_grade(workspace, grader, TWO)
     else:

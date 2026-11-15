@@ -3,7 +3,7 @@
 The inputs are the fixtures' own: `spec.json` and a fresh ingest of the submission
 (the session's `fixture_workspace`), never another stage's recording. Each layout
 class has its own recording, `tests/recordings/map_<class>.jsonl`. Re-record (paid)
-with `REDPEN_RECORD=1 uv run pytest tests/replay/test_map_replay.py`.
+with `AUTOGRADER2_RECORD=1 uv run pytest tests/replay/test_map_replay.py`.
 """
 
 import asyncio
@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from redpen.config import Config
-from redpen.grade.ingest import IngestSummary
-from redpen.grade.map import map_student
-from redpen.grade.read import MARGIN
-from redpen.llm.client import Gateway
-from redpen.schemas.spec import Spec
-from redpen.schemas.submission import MapRecord
-from redpen.workspace import Workspace, read_model
+from autograder2.config import Config
+from autograder2.grade.ingest import IngestSummary
+from autograder2.grade.map import map_student
+from autograder2.grade.read import MARGIN
+from autograder2.llm.client import Gateway
+from autograder2.schemas.spec import Spec
+from autograder2.schemas.submission import MapRecord
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES, SUBMISSIONS, SubmissionTruth, truth_of
 from tests.pinned import MAPPER
 

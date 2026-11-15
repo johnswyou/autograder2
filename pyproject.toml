@@ -1,5 +1,5 @@
 [project]
-name = "redpen"
+name = "autograder2"
 version = "0.1.0"
 description = "Grade student work on an assignment from the blank assignment PDF and one PDF per student."
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-redpen = "redpen.cli:app"
+autograder2 = "autograder2.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
@@ -34,8 +34,8 @@ testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["."]  # so tests can import shared helpers as `tests.<module>`
 markers = [
-    "live: makes a paid OpenRouter call; skipped unless REDPEN_LIVE=1",
-    "slow: minutes, not seconds; skipped unless REDPEN_SLOW=1",
+    "live: makes a paid OpenRouter call; skipped unless AUTOGRADER2_LIVE=1",
+    "slow: minutes, not seconds; skipped unless AUTOGRADER2_SLOW=1",
 ]
 filterwarnings = ["error"]
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from redpen import prompts
+from autograder2 import prompts
 
 ROOT = Path(__file__).parents[2]
 
@@ -35,7 +35,7 @@ def test_the_prompts_load_from_a_built_wheel(tmp_path: Path) -> None:
     [wheel] = tmp_path.glob("*.whl")
     # -I and the wheel first on the path, so nothing is read from the source tree.
     code = (
-        "import sys; sys.path.insert(0, sys.argv[1]); from redpen import prompts;"
+        "import sys; sys.path.insert(0, sys.argv[1]); from autograder2 import prompts;"
         "print(prompts.__file__);"
         "print(*(prompts.load('parse', name)[1] for name in ('page', 'stitch')))"
     )

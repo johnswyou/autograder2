@@ -4,7 +4,7 @@ holds the slug and the parameters sent, so a replay must pass the same model."""
 
 from decimal import Decimal
 
-from redpen.llm.models import ModelInfo
+from autograder2.llm.models import ModelInfo
 
 _PARAMETERS = frozenset(
     {
@@ -71,8 +71,8 @@ CHECKER = ModelInfo(
     completion_price=Decimal("0.00001"),
     providers=frozenset({"azure", "azure/eu", "azure/us"}),
 )
-# The roles `redpen prepare` and `redpen key verify` call once the spec exists: the
-# grader tries the rubric.
+# The roles `autograder2 prepare` and `autograder2 key verify` call once the spec
+# exists: the grader tries the rubric.
 KEY_MODELS = {
     "solver": SOLVER,
     "checker": CHECKER,
@@ -91,7 +91,7 @@ MAPPER = ModelInfo(
 # ~openai/gpt-sol-latest as well: the second reader, of another vendor than the
 # reader's
 SECOND = CHECKER
-# The roles `redpen grade` sends student pages to.
+# The roles `autograder2 grade` sends student pages to.
 GRADE_MODELS = {"mapper": MAPPER, "reader": READER, "second": SECOND, "grader": GRADER}
 # OpenRouter's ZDR listing as it held those models' pinned endpoints: none retains.
 ZDR = [

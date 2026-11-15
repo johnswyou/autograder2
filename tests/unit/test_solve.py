@@ -13,15 +13,15 @@ import pytest
 from pydantic import BaseModel
 from typer.testing import CliRunner
 
-from redpen.cli import app
-from redpen.llm.client import Gateway, StageError
-from redpen.llm.models import ModelInfo
-from redpen.prepare import rubric, solve
-from redpen.prepare.rubric import PartRubric, Rubric, write_rubric
-from redpen.prepare.solve import PartSolution, Solution
-from redpen.prepare.verify import Ruling, Rulings
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace, read_model
+from autograder2.cli import app
+from autograder2.llm.client import Gateway, StageError
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare import rubric, solve
+from autograder2.prepare.rubric import PartRubric, Rubric, write_rubric
+from autograder2.prepare.solve import PartSolution, Solution
+from autograder2.prepare.verify import Ruling, Rulings
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace, read_model
 from tests.fixture_truth import FIXTURES
 from tests.fixture_truth import answer as filled
 from tests.grader import grades
@@ -383,7 +383,7 @@ def test_a_failed_problem_is_asked_again_on_the_next_run_and_the_others_are_kept
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
-        "redpen.cli.Gateway",
+        "autograder2.cli.Gateway",
         # No rate spacing, so that every problem's first call starts at once.
         functools.partial(
             Gateway, transport=httpx.MockTransport(handle), requests_per_second=1e6

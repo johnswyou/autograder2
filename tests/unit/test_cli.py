@@ -13,14 +13,14 @@ from reportlab.pdfgen import canvas
 from rich.text import Text
 from typer.testing import CliRunner
 
-from redpen.cli import _point_value, app
-from redpen.config import Models, read_lock
-from redpen.llm.models import Catalog, recheck_providers
-from redpen.prepare.key import load_key, part_hash, save_key
-from redpen.prepare.verify import Verification
-from redpen.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace, write_model
+from autograder2.cli import _point_value, app
+from autograder2.config import Models, read_lock
+from autograder2.llm.models import Catalog, recheck_providers
+from autograder2.prepare.key import load_key, part_hash, save_key
+from autograder2.prepare.verify import Verification
+from autograder2.schemas.key import Criterion, Key, KeyPart, PointConstraint, Policies
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, answer
 
 runner = CliRunner()
@@ -60,7 +60,7 @@ def test_version_prints_the_installed_version_and_exits() -> None:
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output == f"redpen {metadata.version('redpen')}\n"
+    assert result.output == f"autograder2 {metadata.version('autograder2')}\n"
 
 
 def test_prepare_refuses_a_dry_run_and_names_the_command_that_estimates(
@@ -72,7 +72,7 @@ def test_prepare_refuses_a_dry_run_and_names_the_command_that_estimates(
 
     assert result.exit_code == 1
     assert result.stderr.strip() == (
-        "prepare has no dry run. `redpen run BLANK.pdf SUBMISSIONS --dry-run`"
+        "prepare has no dry run. `autograder2 run BLANK.pdf SUBMISSIONS --dry-run`"
         " estimates the key and the grading, and sends nothing."
     )
     assert not (tmp_path / "ws").exists()
@@ -273,8 +273,8 @@ def test_prepare_checks_an_existing_key_leaves_it_as_it_is_and_calls_no_model(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
-    monkeypatch.setattr("redpen.cli.Gateway", refuse)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", refuse)
+    monkeypatch.setattr("autograder2.cli.Gateway", refuse)
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     workspace = Workspace(tmp_path / "ws")
     workspace.blank_pdf.parent.mkdir(parents=True)
@@ -304,8 +304,8 @@ def prepared_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Workspace:
     """A workspace prepared from the fixture blank, with a valid key and LOCK; any
     reach for OpenRouter fails."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("redpen.config.fetch_catalog", refuse)
-    monkeypatch.setattr("redpen.cli.Gateway", refuse)
+    monkeypatch.setattr("autograder2.config.fetch_catalog", refuse)
+    monkeypatch.setattr("autograder2.cli.Gateway", refuse)
     shutil.copy(FIXTURES / "blank.pdf", "blank.pdf")
     workspace = Workspace(tmp_path / "ws")
     workspace.blank_pdf.parent.mkdir(parents=True)
@@ -397,7 +397,7 @@ def test_key_check_works_on_a_workspace_that_cannot_be_written_to(
 def test_verbose_flag_sets_log_level(flags: list[str], level: int) -> None:
     runner.invoke(app, [*flags, "report"])
 
-    assert logging.getLogger("redpen").level == level
+    assert logging.getLogger("autograder2").level == level
 
 
 def vision(slug: str, inputs: list[str]) -> dict[str, Any]:
@@ -427,7 +427,7 @@ CATALOG = Catalog(
 
 
 def configure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str) -> None:
-    """A redpen.toml with every role on vendor/vision-1 but the reader, and
+    """An autograder2.toml with every role on vendor/vision-1 but the reader, and
     OpenRouter listing CATALOG."""
 
     async def fetch_catalog(api_key: str) -> Catalog:
@@ -435,10 +435,10 @@ def configure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader: str) -> N
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr("redpen.cli.fetch_catalog", fetch_catalog)
+    monkeypatch.setattr("autograder2.cli.fetch_catalog", fetch_catalog)
     roles = dict.fromkeys(Models.model_fields, "vendor/vision-1") | {"reader": reader}
     toml = "".join(f'{role} = "{name}"\n' for role, name in roles.items())
-    Path("redpen.toml").write_text("[models]\n" + toml)
+    Path("autograder2.toml").write_text("[models]\n" + toml)
 
 
 @pytest.mark.parametrize(
@@ -523,7 +523,7 @@ def test_models_check_reverifies_the_lock_in_a_workspace(
         lambda request: httpx.Response(200, json={"data": zdr})
     )
     monkeypatch.setattr(
-        "redpen.cli.recheck_providers",
+        "autograder2.cli.recheck_providers",
         functools.partial(recheck_providers, transport=transport),
     )
     lock = Workspace(tmp_path / "ws").config_lock_toml
@@ -551,8 +551,8 @@ def test_models_check_calls_a_lock_that_does_not_load_damaged(
     assert result.exit_code == 1
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert result.output.splitlines()[-1] == (
-        f"{lock} is damaged (not a lock). Delete it and run `redpen prepare` again to"
-        " have the models pinned again from redpen.toml."
+        f"{lock} is damaged (not a lock). Delete it and run `autograder2 prepare` again"
+        " to have the models pinned again from autograder2.toml."
     )
 
 
@@ -610,7 +610,7 @@ def test_a_fresh_prepare_writes_the_points_given_into_the_key(
             checker="maker/vision-2", keyed=False, parts=[]
         )
 
-    monkeypatch.setattr("redpen.cli._key", stages)
+    monkeypatch.setattr("autograder2.cli._key", stages)
 
     result = runner.invoke(
         app, ["prepare", "blank.pdf", "--workspace", "ws", "--total", "4"]
@@ -726,7 +726,7 @@ def test_a_fresh_prepare_refuses_points_that_cannot_be_met_before_any_solver(
     workspace = prepared_key(tmp_path, monkeypatch)
     workspace.key_yaml.unlink()
     for stage in ("_key", "solve", "write_rubric"):  # each fails the test if called
-        monkeypatch.setattr(f"redpen.cli.{stage}", refuse)
+        monkeypatch.setattr(f"autograder2.cli.{stage}", refuse)
 
     result = runner.invoke(app, ["prepare", "blank.pdf", "--workspace", "ws", *points])
 
@@ -751,7 +751,7 @@ def test_run_with_a_total_sets_it_in_the_key_and_reaches_grading(
         points = load_key(ws.key_yaml).points  # as grading would find it
         reached.append((ws.key_yaml.resolve(), points, submissions, dry_run))
 
-    monkeypatch.setattr("redpen.cli._grade", grade)
+    monkeypatch.setattr("autograder2.cli._grade", grade)
     Path("subs").mkdir()  # run looks for a PDF in it before prepare
     Path("subs", "HW 1 - Ann Example.pdf").write_bytes(b"")
 

@@ -11,10 +11,10 @@ from PIL import Image
 from pydantic import BaseModel
 from reportlab.pdfgen import canvas
 
-from redpen.imaging import render
-from redpen.llm.client import Gateway
-from redpen.llm.models import ModelInfo
-from redpen.prepare.parse import (
+from autograder2.imaging import render
+from autograder2.llm.client import Gateway
+from autograder2.llm.models import ModelInfo
+from autograder2.prepare.parse import (
     PageItem,
     PageParse,
     SpecError,
@@ -23,9 +23,9 @@ from redpen.prepare.parse import (
     parse,
     with_text_bands,
 )
-from redpen.schemas.common import ResponseType
-from redpen.schemas.spec import Part, Spec
-from redpen.workspace import Workspace
+from autograder2.schemas.common import ResponseType
+from autograder2.schemas.spec import Part, Spec
+from autograder2.workspace import Workspace
 from tests.fixture_truth import FIXTURES
 
 MODEL = ModelInfo(

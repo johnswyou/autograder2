@@ -1,5 +1,5 @@
 """Paid: the grader's method credit on hand-built readings, two fresh draws of each
-case. Run with `REDPEN_LIVE=1 uv run pytest -s tests/live/test_grade_live.py`
+case. Run with `AUTOGRADER2_LIVE=1 uv run pytest -s tests/live/test_grade_live.py`
 (about $0.50). It prints every award and asserts only what must never earn method
 credit; the slip and other-route cases are printed, since single draws vary. This
 is what a later change to the grade prompt is checked with.
@@ -18,20 +18,25 @@ from typing import Any
 
 import pytest
 
-from redpen.config import openrouter_api_key
-from redpen.grade.grade import grade_student
-from redpen.llm.client import Gateway
-from redpen.schemas.grade import GradeRecord
-from redpen.schemas.key import Key
-from redpen.schemas.reading import FinalAnswer, ProblemReadings, Reading, ReadingRecord
-from redpen.workspace import Workspace, write_model
+from autograder2.config import openrouter_api_key
+from autograder2.grade.grade import grade_student
+from autograder2.llm.client import Gateway
+from autograder2.schemas.grade import GradeRecord
+from autograder2.schemas.key import Key
+from autograder2.schemas.reading import (
+    FinalAnswer,
+    ProblemReadings,
+    Reading,
+    ReadingRecord,
+)
+from autograder2.workspace import Workspace, write_model
 from tests.fixture_truth import FIXTURES, NOBODY
 from tests.pinned import GRADER
 
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        os.environ.get("REDPEN_LIVE") != "1", reason="paid; set REDPEN_LIVE=1"
+        os.environ.get("AUTOGRADER2_LIVE") != "1", reason="paid; set AUTOGRADER2_LIVE=1"
     ),
 ]
 

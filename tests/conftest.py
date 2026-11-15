@@ -8,12 +8,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from redpen.config import openrouter_api_key
-from redpen.grade.ingest import IngestSummary, ingest
-from redpen.llm.cache import CallCache
-from redpen.llm.client import Gateway
-from redpen.prepare.parse import render_blank
-from redpen.workspace import Workspace
+from autograder2.config import openrouter_api_key
+from autograder2.grade.ingest import IngestSummary, ingest
+from autograder2.llm.cache import CallCache
+from autograder2.llm.client import Gateway
+from autograder2.prepare.parse import render_blank
+from autograder2.workspace import Workspace
 from tests.fixture_truth import FIXTURES, SUBMISSIONS
 
 pytest_plugins = ["pytester"]
@@ -63,11 +63,11 @@ def replay(
 ) -> Iterator[Callable[[str], Gateway]]:
     """`replay(name)`: an offline gateway answering from tests/recordings/<name>.jsonl.
 
-    With REDPEN_RECORD=1 the gateway calls OpenRouter instead (paid), and the
+    With AUTOGRADER2_RECORD=1 the gateway calls OpenRouter instead (paid), and the
     recording is rewritten when the test passes. A test that fails or skips leaves
     the recording as it was.
     """
-    record = os.environ.get("REDPEN_RECORD") == "1"
+    record = os.environ.get("AUTOGRADER2_RECORD") == "1"
     recorded: dict[Path, Path] = {}
 
     def gateway(name: str) -> Gateway:
