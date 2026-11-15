@@ -1,4 +1,4 @@
-"""Report, first version: the three score files, one feedback file
+"""The report: the three score files, one feedback file
 per student, the flags and the run report, computed by code from the stored
 readings and grades and the instructor's corrections. No model call;
 every point value is a Decimal.

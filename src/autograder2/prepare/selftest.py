@@ -1,4 +1,4 @@
-"""The rubric's self-test (its first half). Nobody reviews the key before
+"""The rubric's self-test. Nobody reviews the key before
 a class is graded, so the key's own solution of each part a model grades is turned,
 in code, into a response, and the grade stage grades it against the rubric, text
 only, exactly as it grades a student: it has to earn every criterion in full. On a

@@ -1,5 +1,5 @@
-"""Grade one read student (without a second grader or referee, a second
-read or a re-map). Code scores a part read blank and a choice part; every other part
+"""Grade one read student.
+Code scores a part read blank and a choice part; every other part
 of a top-level problem goes to the grader in one call, with the answer check's
 verdict beside each part that has one, and each award it returns is checked against
 the key and held to that verdict. Code adds up points."""

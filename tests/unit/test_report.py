@@ -935,7 +935,7 @@ def test_a_second_reading_changes_the_part_s_flags_and_never_its_score(
             return r.model_copy(update={"reading": reading})
 
         change_reading(workspace, student, "Q4.b", again)
-    if case.stale == "shape":  # as this task's first version wrote it
+    if case.stale == "shape":  # as an earlier version wrote it
         old = record.model_dump(mode="json", exclude={"part_hash", "doubted"})
         path.write_text(json.dumps({"records": [old]}))
 

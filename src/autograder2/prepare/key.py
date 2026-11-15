@@ -325,7 +325,7 @@ def check(key: Key, spec: Spec) -> list[str]:
     return problems
 
 
-# --- points (as the instructor ruled) -----------------------------------------------
+# --- points -------------------------------------------------------------------------
 
 
 def weight(part: KeyPart) -> Decimal:

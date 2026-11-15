@@ -1,5 +1,5 @@
-"""Work that no part claims, found in code with no fingerprint
-and no model call. On a slide export every student's page k is the same slide, so
+"""Work that no part claims, found in code with no model call.
+On a slide export every student's page k is the same slide, so
 the class itself gives each page's background, and a student's ink is where their
 page is darker than it. Ink that no region of the student's map claims (an entry, a
 set-aside block or a name, each grown by the read stage's margin) raises

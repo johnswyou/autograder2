@@ -1,4 +1,4 @@
-"""Map one student's submission (before the fingerprint exists):
+"""Map one student's submission:
 one call per page lists the blocks of student work on it, one text-only call
 attributes the blocks to parts by id, and code checks the result and looks up each
 block's page and box. No model copies a coordinate."""
@@ -143,8 +143,8 @@ async def map_student(
     async def take(number: int) -> PageInventory:
         image = _open(workspace.student_page(student, number))
         blank = workspace.key_page(number)
-        # Stands in for the fingerprint (7.2): on a slide export page k is blank
-        # page k, so the model is shown that page before the student touched it.
+        # On a slide export page k is blank page k, so the model is shown that page
+        # before the student touched it.
         before = (
             [prep.reduced_png(_open(blank), image_budget)]
             if record.source_kind == "classkick" and blank.exists()
@@ -216,7 +216,7 @@ async def map_student(
 def problems(
     spec: Spec, blocks: Mapping[str, PageBlock], found: Resolution
 ) -> list[str]:
-    """Every way `found` fails the checks that need no fingerprint, in
+    """Every way `found` fails the checks, in
     a fixed order (it is sent back to the model). An id the model wrote is named
     only when it has the shape of a part id or a block id: it is free text."""
     parts = [p.id for p in spec.parts]

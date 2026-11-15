@@ -1,5 +1,5 @@
-"""Read one mapped student (with the single-region render and the
-resolution ceiling: no tiling, no second look). Multiple-choice and multiple-select
+"""Read one mapped student. Each mapped region is sent as a single image, up to a
+resolution ceiling. Multiple-choice and multiple-select
 parts are read one submission page at a time, every other part one top-level
 problem at a time. A call is sent the parts' text, each page of the unit whole as
 an overview, and each mapped region rendered from the PDF. Nothing from the key
