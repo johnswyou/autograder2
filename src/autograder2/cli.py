@@ -1,4 +1,4 @@
-"""The `autograder2` command line (design section 12).
+"""The `autograder2` command line.
 
 Nothing printed to the terminal names a student or repeats what a student or a
 model wrote: counts and the workspace's own paths only. The one exception is

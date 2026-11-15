@@ -1,4 +1,4 @@
-"""Clear messages for common mistakes (task 5.4a, rule 10): one line that says what
+"""Clear messages for common mistakes: one line that says what
 is wrong and what to do, exit code 1, no traceback, and nothing a student or a model
 wrote; and the commands that need no API key run without one.
 
@@ -561,7 +561,7 @@ def test_an_edited_file_that_does_not_parse_is_named_with_its_place(
         assert found.startswith(line), found
 
 
-# --- stored files damaged (task 5.4a, fix round 1) -----------------------------------
+# --- stored files damaged ------------------------------------------------------------
 
 
 def damaged_line(path: Path, again: str = "grade") -> str:
@@ -662,7 +662,7 @@ def test_after_a_stop_the_run_log_has_a_line_for_it_and_any_other_fault(
     assert "StopError" not in log
 
 
-# --- the lock (task 5.4a, fix round 1) -----------------------------------------------
+# --- the lock ------------------------------------------------------------------------
 
 
 class Killed(BaseException):
@@ -767,7 +767,7 @@ def test_a_lock_pinned_without_strict_privacy_is_refused_in_one_line_once_it_is_
     assert_one_line(result, PINNED_RELAXED)
 
 
-# --- the stored blank and its page images (final fix round) --------------------------
+# --- the stored blank and its page images --------------------------------------------
 
 
 BLANK_DAMAGED = (
@@ -839,7 +839,7 @@ def test_a_page_image_of_the_blank_cut_short_stays_as_it_was(
     assert workspace.key_page(1).read_bytes() == before
 
 
-# --- what a paid command spent (final fix round) -------------------------------------
+# --- what a paid command spent -------------------------------------------------------
 
 
 def booking(cost: str, stop: bool = False) -> Any:

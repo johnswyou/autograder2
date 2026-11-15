@@ -1145,7 +1145,7 @@ def test_an_audit_stored_before_split_reports_as_one_that_split_nothing(
     now = written()
     path = workspace.audit_json("Q4.c")
     earlier = json.loads(path.read_text())
-    del earlier["split"]  # as the code before task 5.4a stored it
+    del earlier["split"]  # as earlier code stored it
     path.write_text(json.dumps(earlier))
 
     assert written() == now

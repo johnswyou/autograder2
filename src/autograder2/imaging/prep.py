@@ -85,7 +85,7 @@ def reduced_png(
     image: Image.Image, budget: int, blanked: Sequence[Sequence[float]] = ()
 ) -> bytes:
     """`image` as PNG, reduced to fit `budget` pixels on its longest edge (the image
-    budget of design 10.2), then each box of `blanked` filled with `BLANKED` on
+    budget), then each box of `blanked` filled with `BLANKED` on
     every pixel it touches."""
     small = image.copy()
     small.thumbnail((budget, budget))

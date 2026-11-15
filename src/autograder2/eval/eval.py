@@ -1,4 +1,4 @@
-"""`autograder2 eval` (design 15): the tool's scores against a person's for the same
+"""`autograder2 eval`: the tool's scores against a person's for the same
 class, from stored files only. No model call. Every score, difference, mean and
 share is a Decimal until it is printed.
 

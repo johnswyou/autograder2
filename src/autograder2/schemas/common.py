@@ -75,7 +75,7 @@ class DiagramElement(Schema):
     position: str | None
 
 
-# What an artifact was produced under (design section 11). The key part hash is
+# What an artifact was produced under. The key part hash is
 # null on artifacts that do not depend on the key. Prompt version and model slug
 # are null on artifacts produced by code with no model call.
 class Provenance(Schema):

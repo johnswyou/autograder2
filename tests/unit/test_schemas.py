@@ -18,7 +18,7 @@ from autograder2.schemas.submission import (
     MapRecord,
 )
 
-# The design's examples, with every field present (no optional keys) and the
+# Worked examples, with every field present (no optional keys) and the
 # answers flattened.
 
 SPEC_PART: dict[str, Any] = {

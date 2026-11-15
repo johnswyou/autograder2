@@ -1,7 +1,6 @@
 """Write the synthetic fixtures under tests/fixtures/synthetic/. Takes no arguments.
 
-Format facts copied from real Classkick exports (docs/export-notes.md, and the object
-comparison in the task 0.3 report):
+Format facts measured on real Classkick exports:
 
 - A page is 612 x 792 pt and holds exactly one image, the slide: 1004 x 2008 px, RGB,
   FlateDecode, with a DeviceGray FlateDecode /SMask, drawn at x 200..591.56 and

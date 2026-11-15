@@ -1,4 +1,4 @@
-"""Flags on a student and part, and their severities (design section 9)."""
+"""Flags on a student and part, and their severities."""
 
 from collections.abc import Mapping
 from enum import StrEnum

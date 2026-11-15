@@ -872,7 +872,7 @@ def test_finish_all_raises_a_fault_gathered_with_a_stop_before_the_stop() -> Non
     assert "also failed: StopError" in "".join(traceback.format_exception(raised.value))
 
 
-# --- task 5.4a: rate limits, a provider that fails, and failures no retry cures ----
+# --- rate limits, a provider that fails, and failures no retry cures ---------------
 
 
 def limited(code: int, wait: str | None) -> httpx.Response:

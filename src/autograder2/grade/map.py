@@ -1,4 +1,4 @@
-"""Map one student's submission (design 7.3, before the fingerprint of 7.2 exists):
+"""Map one student's submission (before the fingerprint exists):
 one call per page lists the blocks of student work on it, one text-only call
 attributes the blocks to parts by id, and code checks the result and looks up each
 block's page and box. No model copies a coordinate."""
@@ -155,7 +155,7 @@ async def map_student(
             shown = prep.reduced_png(prep.rotate(image, turns), image_budget)
             with Image.open(io.BytesIO(shown)) as sent:
                 # Without it the model was seen to measure a tall page as if it
-                # had a paper sheet's shape (task 2.3 report).
+                # had a paper sheet's shape.
                 size = json.dumps({"width": sent.width, "height": sent.height})
             return await ask(inventory_prompt, [shown, *before, size], asked)
 
@@ -216,7 +216,7 @@ async def map_student(
 def problems(
     spec: Spec, blocks: Mapping[str, PageBlock], found: Resolution
 ) -> list[str]:
-    """Every way `found` fails the checks of design 7.3 that need no fingerprint, in
+    """Every way `found` fails the checks that need no fingerprint, in
     a fixed order (it is sent back to the model). An id the model wrote is named
     only when it has the shape of a part id or a block id: it is free text."""
     parts = [p.id for p in spec.parts]

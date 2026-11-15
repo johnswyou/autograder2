@@ -1,4 +1,4 @@
-"""Grade one read student (design 7.5, without a second grader or referee, a second
+"""Grade one read student (without a second grader or referee, a second
 read or a re-map). Code scores a part read blank and a choice part; every other part
 of a top-level problem goes to the grader in one call, with the answer check's
 verdict beside each part that has one, and each award it returns is checked against
@@ -161,9 +161,9 @@ def request(
     for part in parts:
         reading = mine[part.id].reading
         choice = part.response_type in CHOICE_TYPES
-        # Withheld, never zero (design 9): work that cannot be read, and a choice
+        # Withheld, never zero: work that cannot be read, and a choice
         # part answered with no option read, which no grader that knows the key
-        # may settle (design 7.3).
+        # may settle.
         if reading.status == "unreadable" or (
             choice and reading.status == "answered" and not reading.final_answer.choices
         ):
@@ -229,7 +229,7 @@ async def ask_grader(
     draw: int = 1,
 ) -> dict[str, GradeRecord]:
     """The record of each part `found` asks about, from `model`'s answer to its
-    request (none when it asks about none), checked as design 7.5 says, with one
+    request (none when it asks about none), checked, with one
     more call when the answer fails the checks; `StageError` when it still does.
     `role` names the calls in the ledger, and a `draw` after the first asks for
     another answer to the same request (`Gateway.call`)."""
@@ -353,7 +353,7 @@ def by_code(part: KeyPart, reading: Reading) -> Grade:
 
 
 def problems(key: Key, asked: Mapping[str, Reading], found: Grades) -> list[str]:
-    """Every way `found` fails the checks of design 7.5 for the parts `asked`, by
+    """Every way `found` fails the checks for the parts `asked`, by
     id with their readings, in a fixed order (it is sent back to the model). Only
     the key's ids, levels and line and element numbers are named: nothing else the
     model wrote is repeated."""

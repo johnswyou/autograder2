@@ -1,4 +1,4 @@
-"""The key file (design 6.6): `key.yaml` read and written, checked after a hand
+"""The key file: `key.yaml` read and written, checked after a hand
 edit, hashed, and rendered as `solutions.md` and `rubric.md`. `key.yaml` is the only
 store of answers, criteria and points. This module imports no stage, so that the
 grade and report stages can load the key without the prepare stages or pdfium."""
@@ -90,7 +90,7 @@ def load_key(path: Path) -> Key:
 
 def _fill_answers(data: Any) -> None:
     """Give each part's answer in `data` every field: `key.yaml` leaves out those an
-    answer does not use, as design 6.3 shows, and `Answer` requires them all."""
+    answer does not use, and `Answer` requires them all."""
     parts = cast(dict[str, Any], data).get("parts") if isinstance(data, dict) else None
     for part in cast(list[Any], parts) if isinstance(parts, list) else []:
         answer = (
@@ -186,12 +186,12 @@ def _merge(old: Any, new: Any) -> Any:
     return cast(Any, old) if old == new else cast(Any, new)
 
 
-# --- hashes (design 6.6) -------------------------------------------------------------
+# --- hashes --------------------------------------------------------------------------
 
 
 def grading_content(part: KeyPart) -> str:
     """What the grader is given of `part`, as JSON: every field but `state` and
-    `home_page`, each point value in its shortest form. Task 2.5 sends this text."""
+    `home_page`, each point value in its shortest form."""
     return json.dumps(part.model_dump(exclude={"state", "home_page"}), default=number)
 
 
@@ -325,7 +325,7 @@ def check(key: Key, spec: Spec) -> list[str]:
     return problems
 
 
-# --- points (design 6.4, as the instructor ruled) -----------------------------------
+# --- points (as the instructor ruled) -----------------------------------------------
 
 
 def weight(part: KeyPart) -> Decimal:

@@ -1,4 +1,4 @@
-"""The second grade (design 7.5 and 10.4, as task 4.6b rules them), after the grade
+"""The second grade, after the grade
 stage and before the class audit, under the profiles in `PROFILES`. Each problem of
 a student that the grader was asked about, and whose stored grade is the answer to
 the request the grade stage makes now, is asked again: the grade stage's own

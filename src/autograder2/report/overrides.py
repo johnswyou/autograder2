@@ -1,4 +1,4 @@
-"""The instructor's corrections (design 11) and reviews (design 12): `overrides.yaml`
+"""The instructor's corrections and reviews: `overrides.yaml`
 and `reviews.yaml` in the workspace root, lists of `Override` and `Review` entries
 that may be edited by hand. `load_overrides` and `load_reviews` refuse a file that
 does not parse or names a part or criterion the key lacks (an entry may name a

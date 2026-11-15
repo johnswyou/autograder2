@@ -9,7 +9,7 @@ under the grade prompt now. So each second grade's request is the grade stage's
 own request for those readings, at the second draw. Its answers are
 `tests/recordings/second_grade_class.jsonl`, one call for each problem a model
 grades. It was made by running this seed and `grade_again` live into a persistent
-scratch cache and keeping exactly the calls made (task 4.6b report). Under
+scratch cache and keeping exactly the calls made. Under
 `AUTOGRADER2_RECORD=1` the `replay` fixture would call the grader again (paid) and
 rewrite it once the test passes."""
 

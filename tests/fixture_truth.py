@@ -33,7 +33,7 @@ NOBODY = Provenance(key_part_hash=None, prompt_version=None, model_slug=None)
 
 # The ground truth of one synthetic submission, in the JSON file beside its PDF.
 # Reading lines leave out the student's own part labels such as "4b)". A part whose
-# response is unreadable has no grade, because the design withholds that score.
+# response is unreadable has no grade, because that score is withheld.
 class SubmissionTruth(Schema):
     layout_class: Literal[
         "typed-in-place",

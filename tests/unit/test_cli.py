@@ -556,7 +556,7 @@ def test_models_check_calls_a_lock_that_does_not_load_damaged(
     )
 
 
-# --- --total and --page-points (task 4.5a) -------------------------------------------
+# --- --total and --page-points -------------------------------------------------------
 
 
 @pytest.mark.parametrize(

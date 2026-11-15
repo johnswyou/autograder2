@@ -1,4 +1,4 @@
-"""The rubric's self-test (design 6.5): the key's own solution built into a response
+"""The rubric's self-test: the key's own solution built into a response
 in code and graded by the grade stage itself, the state it leaves, the rubric
 written once more on a fresh prepare, and the two measurements beside it. No model
 is called: the gateway talks to a mock transport, and solve and verify are fakes."""

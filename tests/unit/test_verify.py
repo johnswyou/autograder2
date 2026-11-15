@@ -1,4 +1,4 @@
-"""The key solved twice (design 6.2): the comparison and the arithmetic check in
+"""The key solved twice: the comparison and the arithmetic check in
 code, the referee and its blindness, the states, `key verify` in place, and the
 fresh prepare. No model is called: the gateway talks to a mock transport, or the
 stages are fakes."""

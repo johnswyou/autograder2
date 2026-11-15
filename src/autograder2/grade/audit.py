@@ -1,5 +1,5 @@
-"""The class audit (design 7.6), run once every student of the class is graded. Two
-of the design's three checks; the outlier pass is not built.
+"""The class audit, run once every student of the class is graded. It makes two
+checks; a third, the outlier pass, is not built.
 
 Same evidence, same award: for each criterion a model decided, the cases are
 grouped by the folded text of the line or element the grader cited. A group whose
@@ -52,7 +52,7 @@ from autograder2.workspace import Workspace, log_failure, write_model
 SHARE = Decimal("0.4")  # of the students who answered
 AT_LEAST = 5  # students
 # Output tokens allowed per case of a group, above the grade stage's own limit:
-# the longest answers measured took about 150 a case (task 4.7 report).
+# the longest answers measured took about 150 a case.
 PER_CASE = 160
 # The most cases one request decides: at PER_CASE tokens a case the answer stays in
 # the grade stage's own token limit (8000), and no request grows with the class. A

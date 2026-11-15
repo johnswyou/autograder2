@@ -1,4 +1,4 @@
-"""The key: answers, solutions, criteria and policies (design 6.2, 6.3, 6.6)."""
+"""The key: answers, solutions, criteria and policies."""
 
 from decimal import Decimal
 from typing import Literal, Self
@@ -91,7 +91,7 @@ class KeyPart(Schema):
         return self
 
 
-# The whole-assignment policies of design 6.3, with its defaults.
+# The whole-assignment policies, with their defaults.
 class Policies(Schema):
     # The key always spells out every policy, so its schema lists them as required.
     model_config = ConfigDict(

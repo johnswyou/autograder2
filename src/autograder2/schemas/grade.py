@@ -1,5 +1,5 @@
-"""The grader's decisions on a part (design 7.5), and the instructor's corrections
-(design 11) and reviews (design 12).
+"""The grader's decisions on a part, and the instructor's corrections
+and reviews.
 
 `Grade` is what the grader returns. `GradeRecord` is what is stored: the grade
 with the provenance, including the key part hash, and the reading it was produced

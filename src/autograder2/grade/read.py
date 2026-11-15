@@ -1,5 +1,5 @@
-"""Read one mapped student (design 7.4, with the single-region render and the
-ceiling of 7.7: no tiling, no second look). Multiple-choice and multiple-select
+"""Read one mapped student (with the single-region render and the
+resolution ceiling: no tiling, no second look). Multiple-choice and multiple-select
 parts are read one submission page at a time, every other part one top-level
 problem at a time. A call is sent the parts' text, each page of the unit whole as
 an overview, and each mapped region rendered from the PDF. Nothing from the key
@@ -355,7 +355,7 @@ def _region(
     page: pdfium.PdfPage, kind: render.SourceKind, box: Sequence[float], budget: int
 ) -> render.Region:
     """`box` grown by `MARGIN` and clamped to the page, rendered to fill `budget`
-    but never past the ceiling of design 7.7: twice the page's native resolution.
+    but never past the ceiling: twice the page's native resolution.
     `render_region` keeps to it on a slide export; on another page with a raster
     image it is rendered once more at the size that keeps to it, unless the region
     holds ink drawn as vectors, which has no ceiling."""

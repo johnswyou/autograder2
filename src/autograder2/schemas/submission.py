@@ -1,4 +1,4 @@
-"""One student's submission: the ingest record and the map (design 7.1 and 7.3).
+"""One student's submission: the ingest record and the map.
 
 `Map` is built from what the resolve call returns. `MapRecord` is what is stored:
 the map, the facts found about each page, and the provenance.
@@ -27,14 +27,14 @@ class IngestRecord(Schema):
     pages: list[IngestPage]
 
 
-# What a map entry's part was attributed by, strongest first (design 7.3).
+# What a map entry's part was attributed by, strongest first.
 Basis = Literal["student_label", "position", "content"]
 # `continuation` carries on a response that starts in another entry.
 Role = Literal["work", "continuation"]
 Confidence = Literal["high", "medium", "low"]
 
 
-# Where one part's response sits (design 7.3).
+# Where one part's response sits.
 class MapEntry(Schema):
     part_id: PartId
     page: PositiveInt
@@ -84,7 +84,7 @@ class MapRecord(Schema):
     map: Map
 
 
-# One page of a submission against its class's background (design 7.3).
+# One page of a submission against its class's background.
 class CoveragePage(Schema):
     number: PositiveInt
     # Why the page was not compared with the background; null when it was.

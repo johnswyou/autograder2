@@ -971,7 +971,7 @@ def test_the_measures_hold_together_for_any_scores_within_the_maximums(
     )
 
 
-# --- the instructor's points (task 4.5a) ---------------------------------------------
+# --- the instructor's points ---------------------------------------------------------
 
 
 def test_with_points_set_the_maxima_are_the_allocation_s_and_a_gold_above_is_refused(

@@ -1,4 +1,4 @@
-"""Work that no part claims (design 7.3 and 13), found in code with no fingerprint
+"""Work that no part claims, found in code with no fingerprint
 and no model call. On a slide export every student's page k is the same slide, so
 the class itself gives each page's background, and a student's ink is where their
 page is darker than it. Ink that no region of the student's map claims (an entry, a
@@ -35,7 +35,7 @@ from autograder2.schemas.submission import (
 )
 from autograder2.workspace import Workspace, log_failure, read_model, write_model
 
-# The thresholds, measured on the fixture classes (task 4.3 report). A channel
+# The thresholds, measured on the fixture classes. A channel
 # darker than the background's by more than INK is ink. At 20 the check finds 88 of
 # 100 responses left out of the fixtures' maps, against 84 at 40, with no false
 # flag; but the fixtures are drawn and lossless, and 40 leaves twice the room for
@@ -50,7 +50,7 @@ NEARLY = 0.1
 # print, where every other comparable page is dark (a channel under PRINT), is
 # another rendering too: shifted by a pixel or resampled, its print edges would show
 # as ink. A fixture page reaches 0.059 of it, a page among others who wrote at the
-# same place 0.079, a slide shifted by one pixel 0.163 and more (task 4.3 fix 1).
+# same place 0.079, a slide shifted by one pixel 0.163 and more.
 LIGHTER = 0.12
 PRINT = 128
 # Leftover ink is judged in square cells of CELL pixels; a cell with DENSE of it ink

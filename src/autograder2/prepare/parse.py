@@ -1,4 +1,4 @@
-"""Parse the blank assignment into the spec (design 6.1): one call per page, one
+"""Parse the blank assignment into the spec: one call per page, one
 call that stitches the pages together, then the checks and the bands in code."""
 
 import asyncio
@@ -26,7 +26,7 @@ COLUMN = 0.25  # of the page width: a label further left or right is another col
 
 
 class SpecError(Exception):
-    """The spec fails the checks of design 6.1. The message lists every failure."""
+    """The spec fails its checks. The message lists every failure."""
 
 
 # What the per-page call returns. Bands and boxes are fractions of the page image.
@@ -144,7 +144,7 @@ def render_blank(workspace: Workspace) -> list[render.Page]:
 
 
 def check(spec: Spec, page_count: int) -> list[str]:
-    """Every way `spec` fails the checks of design 6.1, `[]` if it passes. A gap in
+    """Every way `spec` fails its checks, `[]` if it passes. A gap in
     the numbering is not a failure here: an assignment may skip a number, so it is
     a warning (`missing_numbers`)."""
     ids = Counter(part.id for part in spec.parts)

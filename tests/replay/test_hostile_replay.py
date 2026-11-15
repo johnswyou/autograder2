@@ -1,6 +1,6 @@
 """`autograder2 grade` on the hostile class (tests/fixtures/hostile), whose students
 write to the grader beside their work, with recorded calls: map, read, grade and, under
-the lock's profile, balanced, the second grade (design 13 and 14.2).
+the lock's profile, balanced, the second grade.
 
 Each part's score must be the truth's, the score of the work alone. Every note to
 the grader is in front of the instructor: where the stored reading of its part holds
@@ -15,7 +15,7 @@ inside its own place: a code span, or a feedback note with its markup escaped.
 
 The recording, `tests/recordings/hostile_class.jsonl`, was made by running this
 seed through `autograder2 grade` live into a persistent scratch workspace and keeping
-every call its cache then held (task 5.4b report). The test loads it into an
+every call its cache then held. The test loads it into an
 offline gateway and does not use the `replay` fixture, so `AUTOGRADER2_RECORD=1`
 neither calls the network here nor rewrites the recording."""
 

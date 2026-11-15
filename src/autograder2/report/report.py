@@ -1,6 +1,6 @@
-"""Report, first version (design 8 and 9): the three score files, one feedback file
+"""Report, first version: the three score files, one feedback file
 per student, the flags and the run report, computed by code from the stored
-readings and grades and the instructor's corrections (design 11). No model call;
+readings and grades and the instructor's corrections. No model call;
 every point value is a Decimal.
 
 The caller supplies the students. The `students/` directory is never listed: a
@@ -71,7 +71,7 @@ from autograder2.workspace import Workspace, read_model
 
 type Status = Literal["incomplete", "provisional", "final"]
 
-# The five reasons a part is withheld, never scored zero (design 9), in fixed words.
+# The five reasons a part is withheld, never scored zero, in fixed words.
 UNREADABLE = "The work could not be read."
 NO_OPTION = "No chosen option could be read."
 OTHER_KEY = "It was graded under another version of the key and is to be graded again."
@@ -828,7 +828,7 @@ def _feedback(
     total: Decimal,
     maximum: Decimal,
 ) -> str:
-    """Design 8.3's layout: the total, each problem and each part with its points,
+    """A student's feedback: the total, each problem and each part with its points,
     and under a part the feedback of each criterion that lost points, or why the
     part is not scored. A problem of one part has no line of its own for it."""
     lines = [f"# {title}", "", f"Total: {number(total)} / {number(maximum)}"]
@@ -1109,7 +1109,7 @@ def review(
     closed: Sequence[Flag] = (),
     outdated: Sequence[Review] = (),
 ) -> str:
-    """`out/review.md` (design 8.4): an entry for each key part with an open flag
+    """`out/review.md`: an entry for each key part with an open flag
     in `raised`, with its points, the number of students scored on it and what is
     stored behind its flags; then one for each student and part, or whole
     submission, flagged, with every flag on it and its stored cause, the proposed

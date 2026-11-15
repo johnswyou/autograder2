@@ -1,4 +1,4 @@
-"""Write the rubric (design 6.3): one call per top-level problem, given its parts and
+"""Write the rubric: one call per top-level problem, given its parts and
 their solutions. A choice part gets no call: code writes its one criterion."""
 
 import json

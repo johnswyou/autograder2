@@ -9,7 +9,7 @@ fixtures' own: `spec.json`, `key.json`, the session's ingest and the truth's map
 
 The recording, `tests/recordings/second_small-writing.jsonl`, was made by running
 `seed` and `read_again` live into a persistent scratch cache and keeping exactly
-the calls made (task 4.6a report). Under `AUTOGRADER2_RECORD=1` the `replay` fixture
+the calls made. Under `AUTOGRADER2_RECORD=1` the `replay` fixture
 would call the second reader again (paid) and rewrite it once the test passes."""
 
 import asyncio

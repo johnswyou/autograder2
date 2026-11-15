@@ -68,7 +68,7 @@ def test_a_model_written_to_json_reads_back_equal(tmp_path: Path) -> None:
     assert [p.name for p in path.parent.iterdir()] == ["ingest.json"]
 
 
-# --- the workspace is kept out of git (design 14.1) ----------------------------------
+# --- the workspace is kept out of git ------------------------------------------------
 
 runner = CliRunner()
 

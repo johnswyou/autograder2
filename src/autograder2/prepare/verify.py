@@ -1,4 +1,4 @@
-"""Verify the key (design 6.2). Each problem is solved a second time by the
+"""Verify the key. Each problem is solved a second time by the
 `checker`, another vendor's model, with the solve prompt, schema and page images.
 Code compares the two solutions where the response type allows it, and checks each
 stated value against its final computation. What code cannot settle goes, in one
@@ -81,7 +81,7 @@ class Lost(Schema):
     rationale: str
 
 
-# A response built in code, graded against the key's rubric (design 6.5): "passed"
+# A response built in code, graded against the key's rubric: "passed"
 # when every criterion is at its full points, else "failed" with those below it in
 # `lost`; "not graded" when the call failed or its answer failed the grade stage's
 # checks twice.

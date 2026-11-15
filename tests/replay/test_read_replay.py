@@ -40,8 +40,7 @@ TRANSFORMATIONS = (*standard_transformations, implicit_multiplication, convert_x
 
 def expression(text: str, letters: str) -> sympy.Expr:
     """`text` parsed, after checking it holds only numbers (a point only between
-    digits), arithmetic and `letters`: SymPy's parser evaluates its input as Python
-    (design 14.2)."""
+    digits), arithmetic and `letters`: SymPy's parser evaluates its input as Python."""
     allowed = rf"(?:[0-9]+(?:\.[0-9]+)?|[{re.escape(letters)}]|[-+*/^() ])+"
     assert re.fullmatch(allowed, text), f"not a plain expression in {letters}: {text!r}"
     try:

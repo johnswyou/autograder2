@@ -1,7 +1,7 @@
 """A whole run of the quiz class (tests/fixtures/masking) from a mock OpenRouter, once
 with names masked and once without: `prepare` from the blank, `grade` with the
 second read, the second grade and the class audit, `regrade` after a criterion is
-edited, and `key verify` (design 14.1).
+edited, and `key verify`.
 
 No request holds a student's name as printed, a file name or a student key, in its
 URL, its headers or its body, session id included. Every chat request goes to its

@@ -1725,7 +1725,7 @@ def test_page_and_problem_totals_always_agree_and_stay_within_their_maximums(
     assert by_problem["status"] == "final"
 
 
-# --- the instructor's points (task 4.5a) ---------------------------------------------
+# --- the instructor's points ---------------------------------------------------------
 
 # Page maximums unlike the criteria's 3, 5, 4, 4. Allocated by hand (0.25 steps):
 # page 1, 24 steps for Q1-Q3 (1 each): 2, 2, 2. Page 2, 16 steps for Q4.a 2 and
@@ -1881,7 +1881,7 @@ def test_setting_changing_and_removing_the_points_regrades_nobody(
     assert report(KEY) == before
 
 
-# --- the review list (task 4.8) ------------------------------------------------------
+# --- the review list -----------------------------------------------------------------
 
 
 def entries(text: str) -> list[tuple[str, list[str]]]:

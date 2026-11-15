@@ -48,7 +48,7 @@ class Config(BaseModel):
     Retention, no data collection."""
     mask_names: bool = False
     """Ask the mapper where a student's name is on each page, and blank it in every
-    image of the page sent after the map (design 14.1)."""
+    image of the page sent after the map."""
 
 
 def load_config(path: Path = Path("autograder2.toml")) -> Config:

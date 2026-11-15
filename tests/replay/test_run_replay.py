@@ -6,8 +6,8 @@ profile, balanced, each problem the grader graded is graded a second time. So a
 change to any map, read or grade prompt orphans its recording,
 `tests/recordings/run_chain.jsonl`. That was made, as the stages' recordings were,
 by running this seed live into a scratch workspace with a persistent call cache and
-keeping exactly the calls the run made (task 2.7 report; the second grade's four
-calls were added so in task 4.6b). This test loads the recording itself into an
+keeping exactly the calls the run made (the second grade's four calls were added
+later, the same way). This test loads the recording itself into an
 offline gateway and does not use the `replay` fixture, so `AUTOGRADER2_RECORD=1`
 neither calls the network here nor rewrites the recording.
 

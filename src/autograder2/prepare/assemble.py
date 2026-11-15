@@ -1,5 +1,5 @@
-"""Assemble the key from the spec, the solutions and the rubric (design 6.2 to 6.4,
-the first row of 6.4: the proposal used as is)."""
+"""Assemble the key from the spec, the solutions and the rubric (the rubric's
+proposal is used as is)."""
 
 from collections.abc import Mapping
 from decimal import Decimal
@@ -10,7 +10,7 @@ from autograder2.prepare.verify import State
 from autograder2.schemas.key import Criterion, Key, KeyPart, PartialCredit, Policies
 from autograder2.schemas.spec import CHOICE_TYPES, Spec
 
-ONE = Decimal(1)  # every criterion's points (design 6.4, the proposal used as is)
+ONE = Decimal(1)  # every criterion's points (the proposal used as is)
 
 
 def assemble(

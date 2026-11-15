@@ -1,4 +1,4 @@
-"""Running a class (design 5, 12 and 14.1).
+"""Running a class.
 
 `grade_class` maps, reads, reads again where the reader was unsure, grades and,
 under a profile that does it, grades a second time the students of an ingest, one
@@ -58,7 +58,7 @@ NO_USE = Usage(0, 0, Decimal(0))
 async def privacy_problems(lock: Lock, api_key: str, strict: bool) -> list[str]:
     """Why student pages may not go to the grade roles' pinned endpoints now, or
     `[]` when they may. A check that cannot be completed is a problem: the gate
-    fails closed (design 14.1)."""
+    fails closed."""
     missing = [role for role in STAGES.values() if role not in lock.models]
     if missing:
         return [f"{role}: no model is pinned in the lock" for role in missing]
@@ -118,7 +118,7 @@ async def grade_class(
         for stage in stages
     }
     strict = config.strict_privacy
-    names = [s.student_name for s in students]  # never posted (design 14.1)
+    names = [s.student_name for s in students]  # never posted
     async with Gateway(
         workspace.cache_sqlite, api_key, names=names, strict_privacy=strict
     ) as gw:
@@ -239,8 +239,7 @@ async def uncached(
 
 # Per call, the tokens sent besides images (instructions, outline and JSON parts)
 # and the tokens returned, reasoning included: the means over the calls recorded for
-# the fixtures (task 2.7 report; solve, check and referee in task 4.5b; the
-# self-test's grader calls, "test", in task 4.5c, text only). The
+# the fixtures (the self-test's grader calls, "test", are text only). The
 # checker's vendor counts image tokens its own way, and its text figure takes up
 # the difference at the fixture's page size.
 TOKENS: dict[str, tuple[int, int]] = {
@@ -255,13 +254,13 @@ TOKENS: dict[str, tuple[int, int]] = {
     "resolve": (3916, 748),
     "read": (4684, 461),
     "grade": (5703, 596),
-    "audit": (4428, 420),  # text only: the two calls of audit_class.jsonl (task 5.4a)
+    "audit": (4428, 420),  # text only: the two calls of audit_class.jsonl
 }
 # What is known only once the run is made, assumed: the share of read calls the
 # second reader makes again (none on the fixture class, 5 of 12 on the one real
-# submission measured, task 4.5 keycheck), each priced as the read call it repeats;
+# submission measured), each priced as the read call it repeats;
 # and the class audit's groups for each part a model grades (2 for 6 parts on the
-# fixture class with one award altered, task 4.7), each asked once per MAX_CASES
+# fixture class with one award altered), each asked once per MAX_CASES
 # students.
 SECOND_READS = 0.25
 AUDIT_GROUPS = 0.2

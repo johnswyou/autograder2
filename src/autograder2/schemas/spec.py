@@ -1,4 +1,4 @@
-"""The spec: every question part found in the blank assignment (design 6.1)."""
+"""The spec: every question part found in the blank assignment."""
 
 from typing import Annotated
 
@@ -36,7 +36,7 @@ class Part(Schema):
     figures: list[Figure]
     depends_on: list[PartId]
     # Printed option labels such as A to D; empty unless the part is multiple
-    # choice or multiple select. Design 6.1 checks there are at least two.
+    # choice or multiple select. The parse checks there are at least two.
     options: list[str]
 
 

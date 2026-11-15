@@ -1,4 +1,4 @@
-"""The reader's transcript of a part (design 7.4).
+"""The reader's transcript of a part.
 
 `Reading` is what the reader returns. `ReadingRecord` is what is stored: the
 reading with the provenance it was produced under and the crops it was read from.
@@ -31,7 +31,7 @@ class Reading(Schema):
     # Numbers, counting from 1, of the lines the reader is unsure of.
     uncertain: list[PositiveInt]
     # Numbers, counting from 1, of the lines that speak to a reader or a grader or
-    # give instructions (design 14.2). Each is still transcribed as a line.
+    # give instructions. Each is still transcribed as a line.
     addressed_to_grader: list[PositiveInt]
     legibility: Literal["clear", "poor"] | None
 

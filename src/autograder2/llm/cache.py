@@ -1,4 +1,4 @@
-"""The call cache: a response, once obtained, is reused (design 10.3 and 11)."""
+"""The call cache: a response, once obtained, is reused."""
 
 import hashlib
 import io

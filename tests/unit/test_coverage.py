@@ -1,4 +1,4 @@
-"""Work that no part claims (task 4.3): ink found against the class's own background
+"""Work that no part claims: ink found against the class's own background
 in code, the blocks the mapper set aside, and what the report shows of both.
 
 No model is called. Most classes here are small drawn slides: a printed page of dark
@@ -989,7 +989,7 @@ def test_the_run_report_says_how_many_pages_were_compared_and_why_not(
     ]
 
 
-# --- the plan's case, on the synthetic class ----------------------------------------
+# --- the synthetic class ------------------------------------------------------------
 
 SLIDES = ("typed-in-place", "ink-in-place", "partly-blank", "blank", "letters-listed")
 

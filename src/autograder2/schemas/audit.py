@@ -1,4 +1,4 @@
-"""What the class audit found on one key part (design 7.6 and 11): the file
+"""What the class audit found on one key part: the file
 `audit/<part>.json`. The grade files are never rewritten; the report stage applies
 each change while the grade it was decided on still stands."""
 

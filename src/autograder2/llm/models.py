@@ -1,5 +1,5 @@
 """Model metadata from OpenRouter's models API, and the checks a role's model must
-pass (design 10.1)."""
+pass."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -188,7 +188,7 @@ def check(
 ) -> dict[str, list[str]]:
     """The problems of the model behind each role, `[]` for a role that has none.
 
-    Every role in design 10.1 is sent images: the only text-only stage, the class
+    Every role is sent images: the only text-only stage, the class
     audit, has no role of its own.
     """
     problems: dict[str, list[str]] = {}

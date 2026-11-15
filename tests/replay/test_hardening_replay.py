@@ -1,4 +1,4 @@
-"""Hardening, from the recordings (task 5.4a): a provider that fails, a failure no
+"""Hardening, from the recordings: a provider that fails, a failure no
 retry cures, kills and resumes, and damaged stored files, each a `autograder2` command
 run as the instructor runs it over the three fixture students whose calls
 `run_chain.jsonl` chains (see test_run_replay), with a cold call cache and a mock
@@ -147,7 +147,7 @@ def lines(output: str) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
-# --- rule 2: a provider that fails every attempt for some items -----------------
+# --- a provider that fails every attempt for some items -------------------------
 
 
 def test_items_the_provider_always_fails_end_incomplete_and_are_all_a_rerun_asks(
@@ -194,7 +194,7 @@ def test_items_the_provider_always_fails_end_incomplete_and_are_all_a_rerun_asks
     assert stored_files(workspace) == uninterrupted
 
 
-# --- rule 3: a failure no retry cures stops the run at once ---------------------
+# --- a failure no retry cures stops the run at once -----------------------------
 
 
 @pytest.mark.parametrize(
@@ -250,7 +250,7 @@ def test_a_failure_no_retry_cures_stops_the_run_in_one_line_and_the_rerun_resume
     assert stored_files(workspace) == uninterrupted
 
 
-# --- rules 4, 5 and 6: killed at any point, and stored files damaged --------------
+# --- killed at any point, and stored files damaged --------------------------------
 
 
 class Killed(BaseException):
@@ -588,7 +588,7 @@ def test_the_call_cache_survives_a_kill_during_a_write(tmp_path: Path) -> None:
             assert found["text"] == str(found["n"]) * 100_000
 
 
-# --- rule 8: a class audit request has an upper size -----------------------------
+# --- a class audit request has an upper size -------------------------------------
 
 
 def decide_as_awarded(requests: list[list[dict[str, Any]]]) -> httpx.MockTransport:
@@ -662,7 +662,7 @@ def test_an_audit_group_too_large_for_one_request_is_split_recorded_and_reported
     ) in workspace.run_report_md.read_text()
 
 
-# --- rules 7 and 9: a large class --------------------------------------------------
+# --- a large class -----------------------------------------------------------------
 
 
 def renamed(pdf: Path, name: str, to: Path) -> None:
@@ -783,7 +783,7 @@ def graded_class(root: Path, monkeypatch: pytest.MonkeyPatch, size: int) -> Grad
 
 
 def assert_readable(small: Graded, large: Graded) -> None:
-    """Rule 9: nothing said or reported grows with the class but its counts."""
+    """Nothing said or reported grows with the class but its counts."""
     assert len(large.said) == len(small.said)
     assert len(large.report) == len(small.report)
 
@@ -816,7 +816,7 @@ def test_a_class_of_150_is_graded_from_the_recordings_as_one_of_11_is(
     assert large.rss <= eleven.rss + 512 * 2**20
 
 
-# --- rule 11: the estimate -------------------------------------------------------
+# --- the estimate ----------------------------------------------------------------
 
 
 def test_every_stage_that_sends_requests_has_a_row_in_the_estimate(

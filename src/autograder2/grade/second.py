@@ -1,4 +1,4 @@
-"""The second read (design 7.4), after the read stage and before the grade stage. A
+"""The second read, after the read stage and before the grade stage. A
 unit holding a part the reader was unsure of (an answered reading, not typed, with a
 line marked uncertain or poor legibility) is read again by the lock's `second`
 model, another vendor's: the read stage's own call for the unit, with the same

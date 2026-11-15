@@ -1,6 +1,6 @@
 """Page images and regions of a PDF, for a blank assignment or a submission.
 
-A Classkick export (docs/export-notes.md) is recognised by its structure: each page
+A Classkick export is recognised by its structure: each page
 holds the sidebar text and one image at the slide box, and nothing else. Its working
 image is that slide image at native size, composited over white. Any other PDF is
 rendered at 200 DPI, reduced where needed to a longest edge of 4096 pixels. A PDF
@@ -35,7 +35,7 @@ MAX_EDGE = 4096  # pixels, the longest edge of an `other` page's working image
 SLIDE_BOX = (200.0, 8.88, 591.56, 792.0)
 SIDEBAR_X = 15.0  # where every sidebar line starts, in points
 TOLERANCE = 1.0  # points
-MAX_ENLARGEMENT = 2.0  # past native resolution (export-notes decision 4)
+MAX_ENLARGEMENT = 2.0  # past native resolution
 # How many path or visible text objects wholly inside a region make it hold ink drawn
 # as vectors, which has no ceiling. A scanning app adds a handful: on the scan
 # fixture a frame and a page number, 2 in a box of the whole page and none in the

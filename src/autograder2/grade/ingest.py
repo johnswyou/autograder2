@@ -1,4 +1,4 @@
-"""Ingest (design 7.1): a folder or ZIP of PDFs, one per student, becomes each
+"""Ingest: a folder or ZIP of PDFs, one per student, becomes each
 student's `source.pdf`, page images and ingest record in the workspace.
 
 A ZIP comes from outside. Its member names never become paths: each PDF member's

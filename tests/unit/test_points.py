@@ -1,4 +1,4 @@
-"""The point allocator (task 4.5a): points go to parts, in whole steps, so that they
+"""The point allocator: points go to parts, in whole steps, so that they
 sum exactly to the instructor's total or page maximums; a part's score is its
 points times the share of its criteria's points earned, rounded to the step. No
 model call anywhere."""
@@ -136,7 +136,7 @@ def test_of_the_parts_holding_the_most_the_lightest_gives_up_the_step() -> None:
     # 2.5, 0.5, 3. Floors 2, 0, 3 leave 1 step; Q1 and Q2 tie on remainder 18 of 36,
     # so the earlier, Q1, takes it: 3, 0, 3. Q2 takes a step from the parts holding
     # the most, Q1 (weight 15) and Q3 (weight 18): the lighter, Q1, gives it up.
-    # 2, 1, 3 steps: no heavier part ends below a lighter one (the rule of the brief
+    # 2, 1, 3 steps: no heavier part ends below a lighter one (an earlier rule
     # gave 0.75, 0.25, 0.5).
     key = keyed(
         [part("Q1", 1, "15"), part("Q2", 1, "3"), part("Q3", 1, "18")], pages=["1.5"]

@@ -1,4 +1,4 @@
-"""Solve each problem of the spec (design 6.2, one solver): one call per top-level
+"""Solve each problem of the spec (one solver): one call per top-level
 problem, with the images of the pages it is printed on and the text of its parts."""
 
 import json
@@ -30,7 +30,7 @@ class Alternative(Schema):
 
 
 # The solver's work on one part. `computation` gives the answer's value in numbers
-# only, for the arithmetic check of design 6.2, and is empty when there is no value;
+# only, for the arithmetic check, and is empty when there is no value;
 # it is not kept in the key. `uses` names the earlier parts whose results the
 # solution uses.
 class PartSolution(Schema):

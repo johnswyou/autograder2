@@ -1,4 +1,4 @@
-"""The answer check (design 7.5, 14.2): a student's stated final answer compared with
+"""The answer check: a student's stated final answer compared with
 the key in code, before the grader sees it.
 
 A number is converted to the key's unit with Pint and compared within tolerance. An

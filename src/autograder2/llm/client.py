@@ -1,4 +1,4 @@
-"""The gateway: every model call goes through `Gateway.call` (design 10.2 and 10.3)."""
+"""The gateway: every model call goes through `Gateway.call`."""
 
 import asyncio
 import base64
@@ -137,7 +137,7 @@ class Gateway:
     no-data-collection requirements. With `offline` a cache miss raises and no
     request is ever made. Each of `names` (a class's, as ingest holds them) of two
     or more words is replaced by `NAME` in every text posted, after the cache key
-    is made from the text as it was (design 14.1).
+    is made from the text as it was.
     """
 
     def __init__(
@@ -243,7 +243,7 @@ class Gateway:
                 try:
                     value = response_model.model_validate_json(_content(response))
                 except ValidationError as error:
-                    # Fetching it again could change a grade (design 10.3).
+                    # Fetching it again could change a grade.
                     raise ResponseValidationError(
                         f"the stored {name} for role {role} no longer validates"
                         f" ({_locations(error, schema)})."

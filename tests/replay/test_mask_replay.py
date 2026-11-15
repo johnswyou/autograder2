@@ -5,7 +5,7 @@ chained: each is made from the map the mapper gave, its names blanked.
 The inputs are the quiz's own: `blank.pdf`, `spec.json` and a fresh ingest of its
 three submissions. The recording, `tests/recordings/mask_quiz.jsonl`, was made by
 running this test's calls live into a persistent scratch cache and keeping exactly
-the calls made (task 5.3 report). Under `AUTOGRADER2_RECORD=1` the `replay` fixture
+the calls made. Under `AUTOGRADER2_RECORD=1` the `replay` fixture
 would call the models again (paid) and rewrite it once the test passes."""
 
 import asyncio
