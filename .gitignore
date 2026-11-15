@@ -6,3 +6,7 @@ __pycache__/
 *.autograder2/
 .superpowers/
 .env
+# Only the user guide is published from docs/; the design, the plan and their drafts stay local.
+docs/*
+!docs/USER_GUIDE.md
+old/
