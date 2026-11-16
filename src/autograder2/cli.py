@@ -1227,8 +1227,10 @@ def _print_estimate(
         f"Images fit to {budget} px, one token per {PATCH} x {PATCH} px; a mapped"
         f" region is {READ_REGION} tokens to the reader and {GRADE_CROP} to the"
         " grader.",
-        "Text and output tokens per call as measured on the fixture run. No retry,"
-        " second look or gap re-read; prompt caching, not counted, costs less.",
+        "Text and output tokens per call as measured on the fixture run. Not counted:"
+        " a retry, the second map call for a page found sideways, and the parse calls"
+        " made again when the question numbers have a gap. Prompt caching, not counted"
+        " either, costs less.",
         f"Known only once the run is made: the second reader is assumed to read"
         f" again {SECOND_READS:.0%} of what the reader reads, and the class audit to"
         f" form {number(Decimal(str(AUDIT_GROUPS)))} groups for each part a model"
