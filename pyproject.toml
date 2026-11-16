@@ -3,6 +3,8 @@ name = "autograder2"
 version = "0.1.0"
 description = "Grade student work on an assignment from the blank assignment PDF and one PDF per student."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
