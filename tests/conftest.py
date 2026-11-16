@@ -33,6 +33,14 @@ def pytest_runtest_makereport(
     return report
 
 
+@pytest.fixture(autouse=True)
+def plain_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plain text from the command line wherever the tests run. On GitHub Actions
+    Typer styles its help as for a terminal, and the colour codes split an option's
+    name, so `"--dry-run" in output` is false there."""
+    monkeypatch.setenv("TERM", "dumb")
+
+
 @pytest.fixture(scope="session")
 def fixture_workspace(
     tmp_path_factory: pytest.TempPathFactory,
